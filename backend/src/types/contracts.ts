@@ -34,6 +34,7 @@ export type ServerEvents =
   | EventEnvelope<"room:state_sync", { room: RoomSnapshot }>
   | EventEnvelope<"room:player_joined", { player: PlayerSummary; roomId: string }>
   | EventEnvelope<"room:player_left", { playerId: string; roomId: string }>
+  | EventEnvelope<"room:ready_state", { roomId: string; readyPlayerIds: string[]; allReady: boolean }>
   | EventEnvelope<"round:countdown_started", { roomId: string; startsAt: string; seconds: number }>
   | EventEnvelope<
       "round:question_started",
@@ -63,6 +64,29 @@ export type ServerEvents =
     >
   | EventEnvelope<"round:finale_started", { roomId: string; finalistIds: string[] }>
   | EventEnvelope<
+      "round:answer_submitted",
+      { roomId: string; roundId: string; playerId: string; accepted: boolean }
+    >
+  | EventEnvelope<
+      "powerup:activated",
+      {
+        roomId: string;
+        powerUpId: string;
+        userId: string;
+        effect: Record<string, unknown>;
+      }
+    >
+  | EventEnvelope<
+      "powerup:effect",
+      {
+        roomId: string;
+        powerUpId: string;
+        userId: string;
+        effect: Record<string, unknown>;
+      }
+    >
+  | EventEnvelope<"error", { code: string; message: string; roomId?: string }>
+  | EventEnvelope<
       "game:over",
       {
         roomId: string;
@@ -72,9 +96,20 @@ export type ServerEvents =
     >;
 
 export type ClientEvents =
+  | EventEnvelope<"room:create", { isPrivate?: boolean; maxPlayers?: number }>
   | EventEnvelope<"room:join", { roomCode: string }>
-  | EventEnvelope<"round:submit_answer", { roomId: string; questionId: string; answerIndex: number; clientSentAt: string }>
-  | EventEnvelope<"powerup:activate", { roomId: string; powerUpId: string; targetPlayerId?: string }>
+  | EventEnvelope<"room:ready", { roomId: string }>
+  | EventEnvelope<"room:start", { roomId: string }>
+  | EventEnvelope<"room:leave", { roomId: string }>
+  | EventEnvelope<"room:reconnect", { roomId: string }>
+  | EventEnvelope<
+      "round:submit_answer",
+      { roomId: string; questionId: string; answerIndex: number; clientSentAt: string }
+    >
+  | EventEnvelope<
+      "powerup:activate",
+      { roomId: string; powerUpId: string; targetPlayerId?: string }
+    >
   | EventEnvelope<"client:heartbeat", { roomId: string; sentAt: string }>;
 
 export type AuthedSocketUser = {

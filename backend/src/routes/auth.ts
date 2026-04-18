@@ -1,9 +1,11 @@
 import { Router } from "express";
+import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
 
 import { env } from "../config/env";
-import { authStore } from "../services/AuthStore";
+import { prisma } from "../models/prismaClient";
+import { generateId } from "../utils/ulid";
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -44,11 +46,25 @@ authRouter.post("/register", async (req, res) => {
   }
 
   try {
-    const user = await authStore.createUser(
-      parsed.data.email,
-      parsed.data.displayName,
-      parsed.data.password
-    );
+    const normalizedEmail = parsed.data.email.toLowerCase().trim();
+    const existing = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      select: { id: true },
+    });
+    if (existing) {
+      return res.status(409).json({ error: "Email already registered" });
+    }
+
+    const user = await prisma.user.create({
+      data: {
+        id: generateId(),
+        email: normalizedEmail,
+        displayName: parsed.data.displayName,
+        passwordHash: await bcrypt.hash(parsed.data.password, 10),
+      },
+      select: { id: true, email: true, displayName: true },
+    });
+
     return res.status(201).json({
       user: {
         id: user.id,
@@ -58,10 +74,6 @@ authRouter.post("/register", async (req, res) => {
       tokens: buildTokens(user)
     });
   } catch (error) {
-    if (error instanceof Error && error.message === "EMAIL_EXISTS") {
-      return res.status(409).json({ error: "Email already registered" });
-    }
-
     return res.status(500).json({ error: "Registration failed" });
   }
 });
@@ -72,8 +84,17 @@ authRouter.post("/login", async (req, res) => {
     return res.status(400).json({ error: "Invalid login payload", issues: parsed.error.flatten() });
   }
 
-  const user = await authStore.verifyUser(parsed.data.email, parsed.data.password);
+  const user = await prisma.user.findUnique({
+    where: { email: parsed.data.email.toLowerCase().trim() },
+    select: { id: true, email: true, displayName: true, passwordHash: true },
+  });
   if (!user) {
+    await bcrypt.compare(parsed.data.password, "$2b$10$invalidhashpadding00000000000000000000000000000");
+    return res.status(401).json({ error: "Invalid credentials" });
+  }
+
+  const matches = await bcrypt.compare(parsed.data.password, user.passwordHash);
+  if (!matches) {
     return res.status(401).json({ error: "Invalid credentials" });
   }
 

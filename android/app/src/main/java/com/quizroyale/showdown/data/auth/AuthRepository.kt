@@ -23,6 +23,12 @@ class AuthRepository @Inject constructor(
   suspend fun login(email: String, password: String): AuthResponse {
     val response = authApi.login(LoginRequest(email = email, password = password))
     persistTokens(response.tokens)
+    response.user?.let { user ->
+      prefs.edit()
+        .putString(KEY_USER_ID, user.id)
+        .putString(KEY_USERNAME, user.displayName)
+        .apply()
+    }
     return response
   }
 
@@ -35,6 +41,10 @@ class AuthRepository @Inject constructor(
 
   fun currentAccessToken(): String? = prefs.getString(KEY_ACCESS_TOKEN, null)
 
+  fun currentUserId(): String = prefs.getString(KEY_USER_ID, "") ?: ""
+
+  fun currentUsername(): String? = prefs.getString(KEY_USERNAME, null)
+
   private fun persistTokens(tokens: AuthTokens) {
     prefs.edit()
       .putString(KEY_ACCESS_TOKEN, tokens.accessToken)
@@ -45,5 +55,7 @@ class AuthRepository @Inject constructor(
   companion object {
     private const val KEY_ACCESS_TOKEN = "access_token"
     private const val KEY_REFRESH_TOKEN = "refresh_token"
+    private const val KEY_USER_ID = "user_id"
+    private const val KEY_USERNAME = "username"
   }
 }

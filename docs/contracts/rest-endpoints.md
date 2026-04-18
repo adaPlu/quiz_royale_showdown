@@ -1,6 +1,6 @@
 # REST Endpoints
 
-The endpoints below are the agreed starter surface for Phase 0 and Phase 1. Only `/api/v1/auth/*` and a room stub are implemented in this workspace today.
+The endpoints below are the canonical Phase 1 backend surface. Auth, rooms, users, power-up inventory, and cosmetics are implemented in `feature/backend`; shop, competitive, challenges, friends, and admin remain contract-only.
 
 ## Auth
 
@@ -13,21 +13,21 @@ The endpoints below are the agreed starter surface for Phase 0 and Phase 1. Only
 ## Rooms
 
 - `POST /api/v1/rooms`
+- `POST /api/v1/rooms/join`
 - `GET /api/v1/rooms/:roomCode`
 - `POST /api/v1/rooms/:roomId/start`
 - `POST /api/v1/rooms/:roomId/leave`
 
 ## Power-Ups
 
-- `GET /api/v1/powerups`
 - `GET /api/v1/powerups/inventory`
-- `POST /api/v1/powerups/:powerUpId/equip`
+- `POST /api/v1/powerups/use`
 
 ## Cosmetics
 
 - `GET /api/v1/cosmetics`
-- `GET /api/v1/cosmetics/inventory`
-- `POST /api/v1/cosmetics/:cosmeticId/equip`
+- `GET /api/v1/cosmetics/owned`
+- `POST /api/v1/cosmetics/equip`
 
 ## Shop
 
