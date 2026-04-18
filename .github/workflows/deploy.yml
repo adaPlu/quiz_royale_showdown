@@ -1,0 +1,46 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build backend image
+        run: docker build -t ghcr.io/${{ github.repository }}/quiz-royale-backend:${{ github.sha }} ./backend
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push backend image
+        run: |
+          docker push ghcr.io/${{ github.repository }}/quiz-royale-backend:${{ github.sha }}
+          docker tag ghcr.io/${{ github.repository }}/quiz-royale-backend:${{ github.sha }} ghcr.io/${{ github.repository }}/quiz-royale-backend:latest
+          docker push ghcr.io/${{ github.repository }}/quiz-royale-backend:latest
+
+      - name: Trigger Railway deploy
+        if: ${{ secrets.RAILWAY_TOKEN != '' }}
+        run: npx @railway/cli up --service backend --detach
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+      - name: Trigger Vercel deploy
+        if: ${{ secrets.VERCEL_TOKEN != '' }}
+        run: npx vercel deploy --prod --yes --token "${{ secrets.VERCEL_TOKEN }}"
+        working-directory: webapp
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
