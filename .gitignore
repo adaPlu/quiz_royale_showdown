@@ -1,12 +1,127 @@
+# ─── Node / NPM ────────────────────────────────────────────────────────────────
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+package-lock.json.old
+
+# ─── Build outputs ─────────────────────────────────────────────────────────────
 dist/
+build/
+out/
+.tsbuildinfo
+*.tsbuildinfo
+
+# ─── Environment files ─────────────────────────────────────────────────────────
 .env
 .env.local
-.DS_Store
+.env.*.local
+.env.production
+.env.staging
+!.env.example
+
+# ─── Logs ──────────────────────────────────────────────────────────────────────
+logs/
+*.log
+*.log.*
+
+# ─── TypeScript ────────────────────────────────────────────────────────────────
+*.js.map
+*.d.ts.map
+
+# ─── Testing ───────────────────────────────────────────────────────────────────
 coverage/
+.nyc_output/
+test-results/
+playwright-report/
+*.snap
+
+# ─── Vite / Web ────────────────────────────────────────────────────────────────
+webapp/.vite/
+webapp/dist/
+webapp/dist-ssr/
+webapp/node_modules/
+
+# ─── Prisma generated ──────────────────────────────────────────────────────────
 backend/generated/
+backend/prisma/migrations/*.sql.bak
+
+# ─── Docker ────────────────────────────────────────────────────────────────────
+.docker/
+docker-compose.override.yml
+*.dockerignore
+
+# ─── Android / Kotlin / Gradle ─────────────────────────────────────────────────
 android/.gradle/
 android/local.properties
 android/app/build/
-webapp/.vite/
-webapp/dist/
+android/build/
+android/**/*.class
+android/**/*.dex
+android/**/*.ap_
+android/**/*.apk
+android/**/*.aab
+android/**/*.aar
+android/captures/
+android/.externalNativeBuild/
+android/.cxx/
+android/app/release/
+android/keystore/*.jks
+android/keystore/*.keystore
+*.keystore
+*.jks
+
+# ─── IntelliJ / Android Studio ─────────────────────────────────────────────────
+.idea/
+*.iml
+*.iws
+*.ipr
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/gradle.xml
+.idea/assetWizardSettings.xml
+.idea/dictionaries
+.idea/libraries
+.idea/caches
+.idea/modules.xml
+
+# ─── macOS ─────────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# ─── Windows ───────────────────────────────────────────────────────────────────
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# ─── Linux ─────────────────────────────────────────────────────────────────────
+*~
+
+# ─── Editor ────────────────────────────────────────────────────────────────────
+.vscode/settings.json
+.vscode/launch.json
+.vscode/tasks.json
+.vscode/*.code-snippets
+!.vscode/extensions.json
+.vim/
+
+# ─── Secrets / certs ───────────────────────────────────────────────────────────
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+credentials/
+
+# ─── Misc ──────────────────────────────────────────────────────────────────────
+.turbo/
+.cache/
+tmp/
+.temp/
