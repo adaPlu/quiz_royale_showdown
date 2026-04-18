@@ -58,23 +58,28 @@ function write(level: LogLevel, msg: string, data?: Record<string, unknown>): vo
   }
 }
 
-export const logger = {
-  trace: (msg: string, data?: Record<string, unknown>) => write("trace", msg, data),
-  debug: (msg: string, data?: Record<string, unknown>) => write("debug", msg, data),
-  info: (msg: string, data?: Record<string, unknown>) => write("info", msg, data),
-  warn: (msg: string, data?: Record<string, unknown>) => write("warn", msg, data),
-  error: (msg: string, data?: Record<string, unknown>) => write("error", msg, data),
-  fatal: (msg: string, data?: Record<string, unknown>) => write("fatal", msg, data),
+type LogFn = (msg: string, data?: Record<string, unknown>) => void;
+interface Logger {
+  trace: LogFn; debug: LogFn; info: LogFn; warn: LogFn; error: LogFn; fatal: LogFn;
+  child(bindings: Record<string, unknown>): Logger;
+}
 
-  /** Returns a child logger that merges extra fields into every entry. */
-  child(bindings: Record<string, unknown>): typeof logger {
-    const child: typeof logger = {} as typeof logger;
+export const logger: Logger = {
+  trace: (msg, data) => write("trace", msg, data),
+  debug: (msg, data) => write("debug", msg, data),
+  info: (msg, data) => write("info", msg, data),
+  warn: (msg, data) => write("warn", msg, data),
+  error: (msg, data) => write("error", msg, data),
+  fatal: (msg, data) => write("fatal", msg, data),
+
+  child(bindings: Record<string, unknown>): Logger {
+    const child: Logger = {} as Logger;
     const levels: LogLevel[] = ["trace", "debug", "info", "warn", "error", "fatal"];
     for (const level of levels) {
       child[level] = (msg: string, data?: Record<string, unknown>) =>
         write(level, msg, { ...bindings, ...data });
     }
-    child.child = (extra) => logger.child({ ...bindings, ...extra });
+    child.child = (extra: Record<string, unknown>) => logger.child({ ...bindings, ...extra });
     return child;
   }
 };
