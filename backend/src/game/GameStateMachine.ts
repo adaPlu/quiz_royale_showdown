@@ -27,7 +27,7 @@ const ALLOWED_TRANSITIONS: Readonly<Record<GamePhase, readonly GamePhase[]>> = {
   COUNTDOWN: ['QUESTION_ACTIVE', 'WAITING'],
   QUESTION_ACTIVE: ['ANSWER_LOCKED', 'GAME_OVER'],
   ANSWER_LOCKED: ['ROUND_RESULT'],
-  ROUND_RESULT: ['QUESTION_ACTIVE', 'ELIMINATION', 'FINALE', 'GAME_OVER'],
+  ROUND_RESULT: ['COUNTDOWN', 'QUESTION_ACTIVE', 'ELIMINATION', 'FINALE', 'GAME_OVER'],
   ELIMINATION: ['COUNTDOWN', 'FINALE', 'GAME_OVER'],
   FINALE: ['QUESTION_ACTIVE', 'GAME_OVER'],
   GAME_OVER: ['WAITING'],
@@ -122,8 +122,17 @@ export function transitionGameState(
 
       if (event.type === 'APPLY_ELIMINATION') {
         return commitTransition(state, 'ELIMINATION', {
-          eliminatedPlayerIds: [...event.eliminatedPlayerIds],
+          eliminatedPlayerIds: [
+            ...new Set([...state.eliminatedPlayerIds, ...event.eliminatedPlayerIds]),
+          ],
           playerCount: Math.max(0, state.playerCount - event.eliminatedPlayerIds.length),
+        });
+      }
+
+      if (event.type === 'START_NEXT_ROUND') {
+        return commitTransition(state, 'COUNTDOWN', {
+          round: state.round + 1,
+          question: 0,
         });
       }
 
@@ -148,7 +157,6 @@ export function transitionGameState(
         return commitTransition(state, 'COUNTDOWN', {
           round: state.round + 1,
           question: 0,
-          eliminatedPlayerIds: [],
         });
       }
 
@@ -157,7 +165,6 @@ export function transitionGameState(
           isFinale: true,
           finalists: [...event.finalistIds],
           playerCount: event.finalistIds.length,
-          eliminatedPlayerIds: [],
         });
       }
 
