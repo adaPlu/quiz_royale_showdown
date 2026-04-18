@@ -10,10 +10,7 @@ export const App = () => {
   const applyServerEvent = useGameStore((state) => state.applyServerEvent);
 
   useEffect(() => {
-    const accessToken = localStorage.getItem("qrs.accessToken");
-    if (accessToken) {
-      socketService.connect(accessToken);
-    }
+    socketService.connect();
 
     return socketService.subscribe(applyServerEvent);
   }, [applyServerEvent]);

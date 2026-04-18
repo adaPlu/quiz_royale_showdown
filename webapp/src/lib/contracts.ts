@@ -1,5 +1,23 @@
 import { z } from "zod";
 
+import type {
+  ClientEvents,
+  PlayerSummary,
+  RoomSnapshot,
+  ServerEvents
+} from "../../../backend/src/types/contracts";
+
+const roomPhaseSchema = z.enum([
+  "WAITING",
+  "COUNTDOWN",
+  "QUESTION_ACTIVE",
+  "ANSWER_LOCKED",
+  "ROUND_RESULT",
+  "ELIMINATION",
+  "FINALE",
+  "GAME_OVER"
+]);
+
 export const playerSummarySchema = z.object({
   id: z.string(),
   displayName: z.string(),
@@ -12,16 +30,7 @@ export const playerSummarySchema = z.object({
 export const roomSnapshotSchema = z.object({
   roomId: z.string(),
   code: z.string(),
-  phase: z.enum([
-    "WAITING",
-    "COUNTDOWN",
-    "QUESTION_ACTIVE",
-    "ANSWER_LOCKED",
-    "ROUND_RESULT",
-    "ELIMINATION",
-    "FINALE",
-    "GAME_OVER"
-  ]),
+  phase: roomPhaseSchema,
   roundNumber: z.number(),
   totalRounds: z.number(),
   players: z.array(playerSummarySchema)
@@ -90,18 +99,6 @@ export const serverEventSchema = z.discriminatedUnion("type", [
   )
 ]);
 
-export type ServerEvent = z.infer<typeof serverEventSchema>;
-
-export type ClientEvent =
-  | { type: "room:join"; version: "v1"; payload: { roomCode: string } }
-  | {
-      type: "round:submit_answer";
-      version: "v1";
-      payload: { roomId: string; questionId: string; answerIndex: number; clientSentAt: string };
-    }
-  | {
-      type: "powerup:activate";
-      version: "v1";
-      payload: { roomId: string; powerUpId: string; targetPlayerId?: string };
-    }
-  | { type: "client:heartbeat"; version: "v1"; payload: { roomId: string; sentAt: string } };
+export type ServerEvent = ServerEvents;
+export type ClientEvent = ClientEvents;
+export type { PlayerSummary, RoomSnapshot };
