@@ -6,6 +6,9 @@ import { env } from "./config/env";
 import { authRouter } from "./routes/auth";
 import { healthRouter } from "./routes/health";
 import { roomsRouter } from "./routes/rooms";
+import usersRouter from "./routes/users";
+import powerupsRouter from "./routes/powerups";
+import cosmeticsRouter from "./routes/cosmetics";
 
 export const createApp = () => {
   const app = express();
@@ -24,6 +27,9 @@ export const createApp = () => {
   app.use("/health", healthRouter);
   app.use("/api/v1/auth", authRouter);
   app.use("/api/v1/rooms", roomsRouter);
+  app.use("/api/v1/users", usersRouter);
+  app.use("/api/v1/powerups", powerupsRouter);
+  app.use("/api/v1/cosmetics", cosmeticsRouter);
 
   return app;
 };
