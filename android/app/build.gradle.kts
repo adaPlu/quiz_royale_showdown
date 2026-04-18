@@ -88,6 +88,9 @@ dependencies {
   implementation("com.squareup.retrofit2:retrofit:2.11.0")
   implementation("com.squareup.retrofit2:converter-kotlinx-serialization:2.11.0")
   implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+  implementation("io.socket:socket.io-client:2.1.1") {
+    exclude(group = "org.json", module = "json")
+  }
 
   implementation("androidx.room:room-runtime:2.7.1")
   implementation("androidx.room:room-ktx:2.7.1")
