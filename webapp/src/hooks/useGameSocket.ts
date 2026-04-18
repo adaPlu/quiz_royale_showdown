@@ -30,6 +30,7 @@ export const useGameSocket = (roomId: string | undefined) => {
 
     if (roomId) {
       socketService.setActiveRoom(roomId);
+      socketService.emit('room:join', { roomCode: roomId });
     }
 
     const unsubs = [
@@ -48,7 +49,7 @@ export const useGameSocket = (roomId: string | undefined) => {
       socketService.on('round:result', applyRoundResult),
       socketService.on('round:elimination', applyElimination),
       socketService.on('round:finale_started', applyFinaleStarted),
-      socketService.on('powerup:used', applyPowerupUsed),
+      socketService.on('powerup:activated', applyPowerupUsed),
       socketService.on('powerup:effect', applyPowerupEffect),
       socketService.on('game:over', (payload) => {
         applyGameOver(payload);

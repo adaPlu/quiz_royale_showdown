@@ -74,6 +74,24 @@ export const serverEventSchema = z.discriminatedUnion("type", [
   ),
   envelope("round:finale_started", z.object({ roomId: z.string(), finalistIds: z.array(z.string()) })),
   envelope(
+    "powerup:activated",
+    z.object({
+      roomId: z.string(),
+      powerUpId: z.string(),
+      userId: z.string(),
+      effect: z.record(z.unknown())
+    })
+  ),
+  envelope(
+    "powerup:effect",
+    z.object({
+      roomId: z.string(),
+      powerUpId: z.string(),
+      userId: z.string(),
+      effect: z.record(z.unknown())
+    })
+  ),
+  envelope(
     "game:over",
     z.object({
       roomId: z.string(),

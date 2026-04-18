@@ -2,9 +2,15 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { PlayerAvatar } from '@components/PlayerAvatar';
+import { api } from '@services/apiClient';
 import { useAuthStore } from '@stores/authStore';
 
-const randomRoomCode = () => `ROOM${Math.floor(1000 + Math.random() * 9000)}`;
+type RoomResponse = {
+  room: {
+    roomId: string;
+    code: string;
+  };
+};
 
 export default function HomePage() {
   const navigate = useNavigate();
@@ -12,13 +18,50 @@ export default function HomePage() {
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  const goToLobby = (roomCode: string) => {
+  const [isJoining, setIsJoining] = useState(false);
+
+  const goToLobby = async (roomCode: string) => {
     const normalizedCode = roomCode.trim().toUpperCase();
     if (normalizedCode.length < 4) {
       setError('Enter at least 4 characters for a room code.');
       return;
     }
-    navigate(`/lobby/${normalizedCode}`);
+
+    setIsJoining(true);
+    try {
+      const response = await api.post<RoomResponse>('/rooms/join', { roomCode: normalizedCode });
+      navigate(`/lobby/${response.data.room.code}`);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Unable to join that room.');
+    } finally {
+      setIsJoining(false);
+    }
+  };
+
+  const quickPlay = async () => {
+    setError(null);
+    setIsJoining(true);
+    try {
+      const response = await api.post<RoomResponse>('/rooms/join', {});
+      navigate(`/lobby/${response.data.room.code}`);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Unable to find a match.');
+    } finally {
+      setIsJoining(false);
+    }
+  };
+
+  const createPrivateRoom = async () => {
+    setError(null);
+    setIsJoining(true);
+    try {
+      const response = await api.post<RoomResponse>('/rooms', { isPrivate: true });
+      navigate(`/lobby/${response.data.room.code}`);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Unable to create a private room.');
+    } finally {
+      setIsJoining(false);
+    }
   };
 
   return (
@@ -43,14 +86,16 @@ export default function HomePage() {
         <h1 className="text-center text-3xl font-black text-white">Ready to Play?</h1>
 
         <button
-          onClick={() => goToLobby('ROYALE')}
+          onClick={quickPlay}
+          disabled={isJoining}
           className="w-full rounded-2xl bg-brand py-4 text-lg font-bold text-white shadow-royale hover:opacity-90"
         >
           Quick Play
         </button>
 
         <button
-          onClick={() => goToLobby(randomRoomCode())}
+          onClick={createPrivateRoom}
+          disabled={isJoining}
           className="w-full rounded-2xl border border-game-border bg-game-surface py-3 font-semibold text-white hover:border-brand/50"
         >
           Create Private Room
@@ -69,7 +114,7 @@ export default function HomePage() {
             />
             <button
               onClick={() => goToLobby(code)}
-              disabled={code.length < 4}
+              disabled={code.length < 4 || isJoining}
               className="rounded-xl border border-brand/40 bg-brand/20 px-4 py-3 font-semibold text-brand hover:bg-brand/30 disabled:opacity-40"
             >
               Join

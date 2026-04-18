@@ -72,18 +72,18 @@ const FinaleStartedPayload = z.object({
   finalistIds: z.array(z.string()),
 });
 
-const PowerupUsedPayload = z.object({
+const PowerupActivatedPayload = z.object({
   roomId: z.string(),
-  playerId: z.string(),
-  powerUpId: z.string().optional(),
-  powerupId: z.string().optional(),
+  userId: z.string(),
+  powerUpId: z.string(),
+  effect: z.record(z.unknown()),
 });
 
 const PowerupEffectPayload = z.object({
   roomId: z.string(),
-  effectType: z.string(),
-  affectedPlayerIds: z.array(z.string()).default([]),
-  data: z.unknown().optional(),
+  userId: z.string(),
+  powerUpId: z.string(),
+  effect: z.record(z.unknown()),
 });
 
 const GameOverPayload = z.object({
@@ -123,7 +123,7 @@ export const ServerEventSchemas = {
   'round:result': RoundResultPayload,
   'round:elimination': EliminationPayload,
   'round:finale_started': FinaleStartedPayload,
-  'powerup:used': PowerupUsedPayload,
+  'powerup:activated': PowerupActivatedPayload,
   'powerup:effect': PowerupEffectPayload,
   'game:over': GameOverPayload,
   'player:level_up': LevelUpPayload,
