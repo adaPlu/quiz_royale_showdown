@@ -1,38 +1,162 @@
-import axios from "axios";
+import axios, { type AxiosInstance, type AxiosRequestConfig, type AxiosResponse } from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api/v1";
+// ---------------------------------------------------------------------------
+// ApiError
+// ---------------------------------------------------------------------------
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly code: string,
+    message: string,
+    public readonly details?: unknown,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
 
-export const apiClient = axios.create({
-  baseURL: API_BASE_URL,
-  withCredentials: false
+// ---------------------------------------------------------------------------
+// Token-store interface (provided by authStore at startup)
+// ---------------------------------------------------------------------------
+interface TokenStore {
+  getAccessToken: () => string | null;
+  setAccessToken: (token: string) => void;
+  clearAuth: () => void;
+}
+
+let tokenStore: TokenStore = {
+  getAccessToken: () => null,
+  setAccessToken: () => undefined,
+  clearAuth: () => undefined,
+};
+
+export function configureApiClient(store: TokenStore): void {
+  tokenStore = store;
+}
+
+// ---------------------------------------------------------------------------
+// Axios instance
+// ---------------------------------------------------------------------------
+const BASE_URL =
+  (import.meta as unknown as { env: Record<string, string> }).env?.VITE_API_BASE_URL ??
+  'http://localhost:4000/api/v1';
+
+const axiosInstance: AxiosInstance = axios.create({
+  baseURL: BASE_URL,
+  withCredentials: false,
+  headers: { 'Content-Type': 'application/json' },
 });
 
-apiClient.interceptors.request.use((config) => {
-  const accessToken = localStorage.getItem("qrs.accessToken");
-  if (accessToken) {
-    config.headers.Authorization = `Bearer ${accessToken}`;
+// ---------------------------------------------------------------------------
+// Request interceptor — attach Bearer token
+// ---------------------------------------------------------------------------
+axiosInstance.interceptors.request.use((config) => {
+  const token = tokenStore.getAccessToken();
+  if (token) {
+    config.headers = config.headers ?? {};
+    config.headers['Authorization'] = `Bearer ${token}`;
   }
   return config;
 });
 
-apiClient.interceptors.response.use(
+// ---------------------------------------------------------------------------
+// 401 → refresh → retry (single in-flight refresh, queue concurrent retries)
+// ---------------------------------------------------------------------------
+let isRefreshing = false;
+let failedQueue: Array<{
+  resolve: (token: string) => void;
+  reject: (err: unknown) => void;
+}> = [];
+
+function processQueue(error: unknown, token: string | null): void {
+  failedQueue.forEach(({ resolve, reject }) => {
+    if (error) {
+      reject(error);
+    } else if (token) {
+      resolve(token);
+    }
+  });
+  failedQueue = [];
+}
+
+axiosInstance.interceptors.response.use(
   (response) => response,
-  async (error) => {
-    if (error.response?.status !== 401) {
-      throw error;
+  async (error: unknown) => {
+    if (!axios.isAxiosError(error)) throw error;
+
+    const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean };
+
+    if (error.response?.status !== 401 || originalRequest._retry) {
+      const status = error.response?.status ?? 0;
+      const data = error.response?.data as Record<string, unknown> | undefined;
+      throw new ApiError(
+        status,
+        (data?.code as string) ?? 'UNKNOWN',
+        (data?.message as string) ?? error.message,
+        data?.details,
+      );
     }
 
-    const refreshToken = localStorage.getItem("qrs.refreshToken");
-    if (!refreshToken) {
-      throw error;
+    if (isRefreshing) {
+      return new Promise<string>((resolve, reject) => {
+        failedQueue.push({ resolve, reject });
+      })
+        .then((token) => {
+          if (originalRequest.headers) {
+            (originalRequest.headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+          }
+          return axiosInstance(originalRequest);
+        })
+        .catch((err: unknown) => {
+          throw err;
+        });
     }
 
-    const refreshResponse = await axios.post(`${API_BASE_URL}/auth/refresh`, {
-      refreshToken
-    });
-    localStorage.setItem("qrs.accessToken", refreshResponse.data.tokens.accessToken);
-    localStorage.setItem("qrs.refreshToken", refreshResponse.data.tokens.refreshToken);
-    error.config.headers.Authorization = `Bearer ${refreshResponse.data.tokens.accessToken}`;
-    return apiClient.request(error.config);
-  }
+    originalRequest._retry = true;
+    isRefreshing = true;
+
+    try {
+      const refreshResponse = await axios.post<{ accessToken: string }>(
+        `${BASE_URL}/auth/refresh`,
+        {},
+        { withCredentials: true },
+      );
+      const newToken = refreshResponse.data.accessToken;
+      tokenStore.setAccessToken(newToken);
+      processQueue(null, newToken);
+      if (originalRequest.headers) {
+        (originalRequest.headers as Record<string, string>)['Authorization'] = `Bearer ${newToken}`;
+      }
+      return axiosInstance(originalRequest);
+    } catch (refreshError) {
+      processQueue(refreshError, null);
+      tokenStore.clearAuth();
+      throw refreshError;
+    } finally {
+      isRefreshing = false;
+    }
+  },
 );
+
+// ---------------------------------------------------------------------------
+// Typed convenience wrappers
+// ---------------------------------------------------------------------------
+export const api = {
+  get<T = unknown>(url: string, config?: AxiosRequestConfig): Promise<AxiosResponse<T>> {
+    return axiosInstance.get<T>(url, config);
+  },
+  post<T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<AxiosResponse<T>> {
+    return axiosInstance.post<T>(url, data, config);
+  },
+  put<T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<AxiosResponse<T>> {
+    return axiosInstance.put<T>(url, data, config);
+  },
+  patch<T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<AxiosResponse<T>> {
+    return axiosInstance.patch<T>(url, data, config);
+  },
+  delete<T = unknown>(url: string, config?: AxiosRequestConfig): Promise<AxiosResponse<T>> {
+    return axiosInstance.delete<T>(url, config);
+  },
+};
+
+export default axiosInstance;

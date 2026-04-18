@@ -1,113 +1,195 @@
+/**
+ * Auth routes — register, login, refresh.
+ *
+ * Uses Prisma for user persistence, bcrypt (12 rounds) for password hashing,
+ * and the AuthService helpers for token signing / verification.
+ */
+
 import { Router } from "express";
-import jwt from "jsonwebtoken";
+import bcrypt from "bcrypt";
 import { z } from "zod";
 
-import { env } from "../config/env";
-import { authStore } from "../services/AuthStore";
+import { prisma } from "../models/prismaClient";
+import { validate } from "../middleware/validate";
+import {
+  signTokenPair,
+  verifyRefreshToken,
+  findUserById,
+} from "../services/AuthService";
+import {
+  ConflictError,
+  UnauthorizedError,
+  ForbiddenError,
+} from "../utils/errors";
+import { generateId } from "../utils/ulid";
+import { logger } from "../utils/logger";
+
+const BCRYPT_ROUNDS = 12;
+
+// ─── Schemas ─────────────────────────────────────────────────────────────────
 
 const registerSchema = z.object({
   email: z.string().email(),
-  displayName: z.string().min(3).max(24),
-  password: z.string().min(8).max(72)
+  username: z.string().min(3).max(24).regex(/^\w+$/, "username must be alphanumeric"),
+  displayName: z.string().min(1).max(40),
+  password: z.string().min(8).max(72),
 });
 
 const loginSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(8).max(72)
+  password: z.string().min(1),
 });
 
 const refreshSchema = z.object({
-  refreshToken: z.string().min(20)
+  refreshToken: z.string().min(20),
 });
 
-const buildTokens = (user: { id: string; email: string; displayName: string }) => {
-  const claims = {
-    sub: user.id,
-    email: user.email,
-    displayName: user.displayName
-  };
-  const accessTtl = env.jwtAccessTtl as jwt.SignOptions["expiresIn"];
-  const refreshTtl = env.jwtRefreshTtl as jwt.SignOptions["expiresIn"];
-
-  return {
-    accessToken: jwt.sign(claims, env.jwtAccessSecret, { expiresIn: accessTtl }),
-    refreshToken: jwt.sign(claims, env.jwtRefreshSecret, { expiresIn: refreshTtl })
-  };
-};
+// ─── Router ───────────────────────────────────────────────────────────────────
 
 export const authRouter = Router();
 
-authRouter.post("/register", async (req, res) => {
-  const parsed = registerSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid registration payload", issues: parsed.error.flatten() });
-  }
+// POST /auth/register
+authRouter.post(
+  "/register",
+  validate({ body: registerSchema }),
+  async (req, res, next): Promise<void> => {
+    try {
+      const { email, username, displayName, password } = req.body as z.infer<typeof registerSchema>;
+      const normalizedEmail = email.toLowerCase().trim();
 
-  try {
-    const user = await authStore.createUser(
-      parsed.data.email,
-      parsed.data.displayName,
-      parsed.data.password
-    );
-    return res.status(201).json({
-      user: {
+      // Check for existing email or username
+      const existing = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { email: normalizedEmail },
+            { displayName: username },
+          ],
+        },
+        select: { id: true, email: true, displayName: true },
+      });
+
+      if (existing) {
+        const field = existing.email === normalizedEmail ? "Email" : "Username";
+        throw new ConflictError(`${field} is already taken`);
+      }
+
+      const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+      const userId = generateId();
+
+      const user = await prisma.user.create({
+        data: {
+          id: userId,
+          email: normalizedEmail,
+          displayName: displayName ?? username,
+          passwordHash,
+        },
+        select: { id: true, email: true, displayName: true },
+      });
+
+      const tokens = signTokenPair({
         id: user.id,
         email: user.email,
-        displayName: user.displayName
-      },
-      tokens: buildTokens(user)
-    });
-  } catch (error) {
-    if (error instanceof Error && error.message === "EMAIL_EXISTS") {
-      return res.status(409).json({ error: "Email already registered" });
+        displayName: user.displayName,
+      });
+
+      logger.info("User registered", { userId: user.id });
+
+      res.status(201).json({
+        user: { id: user.id, email: user.email, displayName: user.displayName },
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+      });
+    } catch (err) {
+      next(err);
     }
-
-    return res.status(500).json({ error: "Registration failed" });
   }
-});
+);
 
-authRouter.post("/login", async (req, res) => {
-  const parsed = loginSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid login payload", issues: parsed.error.flatten() });
+// POST /auth/login
+authRouter.post(
+  "/login",
+  validate({ body: loginSchema }),
+  async (req, res, next): Promise<void> => {
+    try {
+      const { email, password } = req.body as z.infer<typeof loginSchema>;
+      const normalizedEmail = email.toLowerCase().trim();
+
+      const user = await prisma.user.findUnique({
+        where: { email: normalizedEmail },
+        select: { id: true, email: true, displayName: true, passwordHash: true },
+      });
+
+      if (!user) {
+        // Constant-time comparison to prevent enumeration
+        await bcrypt.compare(password, "$2b$12$invalidhashpaddinginvalidhashpaddinginvalid00");
+        throw new UnauthorizedError("Invalid credentials");
+      }
+
+      const valid = await bcrypt.compare(password, user.passwordHash);
+      if (!valid) {
+        throw new UnauthorizedError("Invalid credentials");
+      }
+
+      const tokens = signTokenPair({
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName,
+      });
+
+      logger.info("User logged in", { userId: user.id });
+
+      res.json({
+        user: { id: user.id, email: user.email, displayName: user.displayName },
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+      });
+    } catch (err) {
+      next(err);
+    }
   }
+);
 
-  const user = await authStore.verifyUser(parsed.data.email, parsed.data.password);
-  if (!user) {
-    return res.status(401).json({ error: "Invalid credentials" });
+// POST /auth/refresh
+authRouter.post(
+  "/refresh",
+  validate({ body: refreshSchema }),
+  async (req, res, next): Promise<void> => {
+    try {
+      const { refreshToken } = req.body as z.infer<typeof refreshSchema>;
+
+      // verifyRefreshToken throws UnauthorizedError if invalid / expired
+      const payload = verifyRefreshToken(refreshToken);
+
+      // Validate user still exists (fallback: in-memory map)
+      const memUser = findUserById(payload.sub);
+      let userId = payload.sub;
+      let userEmail = payload.email;
+      let userDisplayName = payload.displayName;
+
+      if (!memUser) {
+        // Try Prisma
+        const dbUser = await prisma.user.findUnique({
+          where: { id: payload.sub },
+          select: { id: true, email: true, displayName: true },
+        });
+        if (!dbUser) {
+          throw new UnauthorizedError("User not found");
+        }
+        userId = dbUser.id;
+        userEmail = dbUser.email;
+        userDisplayName = dbUser.displayName;
+      }
+
+      const tokens = signTokenPair({ id: userId, email: userEmail, displayName: userDisplayName });
+
+      logger.info("Tokens refreshed", { userId });
+
+      res.json({
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+      });
+    } catch (err) {
+      next(err);
+    }
   }
-
-  return res.json({
-    user: {
-      id: user.id,
-      email: user.email,
-      displayName: user.displayName
-    },
-    tokens: buildTokens(user)
-  });
-});
-
-authRouter.post("/refresh", (req, res) => {
-  const parsed = refreshSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid refresh payload", issues: parsed.error.flatten() });
-  }
-
-  try {
-    const claims = jwt.verify(parsed.data.refreshToken, env.jwtRefreshSecret) as {
-      sub: string;
-      email: string;
-      displayName: string;
-    };
-
-    return res.json({
-      tokens: buildTokens({
-        id: claims.sub,
-        email: claims.email,
-        displayName: claims.displayName
-      })
-    });
-  } catch {
-    return res.status(401).json({ error: "Refresh token expired or invalid" });
-  }
-});
+);

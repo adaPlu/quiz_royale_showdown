@@ -1,116 +1,248 @@
-import { AnimatePresence, motion } from "framer-motion";
-import { useEffect } from "react";
+import { AnimatePresence, motion } from 'framer-motion';
+import { useParams } from 'react-router-dom';
 
-import { PlayerAvatar } from "@/components/PlayerAvatar";
-import { socketService } from "@/services/socketService";
-import { useGameStore } from "@/stores/gameStore";
+import { CountdownBar } from '@/components/CountdownBar';
+import { PlayerAvatar } from '@/components/PlayerAvatar';
+import { PowerUpTray } from '@/components/PowerUpTray';
+import type { PowerupSlot } from '@/components/PowerUpTray';
+import { useGameSocket } from '@/hooks/useGameSocket';
+import { socketService } from '@/services/socketService';
+import { useAuthStore } from '@/stores/authStore';
+import {
+  selectLeaderboard,
+  useGameStore,
+} from '@/stores/gameStore';
 
+// ---------------------------------------------------------------------------
+// Answer button colour helpers
+// ---------------------------------------------------------------------------
+const ANSWER_LABELS = ['A', 'B', 'C', 'D'];
+
+function answerButtonClass(
+  index: number,
+  selected: number | null,
+  correctIndex: number | null,
+  fiftyFiftyEliminated: number[],
+): string {
+  const isEliminated = fiftyFiftyEliminated.includes(index);
+  if (isEliminated) return 'opacity-30 cursor-not-allowed border-white/5 bg-black/10';
+
+  if (correctIndex !== null) {
+    if (index === correctIndex) return 'border-answer-correct bg-answer-correct/20 text-answer-correct shadow-[0_0_24px_rgba(34,197,94,0.4)]';
+    if (index === selected && index !== correctIndex) return 'border-answer-wrong bg-answer-wrong/20 text-answer-wrong animate-wrong-shake';
+    return 'border-white/5 bg-black/10 opacity-50';
+  }
+
+  if (selected === index) return 'border-brand bg-brand/30 shadow-brand cursor-not-allowed';
+  if (selected !== null) return 'border-white/5 bg-black/10 opacity-50 cursor-not-allowed';
+
+  return 'border-white/10 bg-black/20 hover:border-gold hover:bg-white/10 cursor-pointer';
+}
+
+// ---------------------------------------------------------------------------
+// Placeholder powerup slots (a real implementation would come from profileStore
+// or a dedicated powerup store; this gives the tray something to render)
+// ---------------------------------------------------------------------------
+const DEFAULT_SLOTS: PowerupSlot[] = [
+  { type: 'fifty_fifty',   owned: true,  used: false },
+  { type: 'shield',        owned: true,  used: false },
+  { type: 'time_boost',    owned: false, used: false },
+  { type: 'reveal_wrong',  owned: true,  used: false },
+];
+
+// ---------------------------------------------------------------------------
+// GamePage
+// ---------------------------------------------------------------------------
 export const GamePage = () => {
-  const { players, question, phase, result, roomId } = useGameStore();
+  const { roomId } = useParams<{ roomId: string }>();
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!question || !roomId) {
-        return;
-      }
+  // Wire all WS events → gameStore, and navigate on game:over
+  useGameSocket(roomId);
 
-      const answerIndex = Number(event.key) - 1;
-      if (answerIndex < 0 || answerIndex > 3) {
-        return;
-      }
+  const user       = useAuthStore((s) => s.user);
+  const phase      = useGameStore((s) => s.phase);
+  const question   = useGameStore((s) => s.question);
+  const result     = useGameStore((s) => s.result);
+  const myAnswer   = useGameStore((s) => s.myAnswerIndex);
+  const roundNum   = useGameStore((s) => s.roundNumber);
+  const totalRounds = useGameStore((s) => s.totalRounds);
+  const eliminated = useGameStore((s) => s.fiftyFiftyEliminated);
+  const setMyAnswer = useGameStore((s) => s.setMyAnswer);
+  const leaderboard = useGameStore(selectLeaderboard);
 
-      socketService.send({
-        type: "round:submit_answer",
-        version: "v1",
-        payload: {
-          roomId,
-          questionId: question.questionId,
-          answerIndex,
-          clientSentAt: new Date().toISOString()
-        }
-      });
-    };
+  const isLocked = myAnswer !== null || phase === 'ANSWER_LOCKED' || phase === 'ROUND_RESULT';
+  const correctIndex = result?.correctAnswerIndex ?? null;
+  const durationSec = question ? question.timeLimitMs / 1000 : 20;
 
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [question, roomId]);
-
-  const circumference = 2 * Math.PI * 54;
-  const progress = question ? 0.35 : 1;
+  const handleAnswer = (index: number) => {
+    if (isLocked || !question || !roomId) return;
+    setMyAnswer(index);
+    socketService.emit('round:submit_answer', {
+      roomId,
+      questionId: question.questionId,
+      answerIndex: index,
+      clientSentAt: new Date().toISOString(),
+    });
+  };
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(255,215,0,0.18),_transparent_38%),linear-gradient(180deg,_#101020,_#06060C)] px-4 py-6 text-white md:px-8">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(255,215,0,0.12),_transparent_40%),linear-gradient(180deg,#101020,#06060C)] px-4 py-6 text-white md:px-8">
+
+      {/* ── Elimination banner ─────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {phase === 'ELIMINATION' && (
+          <motion.div
+            key="elim-banner"
+            initial={{ y: -80, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -80, opacity: 0 }}
+            className="fixed inset-x-0 top-0 z-50 flex items-center justify-center bg-answer-wrong/90 py-4 text-xl font-black uppercase tracking-widest backdrop-blur"
+          >
+            💀 A player has been eliminated!
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[1.5fr_380px]">
+
+        {/* ── Main game panel ──────────────────────────────────────────────── */}
         <section className="rounded-[32px] border border-white/10 bg-white/5 p-6 backdrop-blur">
-          <div className="mb-6 flex items-center justify-between">
+
+          {/* Header row */}
+          <div className="mb-4 flex items-center justify-between">
             <div>
-              <p className="text-sm uppercase tracking-[0.3em] text-brand-gold">Round Feed</p>
-              <h1 className="mt-2 text-3xl font-extrabold">Phase: {phase}</h1>
+              <p className="text-sm uppercase tracking-[0.3em] text-gold">
+                Round {roundNum} / {totalRounds}
+              </p>
+              <h1 className="mt-1 text-xl font-extrabold text-white/80">
+                {phase === 'WAITING'      && 'Waiting for host…'}
+                {phase === 'COUNTDOWN'    && 'Get ready!'}
+                {phase === 'QUESTION_ACTIVE' && 'Answer now!'}
+                {phase === 'ANSWER_LOCKED'   && 'Locked in…'}
+                {phase === 'ROUND_RESULT'    && 'Round result'}
+                {phase === 'ELIMINATION'     && 'Elimination!'}
+                {phase === 'FINALE'          && 'Final round!'}
+                {phase === 'GAME_OVER'       && 'Game over'}
+              </h1>
             </div>
-            <svg viewBox="0 0 140 140" className="h-28 w-28">
-              <circle cx="70" cy="70" r="54" stroke="rgba(255,255,255,0.12)" strokeWidth="12" fill="none" />
-              <circle
-                cx="70"
-                cy="70"
-                r="54"
-                stroke="#FFD700"
-                strokeWidth="12"
-                fill="none"
-                strokeDasharray={circumference}
-                strokeDashoffset={circumference * (1 - progress)}
-                strokeLinecap="round"
-                transform="rotate(-90 70 70)"
-              />
-              <text x="50%" y="52%" dominantBaseline="middle" textAnchor="middle" fill="white" className="text-lg font-bold">
-                {question ? `${Math.round(question.timeLimitMs / 1000)}s` : "--"}
-              </text>
-            </svg>
+
+            {/* Countdown pill */}
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-2xl font-black text-gold">
+              {question ? `${Math.round(durationSec)}` : '--'}
+            </div>
           </div>
 
-          <div className="rounded-[28px] bg-gradient-to-br from-brand/30 to-white/5 p-6">
-            <p className="mb-4 text-sm uppercase tracking-[0.2em] text-white/60">Current Question</p>
-            <h2 className="text-3xl font-bold leading-tight">
-              {question?.prompt ?? "Waiting for the host to start the countdown."}
+          {/* Countdown bar */}
+          {phase === 'QUESTION_ACTIVE' && question && (
+            <div className="mb-6">
+              <CountdownBar
+                duration={durationSec}
+                animationKey={question.questionId}
+              />
+            </div>
+          )}
+
+          {/* Question card */}
+          <div className="rounded-[28px] bg-gradient-to-br from-brand/20 to-white/5 p-6">
+            <p className="mb-4 text-sm uppercase tracking-[0.2em] text-white/50">
+              Question
+            </p>
+            <h2 className="text-2xl font-bold leading-snug md:text-3xl">
+              {question?.prompt ?? 'Waiting for the host to start the round…'}
             </h2>
+
+            {/* Answer grid */}
             <div className="mt-6 grid gap-4 md:grid-cols-2">
-              {(question?.answers ?? ["Option 1", "Option 2", "Option 3", "Option 4"]).map(
+              {(question?.answers ?? ['Option A', 'Option B', 'Option C', 'Option D']).map(
                 (answer, index) => (
-                  <button
-                    key={answer}
+                  <motion.button
+                    key={`${question?.questionId ?? 'placeholder'}-${index}`}
                     type="button"
-                    className="rounded-2xl border border-white/10 bg-black/20 px-5 py-4 text-left transition hover:border-brand-gold hover:bg-white/10"
+                    disabled={isLocked || !question}
+                    onClick={() => handleAnswer(index)}
+                    whileHover={!isLocked && !!question ? { scale: 1.02 } : {}}
+                    whileTap={!isLocked && !!question ? { scale: 0.97 } : {}}
+                    className={[
+                      'rounded-2xl border px-5 py-4 text-left transition-all duration-200',
+                      answerButtonClass(index, myAnswer, correctIndex, eliminated),
+                    ].join(' ')}
                   >
-                    <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-brand-gold">
-                      {index + 1}
+                    <span className="mb-1 block text-xs font-bold uppercase tracking-[0.2em] text-gold">
+                      {ANSWER_LABELS[index]}
                     </span>
-                    <span className="text-lg font-medium">{answer}</span>
-                  </button>
-                )
+                    <span className="text-base font-medium md:text-lg">{answer}</span>
+                  </motion.button>
+                ),
               )}
             </div>
           </div>
+
+          {/* Power-up tray */}
+          <div className="mt-8 flex items-center gap-4">
+            <p className="text-xs uppercase tracking-[0.25em] text-white/40">Power-ups</p>
+            <PowerUpTray
+              slots={DEFAULT_SLOTS}
+              roomId={roomId ?? ''}
+              disabled={isLocked || !question}
+            />
+          </div>
         </section>
 
-        <aside className="rounded-[32px] border border-white/10 bg-brand-panel/85 p-5">
-          <p className="mb-4 text-sm uppercase tracking-[0.3em] text-white/60">Players</p>
-          <div className="space-y-4">
-            {players.map((player) => (
-              <PlayerAvatar key={player.id} player={player} />
+        {/* ── Leaderboard sidebar ──────────────────────────────────────────── */}
+        <aside className="rounded-[32px] border border-white/10 bg-game-surface/80 p-5 backdrop-blur">
+          <p className="mb-4 text-sm uppercase tracking-[0.3em] text-white/50">Leaderboard</p>
+          <div className="space-y-3">
+            {leaderboard.map((player, i) => (
+              <div
+                key={player.id}
+                className={[
+                  'flex items-center gap-3 rounded-2xl border p-3 transition',
+                  player.isEliminated
+                    ? 'border-white/5 bg-white/3 opacity-40'
+                    : player.id === user?.id
+                    ? 'border-brand/50 bg-brand/10 shadow-brand'
+                    : 'border-white/8 bg-white/5',
+                ].join(' ')}
+              >
+                <span className="w-5 text-center text-sm font-bold text-gold">
+                  {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}`}
+                </span>
+                <PlayerAvatar player={player} />
+              </div>
             ))}
+            {leaderboard.length === 0 && (
+              <p className="text-sm text-white/30">No players yet…</p>
+            )}
           </div>
         </aside>
       </div>
 
+      {/* ── Round result overlay ─────────────────────────────────────────────── */}
       <AnimatePresence>
-        {result && (
+        {phase === 'ROUND_RESULT' && result && (
           <motion.div
-            initial={{ opacity: 0, y: 24 }}
+            key="round-result"
+            initial={{ opacity: 0, y: 32 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 24 }}
-            className="fixed bottom-6 left-1/2 w-[min(92vw,560px)] -translate-x-1/2 rounded-[28px] border border-brand-gold/40 bg-black/70 p-6 shadow-royale backdrop-blur"
+            exit={{ opacity: 0, y: 32 }}
+            className="fixed bottom-6 left-1/2 z-40 w-[min(92vw,560px)] -translate-x-1/2 rounded-[28px] border border-gold/30 bg-black/80 p-6 shadow-royale backdrop-blur"
           >
-            <p className="text-sm uppercase tracking-[0.3em] text-brand-gold">Round Result</p>
-            <h3 className="mt-2 text-2xl font-bold">Correct answer: #{result.correctAnswerIndex + 1}</h3>
+            <p className="text-xs uppercase tracking-[0.3em] text-gold">Round Result</p>
+            <h3 className="mt-2 text-2xl font-bold">
+              Correct: {ANSWER_LABELS[result.correctAnswerIndex]}
+            </h3>
+
+            {/* Mini leaderboard delta */}
+            <div className="mt-4 space-y-2">
+              {result.rankings.slice(0, 5).map((r) => (
+                <div key={r.playerId} className="flex justify-between text-sm">
+                  <span className="text-white/70 truncate">{r.playerId}</span>
+                  <span className={r.scoreDelta > 0 ? 'text-answer-correct font-bold' : 'text-answer-wrong'}>
+                    {r.scoreDelta > 0 ? `+${r.scoreDelta}` : r.scoreDelta}
+                  </span>
+                </div>
+              ))}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

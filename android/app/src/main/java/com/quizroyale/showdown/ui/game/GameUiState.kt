@@ -15,13 +15,20 @@ sealed interface GameUiState {
     val prompt: String,
     val answers: List<String>,
     val timeLimitMs: Int,
+    val timerSeconds: Int,
     val players: List<PlayerUiModel>,
-    val phaseLabel: String
+    val phaseLabel: String,
+    val selectedOptionIndex: Int? = null,
   ) : GameUiState
 
   data class RoundResult(
     val roomId: String,
     val summary: String,
+    val players: List<PlayerUiModel>
+  ) : GameUiState
+
+  data class GameOver(
+    val roomId: String,
     val players: List<PlayerUiModel>
   ) : GameUiState
 }
@@ -31,5 +38,5 @@ data class PlayerUiModel(
   val displayName: String,
   val score: Int,
   val streak: Int,
-  val isEliminated: Boolean
+  val isEliminated: Boolean,
 )
