@@ -1,9 +1,10 @@
 import { Router } from "express";
-import jwt from "jsonwebtoken";
 import { z } from "zod";
 
+import { requireHttpAuth, type AuthenticatedRequest } from "../middleware/httpAuth";
 import { env } from "../config/env";
 import { authStore } from "../services/AuthStore";
+import { issueAuthTokens, refreshAuthTokens, verifyRefreshToken } from "../services/AuthTokenService";
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -19,21 +20,6 @@ const loginSchema = z.object({
 const refreshSchema = z.object({
   refreshToken: z.string().min(20)
 });
-
-const buildTokens = (user: { id: string; email: string; displayName: string }) => {
-  const claims = {
-    sub: user.id,
-    email: user.email,
-    displayName: user.displayName
-  };
-  const accessTtl = env.jwtAccessTtl as jwt.SignOptions["expiresIn"];
-  const refreshTtl = env.jwtRefreshTtl as jwt.SignOptions["expiresIn"];
-
-  return {
-    accessToken: jwt.sign(claims, env.jwtAccessSecret, { expiresIn: accessTtl }),
-    refreshToken: jwt.sign(claims, env.jwtRefreshSecret, { expiresIn: refreshTtl })
-  };
-};
 
 export const authRouter = Router();
 
@@ -55,7 +41,7 @@ authRouter.post("/register", async (req, res) => {
         email: user.email,
         displayName: user.displayName
       },
-      tokens: buildTokens(user)
+      tokens: issueAuthTokens(user)
     });
   } catch (error) {
     if (error instanceof Error && error.message === "EMAIL_EXISTS") {
@@ -83,7 +69,7 @@ authRouter.post("/login", async (req, res) => {
       email: user.email,
       displayName: user.displayName
     },
-    tokens: buildTokens(user)
+    tokens: issueAuthTokens(user)
   });
 });
 
@@ -94,20 +80,37 @@ authRouter.post("/refresh", (req, res) => {
   }
 
   try {
-    const claims = jwt.verify(parsed.data.refreshToken, env.jwtRefreshSecret) as {
-      sub: string;
-      email: string;
-      displayName: string;
-    };
-
     return res.json({
-      tokens: buildTokens({
-        id: claims.sub,
-        email: claims.email,
-        displayName: claims.displayName
-      })
+      tokens: refreshAuthTokens(parsed.data.refreshToken)
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message === "REFRESH_TOKEN_REVOKED") {
+      return res.status(401).json({ error: "Refresh token revoked" });
+    }
+
     return res.status(401).json({ error: "Refresh token expired or invalid" });
   }
+});
+
+authRouter.post("/logout", (req, res) => {
+  const parsed = refreshSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid logout payload", issues: parsed.error.flatten() });
+  }
+
+  try {
+    verifyRefreshToken(parsed.data.refreshToken);
+    authStore.revokeRefreshToken(parsed.data.refreshToken);
+    return res.status(204).send();
+  } catch {
+    authStore.revokeRefreshToken(parsed.data.refreshToken);
+    return res.status(204).send();
+  }
+});
+
+authRouter.get("/me", requireHttpAuth, (req, res) => {
+  const authReq = req as AuthenticatedRequest;
+  return res.json({
+    user: authReq.authUser
+  });
 });
