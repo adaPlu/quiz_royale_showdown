@@ -196,6 +196,10 @@ export class RedisService {
     return this.client.zcard(key);
   }
 
+  async zrem(key: string, ...members: string[]): Promise<number> {
+    return this.client.zrem(key, ...members);
+  }
+
   // ─── Pub/Sub ─────────────────────────────────────────────────────────────
 
   async publish(channel: string, message: string): Promise<number> {

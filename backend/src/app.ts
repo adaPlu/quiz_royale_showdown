@@ -3,6 +3,7 @@ import express from "express";
 import helmet from "helmet";
 
 import { env } from "./config/env";
+import { errorHandler } from "./middleware/errorHandler";
 import { authRouter } from "./routes/auth";
 import { healthRouter } from "./routes/health";
 import { roomsRouter } from "./routes/rooms";
@@ -30,6 +31,7 @@ export const createApp = () => {
   app.use("/api/v1/users", usersRouter);
   app.use("/api/v1/powerups", powerupsRouter);
   app.use("/api/v1/cosmetics", cosmeticsRouter);
+  app.use(errorHandler);
 
   return app;
 };
