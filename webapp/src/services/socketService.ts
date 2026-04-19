@@ -1,20 +1,6 @@
 import { io, type Socket } from 'socket.io-client';
 import { z } from 'zod';
 
-// ---------------------------------------------------------------------------
-// Envelope schema (wraps every server → client message)
-// ---------------------------------------------------------------------------
-const EnvelopeSchema = z.object({
-  eventType: z.string(),
-  roomId: z.string(),
-  senderId: z.string().optional(),
-  ts: z.number(),
-  payload: z.unknown(),
-});
-
-// ---------------------------------------------------------------------------
-// Payload schemas for every server event
-// ---------------------------------------------------------------------------
 const PlayerSchema = z.object({
   id: z.string(),
   displayName: z.string(),
@@ -75,17 +61,29 @@ const RoundResultPayload = z.object({
   ),
 });
 
-const PowerupUsedPayload = z.object({
+const EliminationPayload = z.object({
   roomId: z.string(),
-  playerId: z.string(),
-  powerupId: z.string(),
+  eliminatedPlayerIds: z.array(z.string()),
+  survivors: z.array(PlayerSchema),
+});
+
+const FinaleStartedPayload = z.object({
+  roomId: z.string(),
+  finalistIds: z.array(z.string()),
+});
+
+const PowerupActivatedPayload = z.object({
+  roomId: z.string(),
+  userId: z.string(),
+  powerUpId: z.string(),
+  effect: z.record(z.unknown()),
 });
 
 const PowerupEffectPayload = z.object({
   roomId: z.string(),
-  effectType: z.string(),
-  affectedPlayerIds: z.array(z.string()),
-  data: z.unknown().optional(),
+  userId: z.string(),
+  powerUpId: z.string(),
+  effect: z.record(z.unknown()),
 });
 
 const GameOverPayload = z.object({
@@ -109,40 +107,39 @@ const LevelUpPayload = z.object({
 });
 
 const ErrorPayload = z.object({
-  code: z.string(),
-  message: z.string(),
+  code: z.string().optional(),
+  error: z.string().optional(),
+  message: z.string().optional(),
   details: z.unknown().optional(),
 });
 
-// ---------------------------------------------------------------------------
-// Server event discriminated union
-// ---------------------------------------------------------------------------
 export const ServerEventSchemas = {
   'room:state_sync': RoomStatePayload,
-  'room:countdown_start': CountdownStartPayload,
+  'room:player_joined': z.object({ roomId: z.string(), player: PlayerSchema }),
+  'room:player_left': z.object({ roomId: z.string(), playerId: z.string() }),
+  'round:countdown_started': CountdownStartPayload,
   'round:question_started': QuestionPayload,
   'round:answer_locked': AnswerLockedPayload,
   'round:result': RoundResultPayload,
-  'powerup:used': PowerupUsedPayload,
+  'round:elimination': EliminationPayload,
+  'round:finale_started': FinaleStartedPayload,
+  'powerup:activated': PowerupActivatedPayload,
   'powerup:effect': PowerupEffectPayload,
   'game:over': GameOverPayload,
   'player:level_up': LevelUpPayload,
-  'error': ErrorPayload,
+  error: ErrorPayload,
 } as const;
 
 export type ServerEventType = keyof typeof ServerEventSchemas;
-export type ServerEventPayload<E extends ServerEventType> = z.infer<typeof ServerEventSchemas[E]>;
+export type ServerEventPayload<E extends ServerEventType> = z.infer<(typeof ServerEventSchemas)[E]>;
 
-// ---------------------------------------------------------------------------
-// Client event types
-// ---------------------------------------------------------------------------
 export type ClientEventType =
   | 'room:join'
   | 'round:submit_answer'
   | 'powerup:activate'
   | 'client:heartbeat';
 
-interface ClientEventPayloads {
+type ClientEventPayloads = {
   'room:join': { roomCode: string };
   'round:submit_answer': {
     roomId: string;
@@ -150,30 +147,37 @@ interface ClientEventPayloads {
     answerIndex: number;
     clientSentAt: string;
   };
-  'powerup:activate': { roomId: string; powerupId: string; targetPlayerId?: string };
+  'powerup:activate': { roomId: string; powerUpId: string; targetPlayerId?: string };
   'client:heartbeat': { roomId: string; sentAt: string };
-}
+};
 
 type Unsubscribe = () => void;
 
-// ---------------------------------------------------------------------------
-// SocketService class
-// ---------------------------------------------------------------------------
+const ServerEnvelopeSchema = z.object({
+  type: z.string(),
+  version: z.literal('v1'),
+  payload: z.unknown(),
+});
+
 class SocketService {
   private socket: Socket | null = null;
   private activeRoomId: string | null = null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private listeners = new Map<string, Set<(payload: any) => void>>();
+  private accessToken: string | null = null;
+  private listeners = new Map<ServerEventType, Set<(payload: unknown) => void>>();
 
-  connect(accessToken: string): void {
-    if (this.socket?.connected) return;
+  connect(accessToken = localStorage.getItem('qrs.accessToken') ?? ''): void {
+    if (!accessToken) return;
 
-    const WS_URL =
-      (import.meta as unknown as { env: Record<string, string> }).env?.VITE_WS_BASE_URL ??
-      'http://localhost:4000';
+    if (this.socket?.connected && this.accessToken === accessToken) return;
 
-    this.socket = io(WS_URL, {
-      path: '/socket.io',
+    if (this.socket && this.accessToken !== accessToken) {
+      this.disconnect();
+    }
+
+    const wsUrl = import.meta.env.VITE_WS_BASE_URL ?? 'http://localhost:4000';
+    this.accessToken = accessToken;
+    this.socket = io(wsUrl, {
+      path: '/ws',
       transports: ['websocket'],
       auth: { token: accessToken },
       reconnection: true,
@@ -182,23 +186,7 @@ class SocketService {
       reconnectionDelayMax: 5000,
     });
 
-    this.socket.on('message', (raw: unknown) => {
-      const envelope = EnvelopeSchema.safeParse(raw);
-      if (!envelope.success) return;
-
-      const { eventType, payload } = envelope.data;
-      const schema = ServerEventSchemas[eventType as ServerEventType];
-      if (!schema) return;
-
-      const parsed = schema.safeParse(payload);
-      if (!parsed.success) return;
-
-      const handlers = this.listeners.get(eventType);
-      if (handlers) {
-        handlers.forEach((h) => h(parsed.data));
-      }
-    });
-
+    this.socket.on('message', (raw: unknown) => this.handleMessage(raw));
     this.socket.on('connect', () => {
       if (this.activeRoomId) {
         this.emit('room:join', { roomCode: this.activeRoomId });
@@ -209,6 +197,7 @@ class SocketService {
   disconnect(): void {
     this.socket?.disconnect();
     this.socket = null;
+    this.accessToken = null;
   }
 
   setActiveRoom(roomId: string): void {
@@ -226,6 +215,7 @@ class SocketService {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, new Set());
     }
+
     const handlers = this.listeners.get(event)!;
     handlers.add(handler as (payload: unknown) => void);
     return () => {
@@ -233,29 +223,31 @@ class SocketService {
     };
   }
 
-  // ── Legacy compatibility shims ──────────────────────────────────────────────
-
-  /** Legacy: send a raw event envelope. Used by GamePage.tsx. */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  send(envelope: { type: string; version: string; payload: Record<string, any> }): void {
+  send(envelope: { type: string; version: 'v1'; payload: Record<string, unknown> }): void {
     this.socket?.emit('message', envelope);
   }
 
-  /**
-   * Legacy: subscribe to ALL server events, calling `handler` with a
-   * `{ type, version, payload }` object for each. Returns an unsubscribe fn.
-   * Used by the original App.tsx socket wiring.
-   */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  subscribe(handler: (event: { type: string; version: string; payload: Record<string, any> }) => void): Unsubscribe {
-    // Attach a listener on every known server event type and forward as legacy shape.
+  subscribe(handler: (event: { type: string; version: 'v1'; payload: Record<string, unknown> }) => void): Unsubscribe {
     const unsubs = (Object.keys(ServerEventSchemas) as ServerEventType[]).map((eventType) =>
       this.on(eventType, (payload) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        handler({ type: eventType, version: 'v1', payload: payload as Record<string, any> });
+        handler({ type: eventType, version: 'v1', payload: payload as Record<string, unknown> });
       }),
     );
-    return () => unsubs.forEach((u) => u());
+    return () => unsubs.forEach((unsubscribe) => unsubscribe());
+  }
+
+  private handleMessage(raw: unknown): void {
+    const envelope = ServerEnvelopeSchema.safeParse(raw);
+    if (!envelope.success) return;
+
+    const eventType = envelope.data.type as ServerEventType;
+    const schema = ServerEventSchemas[eventType];
+    if (!schema) return;
+
+    const parsed = schema.safeParse(envelope.data.payload);
+    if (!parsed.success) return;
+
+    this.listeners.get(eventType)?.forEach((handler) => handler(parsed.data));
   }
 }
 
