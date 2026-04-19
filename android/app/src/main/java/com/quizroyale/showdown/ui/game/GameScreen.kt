@@ -41,12 +41,28 @@ fun GameScreen(
       CountdownRing()
 
       when (state) {
+        is GameUiState.Countdown -> {
+          ResultCard("Next question starts in ${state.seconds}s.")
+        }
+
         is GameUiState.ActiveQuestion -> {
           QuestionCard(state, onAnswerSelected)
         }
 
         is GameUiState.RoundResult -> {
           ResultCard(state.summary)
+        }
+
+        is GameUiState.Elimination -> {
+          ResultCard("Eliminated: ${state.eliminatedPlayerIds.joinToString().ifBlank { "none" }}")
+        }
+
+        is GameUiState.Finale -> {
+          ResultCard("Final showdown: ${state.finalistIds.size} players remain.")
+        }
+
+        is GameUiState.GameOver -> {
+          ResultCard("Winner: ${state.winnerId.ifBlank { "TBD" }} | XP awarded: ${state.xpAwarded}")
         }
 
         else -> {
@@ -63,6 +79,10 @@ fun GameScreen(
         is GameUiState.ActiveQuestion -> state.players
         is GameUiState.RoundResult -> state.players
         is GameUiState.Lobby -> state.players
+        is GameUiState.Countdown -> state.players
+        is GameUiState.Elimination -> state.players
+        is GameUiState.Finale -> state.players
+        is GameUiState.GameOver -> state.players
         else -> emptyList()
       }
 
@@ -116,13 +136,16 @@ private fun QuestionCard(
       verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
       Text(text = state.phaseLabel, style = MaterialTheme.typography.labelLarge)
+      Text(text = "${state.timerSeconds}s remaining", style = MaterialTheme.typography.labelMedium)
       Text(text = state.prompt, style = MaterialTheme.typography.headlineSmall)
       state.answers.forEachIndexed { index, answer ->
         Button(
           onClick = { onAnswerSelected(index) },
+          enabled = !state.isAnswerLocked,
           modifier = Modifier.fillMaxWidth()
         ) {
-          Text(text = "${index + 1}. $answer")
+          val selected = if (state.selectedAnswerIndex == index) " ✓" else ""
+          Text(text = "${index + 1}. $answer$selected")
         }
       }
     }
