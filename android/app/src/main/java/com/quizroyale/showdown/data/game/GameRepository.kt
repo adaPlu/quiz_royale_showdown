@@ -197,6 +197,9 @@ class GameRepository @Inject constructor(
           playerId = payload.optString("playerId", payload.optString("userId")),
           powerupId = payload.optString("powerUpId", payload.optString("powerupCode"))
         )
+        "v1:powerup:loot_drop", "powerup:loot_drop" -> GameEvent.LootDrop(
+          powerupCode = payload.optString("powerupCode")
+        )
         "server:error", "error" -> GameEvent.ServerError(
           message = payload.optString("message", payload.optString("error", "Server error")),
           code = payload.optString("code").takeIf { it.isNotBlank() }
