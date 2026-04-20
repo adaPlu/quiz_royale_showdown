@@ -2,6 +2,7 @@ import { Difficulty, type QuestionBank } from "@prisma/client";
 import type { Server } from "socket.io";
 
 import { eliminateBottomN } from "../game/EliminationEngine";
+import { powerUpBalancer } from "../game/PowerUpBalancer";
 import {
   createInitialGameState,
   transitionGameState,
@@ -282,6 +283,25 @@ export class GameOrchestrator {
         rankings,
       },
     });
+
+    // Loot drops — grant power-ups to bottom 40% of players to keep games competitive
+    const avgScore = rankings.reduce((s, r) => s + r.totalScore, 0) / Math.max(1, rankings.length);
+    const roundNumber = questionContext.roundNumber ?? 0;
+    await Promise.allSettled(
+      rankings.map(async ({ playerId, totalScore }) => {
+        if (!powerUpBalancer.shouldGrantLootAfterRound(roundNumber, totalScore, avgScore)) return;
+        const code = powerUpBalancer.rollLoot(rankings.length);
+        if (!code) return;
+        const powerUp = await prisma.powerUp.findFirst({ where: { code, isActive: true } });
+        if (!powerUp) return;
+        await prisma.playerPowerUp.upsert({
+          where: { userId_powerUpId: { userId: playerId, powerUpId: powerUp.id } },
+          update: { quantity: { increment: 1 } },
+          create: { id: generateId(), userId: playerId, powerUpId: powerUp.id, quantity: 1 },
+        });
+        io.to(playerId).emit("v1:powerup:loot_drop", { roomId, powerupCode: code, ts: Date.now() });
+      })
+    );
 
     await this.delayWithHeartbeat(roomId, "round_result", this.options.roundResultMs);
   }
