@@ -139,6 +139,7 @@ type GameState = {
   revealedOptionIndex: number | null;
   timeBoostActive: boolean;
   activePowerupEffect: ActivePowerupEffect | null;
+  lootDrop: { powerupCode: string; ts: number } | null;
 };
 
 type GameActions = {
@@ -159,6 +160,8 @@ type GameActions = {
   dismissLevelUp: () => void;
   resetRoom: () => void;
   applyServerEvent: (event: ServerEvent) => void;
+  setLootDrop: (code: string) => void;
+  clearLootDrop: () => void;
 };
 
 const initialState: GameState = {
@@ -180,6 +183,7 @@ const initialState: GameState = {
   revealedOptionIndex: null,
   timeBoostActive: false,
   activePowerupEffect: null,
+  lootDrop: null,
 };
 
 const resetRoundInteraction: Pick<
@@ -412,8 +416,14 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       case 'powerup:effect':
         get().applyPowerupEffect(event.payload);
         break;
+      case 'powerup:loot_drop':
+        get().setLootDrop((event.payload as { powerupCode: string }).powerupCode);
+        break;
     }
   },
+
+  setLootDrop: (code) => set({ lootDrop: { powerupCode: code, ts: Date.now() } }),
+  clearLootDrop: () => set({ lootDrop: null }),
 }));
 
 export const selectLeaderboard = (state: GameState): PlayerSummary[] =>

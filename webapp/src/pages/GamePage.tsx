@@ -1,10 +1,13 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 
 import { CountdownBar } from '@/components/CountdownBar';
+import { LootDropToast } from '@/components/LootDropToast';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
-import { PowerUpTray, type PowerUpSlot } from '@/components/PowerUpTray';
+import { PowerUpActivationFx } from '@/components/PowerUpActivationFx';
+import { PowerUpTray, type PowerUpSlot, type PowerUpType } from '@/components/PowerUpTray';
+import { useGameAudio } from '@/hooks/useGameAudio';
 import { useGameSocket } from '@/hooks/useGameSocket';
 import { socketService } from '@/services/socketService';
 import { useAuthStore } from '@/stores/authStore';
@@ -69,7 +72,34 @@ export const GamePage = () => {
   const revealed = useGameStore((state) => state.revealedOptionIndex);
   const usedPowerUps = useGameStore((state) => state.usedPowerUps);
   const setMyAnswer = useGameStore((state) => state.setMyAnswer);
+  const lootDrop = useGameStore((state) => state.lootDrop);
+  const clearLootDrop = useGameStore((state) => state.clearLootDrop);
   const leaderboard = useGameStore(selectLeaderboard);
+
+  const audio = useGameAudio();
+  const [activeFx, setActiveFx] = useState<{ code: PowerUpType; userId: string } | null>(null);
+  const onFxComplete = useCallback(() => setActiveFx(null), []);
+
+  // Audio reactions to game events
+  useEffect(() => {
+    if (result === null || myAnswer === null) return;
+    if (myAnswer === result.correctAnswerIndex) audio.playCorrect();
+    else audio.playWrong();
+  }, [result]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (phase === 'ELIMINATION') audio.playElimination();
+    if (phase === 'GAME_OVER') audio.playVictory();
+  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Power-up activation FX
+  useEffect(() => {
+    const unsub = socketService.on('powerup:activated', (payload) => {
+      setActiveFx({ code: payload.powerUpId as PowerUpType, userId: payload.userId });
+      audio.playPowerup();
+    });
+    return unsub;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const correctIndex = result?.correctAnswerIndex ?? null;
   const isQuestionActive = phase === 'QUESTION_ACTIVE' && !!question;
@@ -230,6 +260,17 @@ export const GamePage = () => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <PowerUpActivationFx
+        powerupCode={activeFx?.code ?? null}
+        activatingUserId={activeFx?.userId ?? ''}
+        currentUserId={user?.id ?? ''}
+        onComplete={onFxComplete}
+      />
+      <LootDropToast
+        powerupCode={lootDrop?.powerupCode as PowerUpType ?? null}
+        onDismiss={clearLootDrop}
+      />
     </main>
   );
 };
