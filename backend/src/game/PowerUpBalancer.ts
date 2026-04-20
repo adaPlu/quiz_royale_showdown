@@ -194,3 +194,72 @@ function hashScenarioSeed(seed: number, scenarioId: string, matchIndex: number):
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), maximum);
 }
+
+// ─── Loot-drop rarity system ──────────────────────────────────────────────────
+
+export type PowerupCode = 'FIFTY_FIFTY' | 'TIME_BOOST' | 'SHIELD' | 'REVEAL_WRONG' | 'SECOND_CHANCE';
+
+export interface BalanceReport {
+  totalGames: number;
+  winRateContribution: Record<PowerupCode, number>;
+  dominant: PowerupCode | null;
+}
+
+const RARITY_WEIGHTS: Record<PowerupCode, number> = {
+  FIFTY_FIFTY: 30,
+  TIME_BOOST: 25,
+  SHIELD: 20,
+  REVEAL_WRONG: 15,
+  SECOND_CHANCE: 10,
+};
+
+export class PowerUpBalancer {
+  getRarityWeights(): Record<PowerupCode, number> {
+    return { ...RARITY_WEIGHTS };
+  }
+
+  rollLoot(playerCount: number): PowerupCode | null {
+    const dropChance = Math.min(0.75, 0.6 + (8 - Math.max(1, playerCount)) * 0.02);
+    if (Math.random() > dropChance) return null;
+    const total = Object.values(RARITY_WEIGHTS).reduce((a, b) => a + b, 0);
+    let r = Math.random() * total;
+    for (const [code, w] of Object.entries(RARITY_WEIGHTS) as [PowerupCode, number][]) {
+      r -= w;
+      if (r <= 0) return code;
+    }
+    return 'FIFTY_FIFTY';
+  }
+
+  shouldGrantLootAfterRound(roundNumber: number, playerScore: number, avgScore: number): boolean {
+    if (roundNumber < 2) return false;
+    return playerScore < avgScore * 0.9;
+  }
+
+  runBalanceSimulation(games: number): BalanceReport {
+    const wins: Record<PowerupCode, number> = { FIFTY_FIFTY: 0, TIME_BOOST: 0, SHIELD: 0, REVEAL_WRONG: 0, SECOND_CHANCE: 0 };
+    for (let g = 0; g < games; g++) {
+      const players = Array.from({ length: 8 }, () => {
+        let bonus = 0;
+        let lastCode: PowerupCode | null = null;
+        for (let r = 0; r < 10; r++) {
+          const loot = this.rollLoot(8);
+          if (loot) { bonus += RARITY_WEIGHTS[loot]; lastCode = loot; }
+        }
+        return { bonus, code: lastCode };
+      });
+      const total = players.reduce((a, p) => a + p.bonus + 1, 0);
+      let pick = Math.random() * total;
+      for (const p of players) {
+        pick -= (p.bonus + 1);
+        if (pick <= 0 && p.code) { wins[p.code]++; break; }
+      }
+    }
+    const winRateContribution = Object.fromEntries(
+      Object.entries(wins).map(([k, v]) => [k, v / games])
+    ) as Record<PowerupCode, number>;
+    const dominant = (Object.entries(winRateContribution).find(([, v]) => v > 0.35)?.[0] as PowerupCode) ?? null;
+    return { totalGames: games, winRateContribution, dominant };
+  }
+}
+
+export const powerUpBalancer = new PowerUpBalancer();
