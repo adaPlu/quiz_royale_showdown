@@ -1,9 +1,12 @@
 package com.quizroyale.showdown.ui.game
 
+import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,22 +14,62 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
+import com.quizroyale.showdown.domain.model.PowerupType
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 
 @Composable
 fun GameScreen(
   state: GameUiState,
-  onAnswerSelected: (Int) -> Unit
+  onAnswerSelected: (Int) -> Unit,
+  onPowerupSelected: (PowerupType, String?) -> Unit,
+  sideEffects: Flow<GameSideEffect> = emptyFlow(),
+  onNavigateToResults: (String) -> Unit = {}
 ) {
+  val context = LocalContext.current
+  val hapticFeedback = LocalHapticFeedback.current
+  val currentOnNavigateToResults by rememberUpdatedState(onNavigateToResults)
+
+  LaunchedEffect(sideEffects) {
+    sideEffects.collect { effect ->
+      when (effect) {
+        GameSideEffect.HapticFeedback -> {
+          hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+        }
+
+        is GameSideEffect.ShowToast -> {
+          Toast.makeText(context, effect.message, Toast.LENGTH_SHORT).show()
+        }
+
+        is GameSideEffect.ShowLevelUp -> {
+          Toast.makeText(context, "Level ${effect.newLevel} reached.", Toast.LENGTH_SHORT).show()
+        }
+
+        is GameSideEffect.NavigateToResults -> currentOnNavigateToResults(effect.roomId)
+      }
+    }
+  }
+
   Row(
     modifier = Modifier
       .fillMaxSize()
@@ -46,7 +89,11 @@ fun GameScreen(
         }
 
         is GameUiState.ActiveQuestion -> {
-          QuestionCard(state, onAnswerSelected)
+          QuestionCard(
+            state = state,
+            onAnswerSelected = onAnswerSelected,
+            onPowerupSelected = onPowerupSelected
+          )
         }
 
         is GameUiState.RoundResult -> {
@@ -100,6 +147,9 @@ fun GameScreen(
 
 @Composable
 private fun CountdownRing() {
+  val trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
+  val progressColor = MaterialTheme.colorScheme.primary
+
   Canvas(
     modifier = Modifier
       .fillMaxWidth()
@@ -108,13 +158,13 @@ private fun CountdownRing() {
     val radius = size.minDimension / 4f
     val center = Offset(size.width / 2f, size.height / 2f)
     drawCircle(
-      color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f),
+      color = trackColor,
       radius = radius,
       center = center,
       style = Stroke(width = 18f)
     )
     drawArc(
-      color = MaterialTheme.colorScheme.primary,
+      color = progressColor,
       startAngle = -90f,
       sweepAngle = 216f,
       useCenter = false,
@@ -128,7 +178,8 @@ private fun CountdownRing() {
 @Composable
 private fun QuestionCard(
   state: GameUiState.ActiveQuestion,
-  onAnswerSelected: (Int) -> Unit
+  onAnswerSelected: (Int) -> Unit,
+  onPowerupSelected: (PowerupType, String?) -> Unit
 ) {
   Card {
     Column(
@@ -137,6 +188,14 @@ private fun QuestionCard(
     ) {
       Text(text = state.phaseLabel, style = MaterialTheme.typography.labelLarge)
       Text(text = "${state.timerSeconds}s remaining", style = MaterialTheme.typography.labelMedium)
+      PowerupTray(
+        enabled = !state.isAnswerLocked && state.activePowerupEffect?.isPending != true,
+        activeEffect = state.activePowerupEffect,
+        onPowerupSelected = onPowerupSelected
+      )
+      state.activePowerupEffect?.let { effect ->
+        PowerupEffectBanner(effect)
+      }
       Text(text = state.prompt, style = MaterialTheme.typography.headlineSmall)
       state.answers.forEachIndexed { index, answer ->
         Button(
@@ -149,6 +208,71 @@ private fun QuestionCard(
         }
       }
     }
+  }
+}
+
+@Composable
+private fun PowerupTray(
+  enabled: Boolean,
+  activeEffect: PowerupEffectUiModel?,
+  onPowerupSelected: (PowerupType, String?) -> Unit
+) {
+  Row(
+    modifier = Modifier
+      .fillMaxWidth()
+      .horizontalScroll(rememberScrollState()),
+    horizontalArrangement = Arrangement.spacedBy(8.dp)
+  ) {
+    PowerupType.values().forEach { type ->
+      OutlinedButton(
+        onClick = { onPowerupSelected(type, null) },
+        enabled = enabled,
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+        modifier = Modifier.height(36.dp)
+      ) {
+        Text(
+          text = type.trayLabel(activeEffect),
+          style = MaterialTheme.typography.labelSmall
+        )
+      }
+    }
+  }
+}
+
+@Composable
+private fun PowerupEffectBanner(effect: PowerupEffectUiModel) {
+  Card(
+    modifier = Modifier.fillMaxWidth(),
+    colors = CardDefaults.cardColors(
+      containerColor = if (effect.isPending) {
+        MaterialTheme.colorScheme.tertiaryContainer
+      } else {
+        MaterialTheme.colorScheme.secondaryContainer
+      }
+    )
+  ) {
+    Column(
+      modifier = Modifier.padding(12.dp),
+      verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+      Text(text = effect.title, style = MaterialTheme.typography.titleSmall)
+      Text(text = effect.detail, style = MaterialTheme.typography.bodySmall)
+    }
+  }
+}
+
+private fun PowerupType.trayLabel(activeEffect: PowerupEffectUiModel?): String {
+  val baseLabel = when (this) {
+    PowerupType.DOUBLE_DOWN -> "2x"
+    PowerupType.FIFTY_FIFTY -> "50/50"
+    PowerupType.TIME_FREEZE -> "Freeze"
+    PowerupType.SHIELD -> "Shield"
+    PowerupType.SABOTAGE -> "Sabotage"
+  }
+  return if (activeEffect?.type == this) {
+    "$baseLabel on"
+  } else {
+    baseLabel
   }
 }
 

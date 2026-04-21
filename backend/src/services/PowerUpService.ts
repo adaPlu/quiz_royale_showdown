@@ -1,4 +1,5 @@
 import type { Server } from "socket.io";
+import type { Prisma } from "@prisma/client";
 
 import { prisma } from "../models/prismaClient";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../utils/errors";
@@ -6,29 +7,49 @@ import { generateId } from "../utils/ulid";
 import { logger } from "../utils/logger";
 import { redisService } from "./RedisService";
 
-export const POWERUP_CODES = [
+export const CANONICAL_PHASE_2_POWERUP_CODES = [
   "DOUBLE_DOWN",
   "FIFTY_FIFTY",
   "TIME_FREEZE",
-  "TIME_BOOST",
   "SHIELD",
   "SABOTAGE",
-  "REVEAL",
-  "REVEAL_WRONG",
-  "SECOND_CHANCE",
 ] as const;
 
+export const POWERUP_CODES = CANONICAL_PHASE_2_POWERUP_CODES;
 export type PowerUpCode = (typeof POWERUP_CODES)[number];
 
+export const STARTER_POWERUP_QUANTITY = 1;
+
 const POWERUP_STATE_TTL_SECONDS = 2 * 60 * 60;
+const CANONICAL_POWERUP_ORDER = new Map<string, number>(
+  CANONICAL_PHASE_2_POWERUP_CODES.map((code, index) => [code, index]),
+);
 
 const usedKey = (roomId: string, userId: string, powerUpId: string) =>
   `powerup:${roomId}:${userId}:${powerUpId}:used`;
 const timeBoostKey = (roomId: string, userId: string) => `powerup:${roomId}:${userId}:time_boost`;
 const doubleDownKey = (roomId: string, userId: string) => `powerup:${roomId}:${userId}:double_down`;
 const sabotageKey = (roomId: string, userId: string) => `powerup:${roomId}:${userId}:sabotaged`;
-const revivedKey = (roomId: string, userId: string) => `powerup:${roomId}:${userId}:revived`;
 const shieldSetKey = (roomId: string) => `powerup:${roomId}:shielded`;
+
+type PowerUpDataClient = Pick<Prisma.TransactionClient, "powerUp" | "playerPowerUp">;
+
+export interface PowerUpInventoryItem {
+  powerUpId: string;
+  code: PowerUpCode;
+  quantity: number;
+  name: string;
+  description: string;
+  rarity: string;
+}
+
+interface PowerUpDefinitionRecord {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  rarity: string;
+}
 
 export interface PowerUpActivationInput {
   roomId: string;
@@ -55,6 +76,90 @@ export function normalizePowerUpCode(code: string): PowerUpCode {
     throw new BadRequestError(`Unsupported power-up code: ${code}`);
   }
   return normalized as PowerUpCode;
+}
+
+export function comparePowerUpCodes(left: string, right: string): number {
+  const leftIndex = CANONICAL_POWERUP_ORDER.get(left.toUpperCase()) ?? Number.MAX_SAFE_INTEGER;
+  const rightIndex = CANONICAL_POWERUP_ORDER.get(right.toUpperCase()) ?? Number.MAX_SAFE_INTEGER;
+  return leftIndex - rightIndex || left.localeCompare(right);
+}
+
+export function toPowerUpInventoryItem(
+  powerUp: PowerUpDefinitionRecord,
+  quantity: number,
+): PowerUpInventoryItem {
+  return {
+    powerUpId: powerUp.id,
+    code: normalizePowerUpCode(powerUp.code),
+    quantity,
+    name: powerUp.name,
+    description: powerUp.description,
+    rarity: powerUp.rarity,
+  };
+}
+
+export async function grantStarterPowerUps(
+  userId: string,
+  client: PowerUpDataClient = prisma,
+): Promise<void> {
+  const definitions = await client.powerUp.findMany({
+    where: {
+      code: { in: [...CANONICAL_PHASE_2_POWERUP_CODES] },
+      isActive: true,
+    },
+    select: { id: true, code: true },
+  });
+
+  if (definitions.length === 0) {
+    return;
+  }
+
+  await client.playerPowerUp.createMany({
+    data: definitions
+      .sort((left, right) => comparePowerUpCodes(left.code, right.code))
+      .map((powerUp) => ({
+        id: generateId(),
+        userId,
+        powerUpId: powerUp.id,
+        quantity: STARTER_POWERUP_QUANTITY,
+      })),
+    skipDuplicates: true,
+  });
+}
+
+export async function getPowerUpInventory(userId: string): Promise<PowerUpInventoryItem[]> {
+  const definitions = await prisma.powerUp.findMany({
+    where: {
+      code: { in: [...CANONICAL_PHASE_2_POWERUP_CODES] },
+      isActive: true,
+    },
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      description: true,
+      rarity: true,
+    },
+  });
+
+  if (definitions.length === 0) {
+    return [];
+  }
+
+  const quantities = await prisma.playerPowerUp.findMany({
+    where: {
+      userId,
+      powerUpId: { in: definitions.map((powerUp) => powerUp.id) },
+    },
+    select: { powerUpId: true, quantity: true },
+  });
+  const quantityByPowerUpId = new Map(
+    quantities.map((inventoryItem) => [inventoryItem.powerUpId, inventoryItem.quantity]),
+  );
+
+  return definitions
+    .sort((left, right) => comparePowerUpCodes(left.code, right.code))
+    .map((powerUp) => toPowerUpInventoryItem(powerUp, quantityByPowerUpId.get(powerUp.id) ?? 0));
 }
 
 export function selectWrongAnswerIndices(
@@ -96,6 +201,8 @@ export class PowerUpService {
     }
 
     const code = normalizePowerUpCode(powerUp.code);
+    this.validateActivationInput(input, code);
+
     const used = await redisService.setnx(
       usedKey(input.roomId, input.userId, powerUp.id),
       "1",
@@ -224,15 +331,13 @@ export class PowerUpService {
       }
 
       case "TIME_FREEZE":
-      case "TIME_BOOST": {
         const extraMs = 5_000;
         await redisService!.set(timeBoostKey(input.roomId, input.userId), String(extraMs), POWERUP_STATE_TTL_SECONDS);
         await redisService!.publish(
           `game:${input.roomId}:events`,
-          JSON.stringify({ type: "TIME_BOOST", userId: input.userId, extraMs }),
+          JSON.stringify({ type: code, userId: input.userId, extraMs }),
         );
         return this.result(input, code, { type: code, targetPlayerId: input.userId, extraMs });
-      }
 
       case "SHIELD":
         await redisService!.sadd(shieldSetKey(input.roomId), input.userId);
@@ -249,60 +354,6 @@ export class PowerUpService {
           POWERUP_STATE_TTL_SECONDS,
         );
         return this.result(input, code, { type: code, targetPlayerId: input.targetPlayerId });
-      }
-
-      case "REVEAL":
-      case "REVEAL_WRONG": {
-        const correctAnswerIndex = this.requireCorrectAnswerIndex(input.correctAnswerIndex);
-        const [revealedAnswerIndex] = selectWrongAnswerIndices(correctAnswerIndex, 1, () => 0);
-        const revealedAnswer =
-          input.questionOptions && revealedAnswerIndex !== undefined
-            ? input.questionOptions[revealedAnswerIndex]
-            : undefined;
-        const publicEffect = { type: code, revealedAnswerIndex, revealedAnswer };
-        if (io) {
-          io.to(input.roomId).emit("message", {
-            type: "powerup:effect",
-            version: "v1",
-            payload: {
-              roomId: input.roomId,
-              powerUpId: input.powerUpId,
-              userId: input.userId,
-              effect: publicEffect,
-            },
-          });
-        }
-        return this.result(input, code, publicEffect);
-      }
-
-      case "SECOND_CHANCE": {
-        const alreadyRevived = await redisService!.setnx(
-          revivedKey(input.roomId, input.userId),
-          "1",
-          POWERUP_STATE_TTL_SECONDS,
-        );
-        if (!alreadyRevived) {
-          throw new ForbiddenError("Second Chance has already been used in this room");
-        }
-
-        const roomPlayer = await prisma.roomPlayer.findUnique({
-          where: { roomId_userId: { roomId: input.roomId, userId: input.userId } },
-          select: { isEliminated: true },
-        });
-        if (!roomPlayer) {
-          throw new NotFoundError("Player is not in this room");
-        }
-        if (!roomPlayer.isEliminated) {
-          throw new BadRequestError("Second Chance can only revive an eliminated player");
-        }
-
-        await prisma.roomPlayer.update({
-          where: { roomId_userId: { roomId: input.roomId, userId: input.userId } },
-          data: { isEliminated: false, eliminatedAt: null },
-        });
-        await redisService!.sadd(`room:${input.roomId}:players`, input.userId);
-
-        return this.result(input, code, { type: code, revivedPlayerId: input.userId });
       }
     }
   }
@@ -328,6 +379,12 @@ export class PowerUpService {
       throw new BadRequestError("Power-up requires an active question");
     }
     return value;
+  }
+
+  private validateActivationInput(input: PowerUpActivationInput, code: PowerUpCode): void {
+    if (code === "SABOTAGE" && !input.targetPlayerId) {
+      throw new BadRequestError("SABOTAGE requires targetPlayerId");
+    }
   }
 }
 

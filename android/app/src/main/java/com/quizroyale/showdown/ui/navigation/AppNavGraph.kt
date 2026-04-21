@@ -63,7 +63,12 @@ fun AppNavGraph() {
 
       GameScreen(
         state = state,
-        onAnswerSelected = viewModel::submitAnswer
+        onAnswerSelected = viewModel::submitAnswer,
+        onPowerupSelected = viewModel::usePowerup,
+        sideEffects = viewModel.sideEffects,
+        onNavigateToResults = { roomId ->
+          navController.navigate(Screen.Results.createRoute(roomId))
+        }
       )
     }
 

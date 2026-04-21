@@ -26,6 +26,7 @@ export const createApp = () => {
   });
 
   app.use("/health", healthRouter);
+  app.use("/api/v1/health", healthRouter);
   app.use("/api/v1/auth", authRouter);
   app.use("/api/v1/rooms", roomsRouter);
   app.use("/api/v1/users", usersRouter);

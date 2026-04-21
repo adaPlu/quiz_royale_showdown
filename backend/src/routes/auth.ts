@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { env } from "../config/env";
 import { prisma } from "../models/prismaClient";
+import { grantStarterPowerUps } from "../services/PowerUpService";
 import { generateId } from "../utils/ulid";
 
 const registerSchema = z.object({
@@ -55,14 +56,20 @@ authRouter.post("/register", async (req, res) => {
       return res.status(409).json({ error: "Email already registered" });
     }
 
-    const user = await prisma.user.create({
-      data: {
-        id: generateId(),
-        email: normalizedEmail,
-        displayName: parsed.data.displayName,
-        passwordHash: await bcrypt.hash(parsed.data.password, 10),
-      },
-      select: { id: true, email: true, displayName: true },
+    const passwordHash = await bcrypt.hash(parsed.data.password, 10);
+    const user = await prisma.$transaction(async (tx) => {
+      const createdUser = await tx.user.create({
+        data: {
+          id: generateId(),
+          email: normalizedEmail,
+          displayName: parsed.data.displayName,
+          passwordHash,
+        },
+        select: { id: true, email: true, displayName: true },
+      });
+
+      await grantStarterPowerUps(createdUser.id, tx);
+      return createdUser;
     });
 
     return res.status(201).json({

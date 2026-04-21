@@ -1,19 +1,18 @@
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 
 import { socketService } from '@/services/socketService';
-
-export type PowerUpType =
-  | 'fifty_fifty'
-  | 'shield'
-  | 'time_boost'
-  | 'reveal_wrong'
-  | 'second_chance';
+import type { PowerUpCode } from '@/stores/profileStore';
+import { POWER_UP_META } from '@/utils/powerUps';
 
 export type PowerUpSlot = {
-  type: PowerUpType;
+  code: PowerUpCode;
+  powerUpId?: string;
   owned: boolean;
   used: boolean;
   count?: number;
+  targetPlayerId?: string;
+  targetLabel?: string;
+  unavailableReason?: string;
 };
 
 type PowerUpTrayProps = {
@@ -22,43 +21,45 @@ type PowerUpTrayProps = {
   disabled?: boolean;
 };
 
-const POWER_UP_META: Record<PowerUpType, { label: string; icon: string; color: string }> = {
-  fifty_fifty: { label: '50 / 50', icon: '1/2', color: 'from-violet-500 to-fuchsia-700' },
-  shield: { label: 'Shield', icon: 'SH', color: 'from-sky-500 to-blue-800' },
-  time_boost: { label: 'Time', icon: '+T', color: 'from-amber-400 to-orange-700' },
-  reveal_wrong: { label: 'Reveal', icon: 'RW', color: 'from-rose-500 to-red-800' },
-  second_chance: { label: 'Retry', icon: '2X', color: 'from-emerald-500 to-green-800' },
-};
-
 export const PowerUpTray = ({ slots, roomId, disabled = false }: PowerUpTrayProps) => {
-  const activatePowerUp = (type: PowerUpType) => {
-    socketService.emit('powerup:activate', { roomId, powerUpId: type });
+  const shouldReduceMotion = useReducedMotion();
+
+  const activatePowerUp = (slot: PowerUpSlot) => {
+    socketService.emit('powerup:activate', {
+      roomId,
+      powerUpId: slot.powerUpId ?? slot.code,
+      ...(slot.targetPlayerId ? { targetPlayerId: slot.targetPlayerId } : {}),
+    });
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-3">
+    <div className="grid w-full grid-cols-5 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:gap-3">
       {slots.map((slot) => {
-        const meta = POWER_UP_META[slot.type];
-        const isActive = slot.owned && !slot.used && !disabled;
+        const meta = POWER_UP_META[slot.code];
+        const reason = slot.unavailableReason ?? (!slot.owned ? 'Not in inventory' : undefined);
+        const isActive = slot.owned && !slot.used && !disabled && !reason;
+        const title = reason ?? (slot.targetLabel
+          ? `${meta.label}: ${slot.targetLabel}`
+          : meta.label);
 
         return (
           <motion.button
-            key={slot.type}
+            key={slot.code}
             type="button"
             disabled={!isActive}
-            onClick={() => activatePowerUp(slot.type)}
-            title={meta.label}
-            whileHover={isActive ? { scale: 1.08, y: -3 } : undefined}
-            whileTap={isActive ? { scale: 0.96 } : undefined}
+            onClick={() => activatePowerUp(slot)}
+            title={title}
+            whileHover={isActive && !shouldReduceMotion ? { scale: 1.08, y: -3 } : undefined}
+            whileTap={isActive && !shouldReduceMotion ? { scale: 0.96 } : undefined}
             className={[
-              'relative flex h-14 w-14 flex-col items-center justify-center rounded-2xl border text-sm font-black transition-all',
+              'relative flex h-16 min-w-0 flex-col items-center justify-center rounded-2xl border text-sm font-black transition-all sm:w-16',
               isActive
-                ? `border-white/20 bg-gradient-to-br ${meta.color} text-white shadow-brand`
+                ? `border-white/20 bg-gradient-to-br ${meta.trayGradient} text-white shadow-brand`
                 : 'cursor-not-allowed border-white/5 bg-white/5 text-white/40 opacity-60',
             ].join(' ')}
           >
-            <span>{meta.icon}</span>
-            {typeof slot.count === 'number' && slot.count > 1 && (
+            <span className="text-base leading-none">{meta.icon}</span>
+            {typeof slot.count === 'number' && slot.count > 0 && (
               <span className="absolute -right-1 -top-1 rounded-full bg-gold px-1.5 py-0.5 text-[10px] text-black">
                 {slot.count}
               </span>
@@ -68,7 +69,7 @@ export const PowerUpTray = ({ slots, roomId, disabled = false }: PowerUpTrayProp
                 USED
               </span>
             )}
-            <span className="absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] font-semibold uppercase tracking-wider text-white/45">
+            <span className="absolute -bottom-5 left-1/2 w-16 -translate-x-1/2 truncate text-center text-[9px] font-semibold uppercase tracking-wider text-white/45">
               {meta.label}
             </span>
           </motion.button>

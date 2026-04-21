@@ -1,5 +1,7 @@
 package com.quizroyale.showdown.ui.game
 
+import com.quizroyale.showdown.domain.model.PowerupType
+
 sealed interface GameUiState {
   data object Idle : GameUiState
 
@@ -28,7 +30,8 @@ sealed interface GameUiState {
     val phaseLabel: String,
     val selectedAnswerIndex: Int? = null,
     val isAnswerLocked: Boolean = false,
-    val correctAnswerIndex: Int? = null
+    val correctAnswerIndex: Int? = null,
+    val activePowerupEffect: PowerupEffectUiModel? = null
   ) : GameUiState
 
   data class RoundResult(
@@ -65,4 +68,11 @@ data class PlayerUiModel(
   val streak: Int,
   val isEliminated: Boolean,
   val avatarUrl: String? = null
+)
+
+data class PowerupEffectUiModel(
+  val type: PowerupType,
+  val title: String,
+  val detail: String,
+  val isPending: Boolean = false
 )
