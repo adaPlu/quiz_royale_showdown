@@ -1,9 +1,30 @@
-import { useEffect } from 'react';
+import { motion } from 'framer-motion';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { PlayerAvatar } from '@components/PlayerAvatar';
 import { useAuthStore } from '@stores/authStore';
 import { useGameStore } from '@stores/gameStore';
+
+function XpCounter({ target }: { target: number }) {
+  const [displayed, setDisplayed] = useState(0);
+  const rafRef = useRef<number>(0);
+
+  useEffect(() => {
+    const duration = 1200;
+    const start = performance.now();
+    const step = (now: number) => {
+      const elapsed = Math.min(now - start, duration);
+      const progress = 1 - Math.pow(1 - elapsed / duration, 3);
+      setDisplayed(Math.round(target * progress));
+      if (elapsed < duration) rafRef.current = requestAnimationFrame(step);
+    };
+    rafRef.current = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [target]);
+
+  return <>{displayed.toLocaleString()}</>;
+}
 
 export default function ResultsPage() {
   const navigate = useNavigate();
@@ -42,20 +63,32 @@ export default function ResultsPage() {
   return (
     <div className="flex min-h-screen flex-col bg-game-bg p-4">
       <div className="mx-auto flex w-full max-w-lg flex-col gap-4 py-6">
-        <div className="text-center">
+        <motion.div
+          className="text-center"
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+        >
           <p className="text-sm uppercase tracking-[0.3em] text-gold">Game Over</p>
           <h1 className="mt-2 text-3xl font-black text-white">
             {myScore?.rank === 1 ? 'Victory' : 'Final Results'}
           </h1>
           {winner && <p className="mt-1 font-semibold text-gold">Winner: {winner.playerId}</p>}
           {myScore && <p className="text-sm text-game-muted">Your rank: #{myScore.rank}</p>}
-        </div>
+        </motion.div>
 
         {myScore && myScore.xpAwarded > 0 && (
-          <div className="rounded-2xl border border-game-border bg-game-surface p-4 text-center">
+          <motion.div
+            className="rounded-2xl border border-game-border bg-game-surface p-4 text-center"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.2, type: 'spring', stiffness: 300, damping: 24 }}
+          >
             <p className="text-xs uppercase tracking-wide text-game-muted">XP Earned</p>
-            <p className="text-3xl font-black text-gold">+{myScore.xpAwarded} XP</p>
-          </div>
+            <p className="text-3xl font-black text-gold">
+              +<XpCounter target={myScore.xpAwarded} /> XP
+            </p>
+          </motion.div>
         )}
 
         <div className="overflow-hidden rounded-2xl border border-game-border bg-game-surface">
@@ -63,9 +96,12 @@ export default function ResultsPage() {
             <h2 className="font-bold text-white">Final Standings</h2>
           </div>
           <div className="divide-y divide-game-border">
-            {finalScores.map((score) => (
-              <div
+            {finalScores.map((score, i) => (
+              <motion.div
                 key={score.playerId}
+                initial={{ opacity: 0, x: -16 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.3 + i * 0.05 }}
                 className={`flex items-center gap-3 px-4 py-3 ${score.playerId === user?.id ? 'bg-brand/10' : ''}`}
               >
                 <span className="w-8 text-center font-bold text-game-muted">#{score.rank}</span>
@@ -79,7 +115,7 @@ export default function ResultsPage() {
                 {score.xpAwarded > 0 && (
                   <span className="text-xs text-gold">+{score.xpAwarded}xp</span>
                 )}
-              </div>
+              </motion.div>
             ))}
           </div>
         </div>

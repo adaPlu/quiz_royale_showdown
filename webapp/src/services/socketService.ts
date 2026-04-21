@@ -153,6 +153,7 @@ type ClientEventPayloads = {
 };
 
 type Unsubscribe = () => void;
+type ConnectionStatus = 'connected' | 'disconnected' | 'reconnecting';
 
 const ServerEnvelopeSchema = z.object({
   type: z.string(),
@@ -165,6 +166,16 @@ class SocketService {
   private activeRoomId: string | null = null;
   private accessToken: string | null = null;
   private listeners = new Map<ServerEventType, Set<(payload: unknown) => void>>();
+  private statusListeners = new Set<(status: ConnectionStatus) => void>();
+
+  onStatusChange(handler: (status: ConnectionStatus) => void): Unsubscribe {
+    this.statusListeners.add(handler);
+    return () => this.statusListeners.delete(handler);
+  }
+
+  private emitStatus(status: ConnectionStatus): void {
+    this.statusListeners.forEach((h) => h(status));
+  }
 
   connect(accessToken = localStorage.getItem('qrs.accessToken') ?? ''): void {
     if (!accessToken) return;
@@ -189,10 +200,13 @@ class SocketService {
 
     this.socket.on('message', (raw: unknown) => this.handleMessage(raw));
     this.socket.on('connect', () => {
+      this.emitStatus('connected');
       if (this.activeRoomId) {
         this.emit('room:join', { roomCode: this.activeRoomId });
       }
     });
+    this.socket.on('disconnect', () => this.emitStatus('disconnected'));
+    this.socket.on('reconnect_attempt', () => this.emitStatus('reconnecting'));
   }
 
   disconnect(): void {
