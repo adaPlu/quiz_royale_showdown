@@ -111,6 +111,9 @@ class GameViewModel @Inject constructor(
           is GameEvent.LootDrop -> {
             _sideEffects.trySend(GameSideEffect.ShowLootDrop(event.powerupCode))
           }
+          is GameEvent.LevelUp -> {
+            _sideEffects.trySend(GameSideEffect.ShowLevelUp(event.newLevel))
+          }
           is GameEvent.ServerError -> _sideEffects.trySend(GameSideEffect.ShowToast(event.message))
         }
       }

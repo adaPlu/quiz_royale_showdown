@@ -16,6 +16,8 @@ import com.quizroyale.showdown.ui.game.GameUiState
 import com.quizroyale.showdown.ui.game.GameViewModel
 import com.quizroyale.showdown.ui.lobby.LobbyScreen
 import com.quizroyale.showdown.ui.screens.home.HomeScreen
+import com.quizroyale.showdown.ui.screens.leaderboard.LeaderboardScreen
+import com.quizroyale.showdown.ui.screens.profile.ProfileScreen
 import com.quizroyale.showdown.ui.screens.results.ResultsScreen
 
 @Composable
@@ -29,8 +31,8 @@ fun AppNavGraph() {
           navController.navigate(Screen.Lobby.createRoute(roomCode))
         },
         onNavigateToProfile = {
-          // Profile navigation placeholder.
-        }
+          navController.navigate(Screen.Profile.route)
+        },
       )
     }
 
@@ -88,6 +90,14 @@ fun AppNavGraph() {
           }
         }
       )
+    }
+
+    composable(Screen.Profile.route) {
+      ProfileScreen(onNavigateBack = { navController.popBackStack() })
+    }
+
+    composable(Screen.Leaderboard.route) {
+      LeaderboardScreen(onNavigateBack = { navController.popBackStack() })
     }
   }
 }

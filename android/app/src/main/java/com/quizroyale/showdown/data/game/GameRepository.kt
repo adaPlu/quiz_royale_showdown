@@ -200,6 +200,12 @@ class GameRepository @Inject constructor(
         "v1:powerup:loot_drop", "powerup:loot_drop" -> GameEvent.LootDrop(
           powerupCode = payload.optString("powerupCode")
         )
+        "player:level_up", "v1:player:level_up" -> GameEvent.LevelUp(
+          playerId = payload.optString("playerId"),
+          newLevel = payload.optInt("newLevel", 1),
+          xp = payload.optInt("xp", 0),
+          xpToNextLevel = payload.optInt("xpToNextLevel", 150)
+        )
         "server:error", "error" -> GameEvent.ServerError(
           message = payload.optString("message", payload.optString("error", "Server error")),
           code = payload.optString("code").takeIf { it.isNotBlank() }

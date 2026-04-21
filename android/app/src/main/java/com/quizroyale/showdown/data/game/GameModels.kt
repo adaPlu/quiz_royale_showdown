@@ -59,6 +59,7 @@ sealed interface GameEvent {
   data class GameOver(val roomId: String, val winnerId: String, val finalStandings: List<FinalStanding>) : GameEvent
   data class PowerupActivated(val roomId: String, val playerId: String, val powerupId: String) : GameEvent
   data class LootDrop(val powerupCode: String) : GameEvent
+  data class LevelUp(val playerId: String, val newLevel: Int, val xp: Int, val xpToNextLevel: Int) : GameEvent
   data class ServerError(val message: String, val code: String? = null) : GameEvent
 }
 
