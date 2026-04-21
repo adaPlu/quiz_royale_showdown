@@ -11,6 +11,8 @@ import usersRouter from "./routes/users";
 import powerupsRouter from "./routes/powerups";
 import cosmeticsRouter from "./routes/cosmetics";
 import leaderboardRouter from "./routes/leaderboard";
+import pushRouter from "./routes/push";
+import challengesRouter from "./routes/challenges";
 
 export const createApp = () => {
   const app = express();
@@ -33,6 +35,8 @@ export const createApp = () => {
   app.use("/api/v1/powerups", powerupsRouter);
   app.use("/api/v1/cosmetics", cosmeticsRouter);
   app.use("/api/v1/leaderboard", leaderboardRouter);
+  app.use("/api/v1/push", pushRouter);
+  app.use("/api/v1/challenges", challengesRouter);
   app.use(errorHandler);
 
   return app;

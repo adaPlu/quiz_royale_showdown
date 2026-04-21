@@ -17,6 +17,7 @@ import { logger } from "../utils/logger";
 import { powerUpService } from "./PowerUpService";
 import { redisService } from "./RedisService";
 import { awardMatchXp } from "./XpService";
+import { pushService } from "./PushNotificationService";
 
 const DEFAULT_COUNTDOWN_MS = 5_000;
 const DEFAULT_QUESTION_TIME_LIMIT_MS = 20_000;
@@ -178,6 +179,16 @@ export class GameOrchestrator {
         seconds: Math.ceil(this.options.countdownMs / 1000),
       },
     });
+
+    // Push notification to players who may have backgrounded the app
+    const players = await prisma.roomPlayer.findMany({
+      where: { roomId },
+      select: { userId: true },
+    });
+    pushService.sendToUsers(
+      players.map((p) => p.userId),
+      { title: "Game starting!", body: "Your Quiz Royale game is beginning. Get ready!", icon: "/favicon.svg" },
+    ).catch(() => undefined);
 
     await this.delayWithHeartbeat(roomId, "countdown", this.options.countdownMs);
   }
