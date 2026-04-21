@@ -9,14 +9,40 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       includeAssets: ["favicon.svg"],
+      workbox: {
+        globPatterns: ["**/*.{js,css,html,ico,png,svg}"],
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/.*\/api\/v1\/(leaderboard|users\/me)/,
+            handler: "NetworkFirst",
+            options: {
+              cacheName: "api-cache",
+              expiration: { maxEntries: 20, maxAgeSeconds: 300 },
+            },
+          },
+        ],
+      },
       manifest: {
         name: "Quiz Royale Showdown",
         short_name: "QuizRoyale",
+        description: "Multiplayer trivia battle royale — answer fast, outlast everyone",
         theme_color: "#6C3EF5",
         background_color: "#0E0E1A",
-        display: "standalone"
-      }
-    })
+        display: "standalone",
+        orientation: "portrait",
+        start_url: "/",
+        scope: "/",
+        icons: [
+          { src: "/favicon.svg", sizes: "any", type: "image/svg+xml", purpose: "any maskable" },
+          { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
+          { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
+        ],
+        screenshots: [
+          { src: "/screenshot-game.png", sizes: "390x844", type: "image/png", form_factor: "narrow" },
+        ],
+        categories: ["games", "entertainment"],
+      },
+    }),
   ],
   resolve: {
     alias: {
@@ -25,8 +51,8 @@ export default defineConfig({
       "@hooks": path.resolve(__dirname, "src/hooks"),
       "@pages": path.resolve(__dirname, "src/pages"),
       "@services": path.resolve(__dirname, "src/services"),
-      "@stores": path.resolve(__dirname, "src/stores")
-    }
+      "@stores": path.resolve(__dirname, "src/stores"),
+    },
   },
   build: {
     sourcemap: true,
@@ -35,9 +61,9 @@ export default defineConfig({
         manualChunks: {
           react: ["react", "react-dom", "react-router-dom"],
           motion: ["framer-motion"],
-          socket: ["socket.io-client", "zustand", "axios", "zod"]
-        }
-      }
-    }
-  }
+          socket: ["socket.io-client", "zustand", "axios", "zod"],
+        },
+      },
+    },
+  },
 });
