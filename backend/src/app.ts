@@ -4,6 +4,7 @@ import helmet from "helmet";
 
 import { env } from "./config/env";
 import { errorHandler } from "./middleware/errorHandler";
+import { apiLimiter, authLimiter } from "./middleware/rateLimiter";
 import { authRouter } from "./routes/auth";
 import { healthRouter } from "./routes/health";
 import { roomsRouter } from "./routes/rooms";
@@ -29,7 +30,8 @@ export const createApp = () => {
   });
 
   app.use("/health", healthRouter);
-  app.use("/api/v1/auth", authRouter);
+  app.use("/api/v1/auth", authLimiter, authRouter);
+  app.use("/api/v1", apiLimiter);
   app.use("/api/v1/rooms", roomsRouter);
   app.use("/api/v1/users", usersRouter);
   app.use("/api/v1/powerups", powerupsRouter);
