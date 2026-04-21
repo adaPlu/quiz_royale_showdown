@@ -109,6 +109,15 @@ export const serverEventSchema = z.discriminatedUnion("type", [
         })
       )
     })
+  ),
+  envelope(
+    "player:level_up",
+    z.object({
+      playerId: z.string(),
+      newLevel: z.number(),
+      xp: z.number(),
+      xpToNextLevel: z.number()
+    })
   )
 ]);
 
