@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { socketService } from '@/services/socketService';
 import { useAuthStore } from '@/stores/authStore';
 import { useGameStore } from '@/stores/gameStore';
+import { useProfileStore } from '@/stores/profileStore';
 
 export const useGameSocket = (roomId: string | undefined) => {
   const navigate = useNavigate();
@@ -21,6 +22,7 @@ export const useGameSocket = (roomId: string | undefined) => {
   const applyPowerupEffect = useGameStore((state) => state.applyPowerupEffect);
   const applyGameOver = useGameStore((state) => state.applyGameOver);
   const applyLevelUp = useGameStore((state) => state.applyLevelUp);
+  const updateXp = useProfileStore((state) => state.updateXp);
 
   useEffect(() => {
     const token = accessToken ?? localStorage.getItem('qrs.accessToken');
@@ -55,7 +57,10 @@ export const useGameSocket = (roomId: string | undefined) => {
         applyGameOver(payload);
         navigate(`/results/${payload.roomId}`);
       }),
-      socketService.on('player:level_up', applyLevelUp),
+      socketService.on('player:level_up', (payload) => {
+        applyLevelUp(payload);
+        updateXp(payload.xp, payload.newLevel);
+      }),
     ];
 
     return () => {
@@ -78,5 +83,6 @@ export const useGameSocket = (roomId: string | undefined) => {
     applyPowerupEffect,
     applyGameOver,
     applyLevelUp,
+    updateXp,
   ]);
 };

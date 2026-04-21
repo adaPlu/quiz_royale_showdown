@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 
 import { CountdownBar } from '@/components/CountdownBar';
+import { LevelUpToast } from '@/components/LevelUpToast';
 import { LootDropToast } from '@/components/LootDropToast';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { PowerUpActivationFx } from '@/components/PowerUpActivationFx';
@@ -74,6 +75,8 @@ export const GamePage = () => {
   const setMyAnswer = useGameStore((state) => state.setMyAnswer);
   const lootDrop = useGameStore((state) => state.lootDrop);
   const clearLootDrop = useGameStore((state) => state.clearLootDrop);
+  const levelUpQueue = useGameStore((state) => state.levelUpQueue);
+  const dismissLevelUp = useGameStore((state) => state.dismissLevelUp);
   const leaderboard = useGameStore(selectLeaderboard);
 
   const audio = useGameAudio();
@@ -270,6 +273,10 @@ export const GamePage = () => {
       <LootDropToast
         powerupCode={lootDrop?.powerupCode as PowerUpType ?? null}
         onDismiss={clearLootDrop}
+      />
+      <LevelUpToast
+        level={levelUpQueue[0]?.newLevel ?? null}
+        onDismiss={dismissLevelUp}
       />
     </main>
   );
