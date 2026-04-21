@@ -16,6 +16,7 @@ import { generateId } from "../utils/ulid";
 import { logger } from "../utils/logger";
 import { powerUpService } from "./PowerUpService";
 import { redisService } from "./RedisService";
+import { awardMatchXp } from "./XpService";
 
 const DEFAULT_COUNTDOWN_MS = 5_000;
 const DEFAULT_QUESTION_TIME_LIMIT_MS = 20_000;
@@ -364,42 +365,75 @@ export class GameOrchestrator {
       allPlayers.map((player) => player.userId),
     );
 
-    const finalStandings = allPlayers
+    const ranked = allPlayers
       .map((player) => ({
         playerId: player.userId,
         score: scoreMap.get(player.userId) ?? player.score,
       }))
       .sort((left, right) => right.score - left.score || left.playerId.localeCompare(right.playerId))
-      .map((standing, index) => ({
-        ...standing,
-        rank: index + 1,
-        xpAwarded: Math.max(10, Math.round(standing.score / 10)),
-      }));
+      .map((standing, index) => ({ ...standing, rank: index + 1 }));
 
-    await prisma.$transaction([
-      prisma.room.update({ where: { id: roomId }, data: { status: "GAME_OVER", finishedAt: new Date() } }),
-      ...finalStandings.map((standing) =>
-        prisma.xpEvent.create({
-          data: {
-            id: generateId(),
-            userId: standing.playerId,
-            reason: "GAME_FINISH",
-            amount: standing.xpAwarded,
-            metadata: { roomId, rank: standing.rank },
-          },
-        }),
-      ),
-    ]);
+    await prisma.room.update({ where: { id: roomId }, data: { status: "GAME_OVER", finishedAt: new Date() } });
+
+    // Award XP and detect level-ups (XpService writes XpEvent rows)
+    const xpResults = await awardMatchXp(
+      roomId,
+      ranked.map((s) => ({ playerId: s.playerId, rank: s.rank, totalPlayers: ranked.length, score: s.score })),
+    );
+    const xpByPlayer = new Map(xpResults.map((r) => [r.playerId, r]));
+
+    const finalStandings = ranked.map((s) => ({
+      ...s,
+      xpAwarded: xpByPlayer.get(s.playerId)?.xpAwarded ?? 0,
+    }));
+
+    // Upsert season standings
+    const room = await prisma.room.findUnique({ where: { id: roomId }, select: { seasonId: true } });
+    if (room?.seasonId) {
+      const MMR_DELTAS = [30, 20, 10];
+      await Promise.allSettled(
+        finalStandings.map((s) =>
+          prisma.seasonScore.upsert({
+            where: { seasonId_userId: { seasonId: room.seasonId!, userId: s.playerId } },
+            update: {
+              mmr: { increment: MMR_DELTAS[s.rank - 1] ?? 0 },
+              wins: s.rank === 1 ? { increment: 1 } : undefined,
+              gamesPlayed: { increment: 1 },
+            },
+            create: {
+              id: generateId(),
+              seasonId: room.seasonId!,
+              userId: s.playerId,
+              mmr: 1000 + (MMR_DELTAS[s.rank - 1] ?? 0),
+              wins: s.rank === 1 ? 1 : 0,
+              gamesPlayed: 1,
+            },
+          }),
+        ),
+      );
+    }
 
     emitToRoom(io, roomId, {
       type: "game:over",
       version: "v1",
-      payload: {
-        roomId,
-        winnerId: winnerId ?? "",
-        finalStandings,
-      },
+      payload: { roomId, winnerId: winnerId ?? "", finalStandings },
     });
+
+    // Emit level-up events to individual players
+    for (const xp of xpResults) {
+      if (xp.didLevelUp) {
+        io.to(xp.playerId).emit("message", {
+          type: "player:level_up",
+          version: "v1",
+          payload: {
+            playerId: xp.playerId,
+            newLevel: xp.newLevel,
+            xp: xp.totalXp,
+            xpToNextLevel: xp.xpToNextLevel,
+          },
+        });
+      }
+    }
 
     if (redisService) {
       await redisService.del(`game:${roomId}:state`, `game:${roomId}:current_question`);

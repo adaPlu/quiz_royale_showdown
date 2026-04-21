@@ -10,6 +10,7 @@ import { roomsRouter } from "./routes/rooms";
 import usersRouter from "./routes/users";
 import powerupsRouter from "./routes/powerups";
 import cosmeticsRouter from "./routes/cosmetics";
+import leaderboardRouter from "./routes/leaderboard";
 
 export const createApp = () => {
   const app = express();
@@ -31,6 +32,7 @@ export const createApp = () => {
   app.use("/api/v1/users", usersRouter);
   app.use("/api/v1/powerups", powerupsRouter);
   app.use("/api/v1/cosmetics", cosmeticsRouter);
+  app.use("/api/v1/leaderboard", leaderboardRouter);
   app.use(errorHandler);
 
   return app;
