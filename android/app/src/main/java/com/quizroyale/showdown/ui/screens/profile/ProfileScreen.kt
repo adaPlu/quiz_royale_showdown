@@ -26,6 +26,7 @@ private val BgDark = Color(0xFF0E0E1A)
 @Composable
 fun ProfileScreen(
     onNavigateBack: () -> Unit = {},
+    onNavigateToCosmetics: () -> Unit = {},
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
