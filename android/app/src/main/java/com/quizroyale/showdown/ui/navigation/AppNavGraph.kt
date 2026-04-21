@@ -39,6 +39,9 @@ fun AppNavGraph() {
         onNavigateToProfile = {
           navController.navigate(Screen.Profile.route)
         },
+        onNavigateToLeaderboard = {
+          navController.navigate(Screen.Leaderboard.route)
+        },
       )
     }
 

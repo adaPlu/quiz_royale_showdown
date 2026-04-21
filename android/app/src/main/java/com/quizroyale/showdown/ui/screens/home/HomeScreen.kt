@@ -32,6 +32,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 fun HomeScreen(
     onNavigateToLobby: (roomId: String) -> Unit,
     onNavigateToProfile: () -> Unit = {},
+    onNavigateToLeaderboard: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -120,5 +121,6 @@ fun HomeScreen(
 
         Spacer(Modifier.height(32.dp))
         TextButton(onClick = onNavigateToProfile) { Text("My Profile") }
+        TextButton(onClick = onNavigateToLeaderboard) { Text("Leaderboard") }
     }
 }
