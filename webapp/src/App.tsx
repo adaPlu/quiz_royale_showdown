@@ -1,7 +1,10 @@
 import React, { Suspense, lazy } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { OfflineBanner } from '@/components/OfflineBanner';
+import { SocketReconnectBanner } from '@/components/SocketReconnectBanner';
+import { ToastManager } from '@/components/ToastManager';
 import { GamePage } from '@/pages/GamePage';
 import { LobbyPage } from '@/pages/LobbyPage';
 import { useAuthStore } from '@/stores/authStore';
@@ -12,6 +15,7 @@ const HomePage        = lazy(() => import('@/pages/HomePage'));
 const ResultsPage     = lazy(() => import('@/pages/ResultsPage'));
 const ProfilePage     = lazy(() => import('@/pages/ProfilePage'));
 const LeaderboardPage = lazy(() => import('@/pages/LeaderboardPage'));
+const NotFoundPage    = lazy(() => import('@/pages/NotFoundPage'));
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user);
@@ -27,26 +31,31 @@ const Spinner = () => (
 
 export const App = () => {
   return (
-    <Suspense fallback={<Spinner />}>
-      <OfflineBanner />
-      <Routes>
-        {/* Public */}
-        <Route path="/login"    element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
+    <ErrorBoundary>
+      <Suspense fallback={<Spinner />}>
+        <OfflineBanner />
+        <SocketReconnectBanner />
+        <ToastManager />
+        <Routes>
+          {/* Public */}
+          <Route path="/login"    element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
 
-        {/* Auth-gated */}
-        <Route path="/home" element={<RequireAuth><HomePage /></RequireAuth>} />
-        <Route path="/lobby/:roomId" element={<RequireAuth><LobbyPage /></RequireAuth>} />
-        <Route path="/game/:roomId"  element={<RequireAuth><GamePage /></RequireAuth>} />
-        <Route path="/results/:roomId" element={<RequireAuth><ResultsPage /></RequireAuth>} />
-        <Route path="/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
-        <Route path="/profile/:username" element={<RequireAuth><ProfilePage /></RequireAuth>} />
-        <Route path="/leaderboard" element={<RequireAuth><LeaderboardPage /></RequireAuth>} />
+          {/* Auth-gated */}
+          <Route path="/home" element={<RequireAuth><HomePage /></RequireAuth>} />
+          <Route path="/lobby/:roomId" element={<RequireAuth><LobbyPage /></RequireAuth>} />
+          <Route path="/game/:roomId"  element={<RequireAuth><GamePage /></RequireAuth>} />
+          <Route path="/results/:roomId" element={<RequireAuth><ResultsPage /></RequireAuth>} />
+          <Route path="/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
+          <Route path="/profile/:username" element={<RequireAuth><ProfilePage /></RequireAuth>} />
+          <Route path="/leaderboard" element={<RequireAuth><LeaderboardPage /></RequireAuth>} />
 
-        {/* Root redirects */}
-        <Route path="/" element={<Navigate to="/login" replace />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      </Routes>
-    </Suspense>
+          {/* Root redirect */}
+          <Route path="/" element={<Navigate to="/login" replace />} />
+          {/* 404 */}
+          <Route path="*" element={<NotFoundPage />} />
+        </Routes>
+      </Suspense>
+    </ErrorBoundary>
   );
 };
