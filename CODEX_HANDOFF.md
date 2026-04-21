@@ -1,7 +1,7 @@
 # Quiz Royale Showdown — Codex Handoff Document
-**Updated:** 2026-04-20  
-**Current tag:** `phase-2-complete` (`0d5b0ba` on `main`)  
-**Status:** Phase 2 complete — starting Phase 3 (Meta Progression)
+**Updated:** 2026-04-21  
+**Current tag:** `phase-5-complete` (`abec881` on `main`)  
+**Status:** Phases 0–5 complete — ready for Phase 6 (Public Launch)
 
 ---
 
@@ -14,16 +14,15 @@
 | `C:/Users/plugu/AndroidStudioProjects/QuizGame-android` | `feature/android` | Android Agent |
 | `C:/Users/plugu/AndroidStudioProjects/QuizGame-webapp` | `feature/webapp` | Web Agent |
 
-**CRITICAL — Agent Permissions:** Spawned subagents can ONLY access `C:/Users/plugu/AndroidStudioProjects/QuizGame` (main worktree). They cannot read/write to the other 3 worktree paths. All implementation must be done by the primary (non-spawned) agent inline, or each agent must be run with the correct working directory set to their own worktree.
+**CRITICAL — Agent Permissions:** Spawned subagents can ONLY access `C:/Users/plugu/AndroidStudioProjects/QuizGame` (main worktree). All implementation must be done by the primary agent inline, using `git -C <worktree-path>` for git operations.
 
 ---
 
 ## Tech Stack (do not change)
 
 - **Backend**: Node.js 20 LTS, TypeScript strict, Express 4, Socket.IO 4, Prisma ORM, PostgreSQL 16, Redis 7, ioredis, JWT (15m access / 7d refresh), bcrypt, Zod, Pino
-- **Android**: Kotlin, Jetpack Compose BOM 2024.09.00, Hilt 2.51, Retrofit 2.11, OkHttp 4.12, Room 2.6.1, Navigation Compose, Coil, Timber, Google Play Billing v5, Firebase Crashlytics + FCM
-- **Web**: Vite 5, React 18, TypeScript strict, Tailwind CSS, Zustand, Socket.IO-client, Framer Motion, Axios, Zod, React Hook Form
-- **Infra**: Docker Compose (local), Railway (backend), Vercel (webapp)
+- **Android**: Kotlin, Jetpack Compose BOM 2024.09.00, Hilt 2.51, Retrofit 2.11, OkHttp 4.12, Room 2.6.1, Navigation Compose, Coil, Timber, Firebase Crashlytics + FCM
+- **Web**: Vite 5, React 18, TypeScript strict, Tailwind CSS, Zustand, Socket.IO-client, Framer Motion, Axios, Zod, React Hook Form, vite-plugin-pwa + Workbox
 
 ## Brand Colors
 
@@ -36,15 +35,18 @@
 
 Envelope: `{ type: "event_name", version: "v1", payload: {} }`
 
-**Server → Client** (all live as of Phase 2):
+**Server → Client:**
 - `room:state_sync`, `room:player_joined`, `room:player_left`
 - `round:countdown_started`, `round:question_started`, `round:answer_locked`, `round:result`
 - `round:elimination`, `round:finale_started`
 - `powerup:activated`, `powerup:effect`, `powerup:loot_drop`
 - `game:over`
-- `player:level_up` ← **Phase 3** (backend must emit, clients must handle)
+- `player:level_up` → `{ playerId, newLevel, xp, xpToNextLevel }`
 
-**Client → Server**: `room:join`, `round:submit_answer`, `powerup:activate`, `client:heartbeat`
+**Client → Server:** `room:join`, `round:submit_answer`, `powerup:activate`, `client:heartbeat`
+
+**Socket connection status events (webapp socketService):**
+- `onStatusChange(handler)` → fires `'connected' | 'disconnected' | 'reconnecting'`
 
 ---
 
@@ -60,161 +62,56 @@ Envelope: `{ type: "event_name", version: "v1", payload: {} }`
 - Android: GameViewModel MVI, GameRepository socket parsing, LobbyViewModel, GameScreen
 - Web: gameStore (all 10 event handlers), GamePage, LobbyPage, socketService (Zod-validated)
 
-### Phase 2 — Power-Ups + Game Feel (current `main` HEAD)
-- Backend: `PowerUpBalancer` (rarity weights, rollLoot, loot drop post-round in GameOrchestrator)
+### Phase 2 — Power-Ups + Game Feel
+- Backend: `PowerUpBalancer` (rarity weights, rollLoot, loot drop post-round)
 - Android: `PowerUpTray.kt`, `GameSoundManager.kt`, `ShowLootDrop`/audio `GameSideEffect`s
-- Web: `PowerUpActivationFx.tsx`, `LootDropToast.tsx`, `useGameAudio.ts` (Web Audio API synth), `lootDrop` in gameStore
+- Web: `PowerUpActivationFx.tsx`, `LootDropToast.tsx`, `useGameAudio.ts`, `lootDrop` in gameStore
+
+### Phase 3 — Meta Progression
+- Backend: `XpService.ts` (level formula: `floor(sqrt(totalXp/150))`), `awardMatchXp()`, season MMR upsert, `player:level_up` emit
+- Backend: Leaderboard route (`GET /leaderboard?season=current`, `/leaderboard/friends`)
+- Android: `ProfileScreen.kt`, `LeaderboardScreen.kt`+VM+API, `CosmeticsScreen.kt`+VM, `GameEvent.LevelUp`, `GameSideEffect.ShowLevelUp`
+- Web: `LevelUpToast.tsx`, leaderboard tabs (season/global/friends), cosmetics equip in ProfilePage, `player:level_up` in useGameSocket + profileStore
+
+### Phase 4 — PWA + Feature Parity
+- Backend: `PushNotificationService.ts` (VAPID, Redis sets), `/push/vapid-public-key|subscribe`, `/challenges/daily`, rate limiters, room rejoin endpoint, health check hardening
+- Android: `QuizFcmService.kt` + `POST_NOTIFICATIONS` + Manifest, `AppNavGraph` Scaffold+Snackbar, `CosmeticsScreen` (optimistic equip), cosmetics nav route
+- Web: vite-plugin-pwa Workbox config, full PWA manifest with icons+screenshots, `useWebPush.ts`, `OfflineBanner.tsx`, ProfilePage push toggle, correct leaderboard API endpoints
+
+### Phase 5 — Polish + Soft Launch ✅ (current HEAD)
+- Backend: `authLimiter` (20/15min), `apiLimiter` (120/min), `gameActionLimiter` (5/sec) on routes; health endpoint async DB+Redis ping with 503 on degraded; `/rooms/:roomId/rejoin` endpoint
+- Android: `QuizRoyaleApp.kt` Crashlytics init (disabled in debug); `GameScreen.kt` — `PowerUpTray` integration, `isReconnecting` fullscreen overlay, `localLocked` double-tap guard, answer indicators (✓/✗/●); `HomeScreen.kt` Leaderboard nav button
+- Web: `ErrorBoundary.tsx` class component (Go Home on crash); `ToastManager.tsx` global LevelUp+LootDrop queue; `SocketReconnectBanner.tsx` amber banner on disconnect/reconnect; `useSocketStatus` hook; `socketService.ts` `onStatusChange()`; `ResultsPage.tsx` XP counter RAF animation + staggered standings; `NotFoundPage.tsx` 404; wildcard route now shows 404 instead of redirect
 
 ---
 
-## Phase 3 — Meta Progression (START HERE)
+## Phase 6 — Public Launch (NEXT)
 
-### Phase 3 Goal
-XP awarded at game end → player levels up → cosmetics unlock → equipped cosmetics visible to all players.
+### Launch Checklist
+- [ ] **Backend**: Deploy to Railway with production env vars (DATABASE_URL, REDIS_URL, VAPID keys, JWT secrets)
+- [ ] **Backend**: Run `prisma migrate deploy` on production DB
+- [ ] **Backend**: Configure CORS origin to production webapp domain
+- [ ] **Webapp**: Deploy to Vercel — set `VITE_API_BASE_URL`, `VITE_WS_BASE_URL` env vars
+- [ ] **Webapp**: Register service worker in production (already wired via vite-plugin-pwa)
+- [ ] **Android**: Update `BASE_URL` in `NetworkModule.kt` to production backend URL
+- [ ] **Android**: Upload signed APK/AAB to Play Store internal track
+- [ ] **Android**: Add `google-services.json` for production Firebase project
+- [ ] **Monitoring**: Enable Crashlytics in production; configure Pino log drain
+- [ ] **Smoke test**: Full game flow (login → quick play → game → results → leaderboard) on each platform
 
-### Backend Agent — Phase 3 Tasks
-
-Working dir: `C:/Users/plugu/AndroidStudioProjects/QuizGame-backend/backend`
-
-1. **XP Service** — create `src/services/XpService.ts`:
-   ```ts
-   // Computes XP from finalStandings, writes XpEvent rows to DB,
-   // calls prisma to update user.level if XP threshold crossed,
-   // returns { userId, xpAwarded, newLevel, xpToNextLevel }[]
-   ```
-   Formula (already in `src/game/XPFormula.ts` — import it):
-   - Base XP = 100 × (rank bonus) + 10 × streak + 20 × correct answers
-   - Level thresholds: level N requires N² × 150 XP total
-
-2. **Emit `player:level_up`** — in `GameOrchestrator.ts` `runGameOver()`:
-   After writing final scores, call `XpService.awardXp(finalStandings)`.
-   For each player that levelled up, emit to their socket room:
-   ```ts
-   io.to(playerId).emit("message", {
-     type: "player:level_up", version: "v1",
-     payload: { playerId, newLevel, xp, xpToNextLevel }
-   });
-   ```
-
-3. **Leaderboard route** — create `src/routes/leaderboard.ts`:
-   - `GET /api/v1/leaderboard?season=current&limit=100` → top 100 by season MMR
-   - `GET /api/v1/leaderboard/friends?limit=50` → friends by score (requires auth)
-   Register in `src/app.ts`.
-
-4. **Season ladder upsert** — in `GameOrchestrator.runGameOver()`:
-   Upsert `SeasonStanding` rows with MMR delta (winner +30, 2nd +20, 3rd +10, rest 0, eliminated -10).
-
-5. **Daily challenges** — create `src/services/DailyChallengeService.ts`:
-   - `getChallengesForUser(userId)` → returns today's 3 challenges from DB
-   - `recordProgress(userId, challengeId, delta)` → upserts progress, marks complete if met
-   Add route `GET /api/v1/challenges/daily` and `POST /api/v1/challenges/:id/progress`.
-
-6. **Cosmetics equip endpoint** — create `src/routes/cosmetics.ts`:
-   - `GET /api/v1/cosmetics` → all cosmetics with `isOwned` and `isEquipped` per user
-   - `POST /api/v1/cosmetics/:id/equip` → sets `UserCosmetic.isEquipped = true`, unequips others in same slot
-
-7. Commit: `feat(backend): Phase 3 — XP/level-up, leaderboard, cosmetics equip, season ladder`
-
-### Android Agent — Phase 3 Tasks
-
-Working dir: `C:/Users/plugu/AndroidStudioProjects/QuizGame-android`
-
-1. **ProfileScreen.kt** — `ui/screens/profile/ProfileScreen.kt`:
-   - Avatar (Coil), display name, level badge, XP ring (Canvas arc), season rank badge
-   - Stats grid: games played, win rate, best streak
-   - Equipped cosmetics row with tap-to-change
-
-2. **CosmeticsScreen.kt** — `ui/screens/cosmetics/CosmeticsScreen.kt`:
-   - Grid of all cosmetics, locked ones greyed with lock icon
-   - Tap owned cosmetic → equip via `POST /api/v1/cosmetics/:id/equip`
-
-3. **LeaderboardScreen.kt** — `ui/screens/leaderboard/LeaderboardScreen.kt`:
-   - Tabs: Global / Season / Friends using `TabRow`
-   - `LazyColumn` rows with rank number, avatar, display name, score/MMR
-   - Pull-to-refresh
-
-4. **Handle `player:level_up`** — in `GameRepository.kt`, add parse case:
-   ```kotlin
-   "player:level_up" -> GameEvent.LevelUp(
-       playerId = payload.getString("playerId"),
-       newLevel = payload.getInt("newLevel"),
-       xp = payload.getInt("xp"),
-       xpToNextLevel = payload.getInt("xpToNextLevel")
-   )
-   ```
-   In `GameViewModel.kt`, handle `GameEvent.LevelUp`:
-   ```kotlin
-   is GameEvent.LevelUp -> _sideEffects.trySend(GameSideEffect.ShowLevelUp(event.newLevel))
-   ```
-   Add `data class ShowLevelUp(val newLevel: Int) : GameSideEffect()` to `GameSideEffect.kt`.
-   Show a `Snackbar` or animated overlay in `GameScreen.kt`.
-
-5. **Update `AppNavGraph.kt`**: Add routes for Profile, Cosmetics, Leaderboard screens.
-
-6. Commit: `feat(android): Phase 3 — ProfileScreen, CosmeticsScreen, LeaderboardScreen, level-up handling`
-
-### Web Agent — Phase 3 Tasks
-
-Working dir: `C:/Users/plugu/AndroidStudioProjects/QuizGame-webapp/webapp`
-
-1. **Connect `LeaderboardPage.tsx`** (`src/pages/LeaderboardPage.tsx` — already exists as stub):
-   - Tabs: Global / Season / Friends
-   - Fetch `GET /api/v1/leaderboard?season=current&limit=100` via `apiClient`
-   - Render rows with rank, avatar, display name, score using `PlayerAvatar` component
-   - Loading skeleton + error state
-
-2. **Cosmetics equip in `ProfilePage.tsx`** (`src/pages/ProfilePage.tsx` — exists as stub):
-   - Fetch `GET /api/v1/cosmetics` → show grid, owned vs locked
-   - `POST /api/v1/cosmetics/:id/equip` on click, optimistic update in `profileStore`
-   - Show currently equipped items
-
-3. **Handle `player:level_up` in `useGameSocket.ts`** (`src/hooks/useGameSocket.ts`):
-   Add listener for the `player:level_up` WS event:
-   ```ts
-   socketService.on('player:level_up', (payload) => {
-     // Update profileStore: set newLevel, xp, xpToNextLevel
-     // Trigger level-up toast/animation
-   });
-   ```
-   The `player:level_up` event is NOT yet in `socketService.ts` `ServerEventSchemas` or `contracts.ts` — add it to both:
-   ```ts
-   // contracts.ts
-   envelope("player:level_up", z.object({
-     playerId: z.string(), newLevel: z.number(),
-     xp: z.number(), xpToNextLevel: z.number()
-   })),
-   // socketService.ts ServerEventSchemas
-   'player:level_up': z.object({ playerId: z.string(), newLevel: z.number(), xp: z.number(), xpToNextLevel: z.number() }),
-   ```
-
-4. **`LevelUpToast.tsx`** — new component at `src/components/LevelUpToast.tsx`:
-   - Slides up from bottom with `framer-motion`
-   - Shows "Level Up! → Level {N}" with gold star burst animation
-   - Auto-dismisses after 3s
-   - Wire into `GamePage.tsx` (listen to profileStore for level change)
-
-5. **Update `profileStore.ts`** to add `level`, `xp`, `xpToNextLevel` state and `applyLevelUp(payload)` action.
-
-6. Commit: `feat(webapp): Phase 3 — leaderboard, cosmetics equip, level-up WS handling + LevelUpToast`
-
----
-
-## Integration Protocol (Tech Lead)
-
-After each Phase 3 agent commits on their feature branch:
-```bash
-git -C /c/Users/plugu/AndroidStudioProjects/QuizGame-main checkout main
-git -C /c/Users/plugu/AndroidStudioProjects/QuizGame-main merge --no-ff feature/backend -m "merge(backend): Phase 3 complete"
-git -C /c/Users/plugu/AndroidStudioProjects/QuizGame-main merge --no-ff feature/android -m "merge(android): Phase 3 complete"
-git -C /c/Users/plugu/AndroidStudioProjects/QuizGame-main merge --no-ff feature/webapp -m "merge(webapp): Phase 3 complete"
-git -C /c/Users/plugu/AndroidStudioProjects/QuizGame-main tag phase-3-complete
+### Backend env vars needed for production
 ```
-
-Phase 3 integration gate:
-- [ ] `POST /auth/login` + `GET /api/v1/leaderboard` both return 200
-- [ ] `game:over` → `player:level_up` emitted and received by web client
-- [ ] Web leaderboard renders real data
-- [ ] Android ProfileScreen shows correct level/XP
+DATABASE_URL=postgresql://...
+REDIS_URL=redis://...
+JWT_SECRET=<random 64-char>
+JWT_REFRESH_SECRET=<random 64-char>
+VAPID_PUBLIC_KEY=<from web-push generateVAPIDKeys()>
+VAPID_PRIVATE_KEY=<from web-push generateVAPIDKeys()>
+VAPID_SUBJECT=mailto:adapluguez@gmail.com
+CORS_ORIGIN=https://your-vercel-app.vercel.app
+PORT=4000
+NODE_ENV=production
+```
 
 ---
 
@@ -224,23 +121,25 @@ Phase 3 integration gate:
 |---|---|
 | WS envelope always `{ type, version: "v1", payload }` | All 3 clients parse this shape |
 | Power-up codes UPPERCASE on backend (`FIFTY_FIFTY`) | DB + orchestrator use uppercase |
-| Power-up codes lowercase on webapp (`fifty_fifty`) | `PowerUpTray` slot types |
+| Power-up codes lowercase on webapp (`fifty_fifty`) | `PowerUpTray` slot types; ToastManager lowercases on receive |
 | Android uses `GameSideEffect` pattern (not direct side effects in VM) | MVI contract |
 | `socketService.ts` ServerEventSchemas + `contracts.ts` must stay in sync | Both parse the same WS events |
 | `src/utils/logger.ts` on backend has explicit `Logger` interface | TS7022 circular inference bug |
 | Worktree agents cannot access each other's paths | Permission architecture |
+| XP level formula: `floor(sqrt(totalXp / 150))`, min level 1 | Must match between XpService.ts and all clients |
 
 ---
 
 ## Recent `main` Git Log
 
 ```
-0d5b0ba merge(webapp): Phase 2 — PowerUpActivationFx, LootDropToast, Web Audio, loot_drop wired
-a622bae merge(android): Phase 2 — PowerUpTray, GameSoundManager, LootDrop event, SFX side effects
-0878cc2 merge(backend): Phase 2 — PowerUpBalancer rarity/loot, loot drops post-round
-19ed25d feat(webapp): Phase 2 — wire PowerUpActivationFx, LootDropToast, audio into GamePage
-1085826 feat(android): Phase 2 — PowerUpTray, GameSoundManager, LootDrop event, SFX side effects
-382ee42 feat(backend): Phase 2 — PowerUpBalancer rarity/loot, loot drops after rounds
+abec881 merge(webapp): Phase 5 — error boundary, toast manager, socket reconnect, XP animation, 404 page
+3eceb10 merge(android): Phase 5 — Crashlytics, power-up tray, reconnect overlay, leaderboard nav
+e263111 feat(webapp): Phase 5 — error boundary, toast manager, socket reconnect banner, XP animation, 404 page
+bedef8c feat(android): Phase 5 — Crashlytics init, power-up tray wire-up, reconnection overlay, leaderboard nav
+8a7ac54 merge(webapp): Phase 4 — PWA manifest, web push, cosmetics equip, offline banner
+217c957 merge(android): Phase 4 — FCMService, level-up snackbar, CosmeticsScreen
+c7d3655 merge(backend): Phase 4 — web push, daily challenges, push on game-start
 ```
 
 ---
@@ -252,7 +151,7 @@ a622bae merge(android): Phase 2 — PowerUpTray, GameSoundManager, LootDrop even
 | 0 | Foundation | ✅ Complete |
 | 1 | Core game loop | ✅ Complete |
 | 2 | Power-ups + game feel | ✅ Complete |
-| 3 | Meta progression | 🔄 In progress |
-| 4 | PWA + feature parity | ⬜ Pending |
-| 5 | Polish + soft launch | ⬜ Pending |
-| 6 | Public launch | ⬜ Pending |
+| 3 | Meta progression | ✅ Complete |
+| 4 | PWA + feature parity | ✅ Complete |
+| 5 | Polish + soft launch | ✅ Complete |
+| 6 | Public launch | 🔄 Next |
