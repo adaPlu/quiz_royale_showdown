@@ -10,7 +10,7 @@
         { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()" },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' wss://api.quizroyale.gg https://api.quizroyale.gg; img-src 'self' data: https:; font-src 'self'; worker-src 'self';"
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.up.railway.app wss://*.up.railway.app https://quizroyaleshowdown-production.up.railway.app wss://quizroyaleshowdown-production.up.railway.app; img-src 'self' data: https:; worker-src 'self';"
         }
       ]
     },
