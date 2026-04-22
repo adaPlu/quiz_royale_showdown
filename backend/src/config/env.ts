@@ -40,7 +40,12 @@ const envSchema = z.object({
   // Logging
   LOG_LEVEL: z
     .enum(["trace", "debug", "info", "warn", "error", "fatal"])
-    .default("info")
+    .default("info"),
+
+  // Web Push (VAPID)
+  VAPID_PUBLIC_KEY: z.string().default(""),
+  VAPID_PRIVATE_KEY: z.string().default(""),
+  VAPID_SUBJECT: z.string().default("mailto:adapluguez@gmail.com"),
 });
 
 function parseEnv() {
@@ -71,6 +76,9 @@ export const env = {
   databaseUrl: parsed.DATABASE_URL,
   redisUrl: parsed.REDIS_URL,
   logLevel: parsed.LOG_LEVEL,
+  vapidPublicKey: parsed.VAPID_PUBLIC_KEY,
+  vapidPrivateKey: parsed.VAPID_PRIVATE_KEY,
+  vapidSubject: parsed.VAPID_SUBJECT,
   isProduction: parsed.NODE_ENV === "production",
   isDevelopment: parsed.NODE_ENV === "development",
   isTest: parsed.NODE_ENV === "test"
