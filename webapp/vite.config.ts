@@ -34,11 +34,6 @@ export default defineConfig({
         scope: "/",
         icons: [
           { src: "/favicon.svg", sizes: "any", type: "image/svg+xml", purpose: "any maskable" },
-          { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
-          { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
-        ],
-        screenshots: [
-          { src: "/screenshot-game.png", sizes: "390x844", type: "image/png", form_factor: "narrow" },
         ],
         categories: ["games", "entertainment"],
       },
