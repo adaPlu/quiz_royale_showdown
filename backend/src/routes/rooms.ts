@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { requireAuth } from "../middleware/auth";
 import { validate } from "../middleware/validate";
+import { prisma } from "../models/prismaClient";
 import { roomService } from "../services/RoomService";
 
 export const roomsRouter = Router();
@@ -56,6 +57,23 @@ roomsRouter.post("/:roomId/leave", requireAuth, async (req, res, next) => {
   try {
     await roomService.leaveRoom(String(req.params.roomId), req.jwtClaims!.sub);
     res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /rooms/:roomId/rejoin — reconnect a player who lost WS connection
+roomsRouter.post("/:roomId/rejoin", requireAuth, async (req, res, next) => {
+  try {
+    const userId = req.jwtClaims!.sub;
+    const roomId = String(req.params.roomId);
+    const [room, membership] = await Promise.all([
+      prisma.room.findUnique({ where: { id: roomId } }),
+      prisma.roomPlayer.findUnique({ where: { roomId_userId: { roomId, userId } } }),
+    ]);
+    if (!room) return res.status(404).json({ error: "Room not found", code: "NOT_FOUND" });
+    if (!membership) return res.status(403).json({ error: "Not a member of this room", code: "FORBIDDEN" });
+    res.json({ roomId: room.id, code: room.code, phase: room.status });
   } catch (error) {
     next(error);
   }

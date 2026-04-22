@@ -1,16 +1,14 @@
 import webpush, { type PushSubscription } from "web-push";
+import { env } from "../config/env";
 import { logger } from "../utils/logger";
 import { redisService } from "./RedisService";
 
-// VAPID keys — set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY in env for production.
-// Generate fresh keys with: npx web-push generate-vapid-keys
-const VAPID_PUBLIC_KEY =
-  process.env.VAPID_PUBLIC_KEY ??
+const VAPID_PUBLIC_KEY = env.vapidPublicKey ||
   "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U";
-const VAPID_PRIVATE_KEY =
-  process.env.VAPID_PRIVATE_KEY ?? "UUxI4O8-FbRouAevSmBQ6co62GroYWmcOMkk7ujjZOQ";
+const VAPID_PRIVATE_KEY = env.vapidPrivateKey ||
+  "UUxI4O8-FbRouAevSmBQ6co62GroYWmcOMkk7ujjZOQ";
 
-webpush.setVapidDetails("mailto:admin@quizroyale.gg", VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+webpush.setVapidDetails(env.vapidSubject, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 
 const pushSubKey = (userId: string) => `push:subs:${userId}`;
 const fcmTokenKey = (userId: string) => `fcm:token:${userId}`;
