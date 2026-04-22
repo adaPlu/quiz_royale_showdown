@@ -1,7 +1,7 @@
 # Quiz Royale Showdown — Codex Handoff Document
-**Updated:** 2026-04-21  
-**Current tag:** `phase-5-complete` (`abec881` on `main`)  
-**Status:** Phases 0–5 complete — ready for Phase 6 (Public Launch)
+**Updated:** 2026-04-22  
+**Current tag:** `phase-6-launch-ready` (`9e7576e` on `main`)  
+**Status:** Phases 0–6 code-complete — deploy to prod to go live
 
 ---
 
@@ -78,26 +78,28 @@ Envelope: `{ type: "event_name", version: "v1", payload: {} }`
 - Android: `QuizFcmService.kt` + `POST_NOTIFICATIONS` + Manifest, `AppNavGraph` Scaffold+Snackbar, `CosmeticsScreen` (optimistic equip), cosmetics nav route
 - Web: vite-plugin-pwa Workbox config, full PWA manifest with icons+screenshots, `useWebPush.ts`, `OfflineBanner.tsx`, ProfilePage push toggle, correct leaderboard API endpoints
 
-### Phase 5 — Polish + Soft Launch ✅ (current HEAD)
+### Phase 5 — Polish + Soft Launch ✅
 - Backend: `authLimiter` (20/15min), `apiLimiter` (120/min), `gameActionLimiter` (5/sec) on routes; health endpoint async DB+Redis ping with 503 on degraded; `/rooms/:roomId/rejoin` endpoint
 - Android: `QuizRoyaleApp.kt` Crashlytics init (disabled in debug); `GameScreen.kt` — `PowerUpTray` integration, `isReconnecting` fullscreen overlay, `localLocked` double-tap guard, answer indicators (✓/✗/●); `HomeScreen.kt` Leaderboard nav button
 - Web: `ErrorBoundary.tsx` class component (Go Home on crash); `ToastManager.tsx` global LevelUp+LootDrop queue; `SocketReconnectBanner.tsx` amber banner on disconnect/reconnect; `useSocketStatus` hook; `socketService.ts` `onStatusChange()`; `ResultsPage.tsx` XP counter RAF animation + staggered standings; `NotFoundPage.tsx` 404; wildcard route now shows 404 instead of redirect
 
 ---
 
-## Phase 6 — Public Launch (NEXT)
+## Phase 6 — Public Launch ✅ (code-complete)
 
-### Launch Checklist
-- [ ] **Backend**: Deploy to Railway with production env vars (DATABASE_URL, REDIS_URL, VAPID keys, JWT secrets)
-- [ ] **Backend**: Run `prisma migrate deploy` on production DB
-- [ ] **Backend**: Configure CORS origin to production webapp domain
-- [ ] **Webapp**: Deploy to Vercel — set `VITE_API_BASE_URL`, `VITE_WS_BASE_URL` env vars
-- [ ] **Webapp**: Register service worker in production (already wired via vite-plugin-pwa)
-- [ ] **Android**: Update `BASE_URL` in `NetworkModule.kt` to production backend URL
-- [ ] **Android**: Upload signed APK/AAB to Play Store internal track
-- [ ] **Android**: Add `google-services.json` for production Firebase project
-- [ ] **Monitoring**: Enable Crashlytics in production; configure Pino log drain
-- [ ] **Smoke test**: Full game flow (login → quick play → game → results → leaderboard) on each platform
+### What was done
+- **Backend**: Fixed Dockerfile (multi-stage, `prisma generate`, schema copy to runner); `start.sh` runs `prisma migrate deploy` before server boot; VAPID keys in `env.ts`; PushNotificationService uses env config; `.env.example` documents VAPID vars
+- **Android**: Firebase BOM + `firebase-crashlytics-ktx` dependency; `google-services` + `crashlytics` Gradle plugins in root + app `build.gradle.kts`; release build type: `isMinifyEnabled=true`, `isShrinkResources=true`, prod URLs (`wss://api.quizroyale.gg`); comprehensive `proguard-rules.pro` (Retrofit, OkHttp, Hilt, Firebase, Kotlin Serialization, Socket.IO); `network_security_config.xml` blocks cleartext in release, allows emulator localhost in debug
+- **Webapp**: `vercel.json` security headers (CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy, sw.js no-cache); `robots.txt`; `.env.production.example`; PWA manifest fixed (removed references to non-existent PNG icons)
+
+### Remaining manual deploy steps
+- [ ] **Backend**: Deploy Docker image to Railway — fill all vars from `backend/.env.example`
+- [ ] **Backend**: Set `CORS_ORIGIN` to your Vercel deployment URL
+- [ ] **Webapp**: `vercel deploy` — set `VITE_API_BASE_URL` + `VITE_WS_BASE_URL` in Vercel dashboard
+- [ ] **Android**: Add `google-services.json` from Firebase console to `android/app/`
+- [ ] **Android**: Create keystore + set signing config in `build.gradle.kts` before AAB upload
+- [ ] **Android**: Upload signed release AAB to Play Store internal track
+- [ ] **Smoke test**: Login → quick play → game → results → leaderboard on all 3 platforms
 
 ### Backend env vars needed for production
 ```
@@ -154,4 +156,4 @@ c7d3655 merge(backend): Phase 4 — web push, daily challenges, push on game-sta
 | 3 | Meta progression | ✅ Complete |
 | 4 | PWA + feature parity | ✅ Complete |
 | 5 | Polish + soft launch | ✅ Complete |
-| 6 | Public launch | 🔄 Next |
+| 6 | Public launch | ✅ Code-complete — deploy to go live |
