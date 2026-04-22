@@ -5,6 +5,8 @@ plugins {
   id("com.google.dagger.hilt.android")
   id("com.google.devtools.ksp")
   id("org.jetbrains.kotlin.plugin.serialization")
+  id("com.google.gms.google-services")
+  id("com.google.firebase.crashlytics")
 }
 
 android {
@@ -22,18 +24,22 @@ android {
     vectorDrawables {
       useSupportLibrary = true
     }
-
-    buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:4000/api/v1/\"")
-    buildConfigField("String", "WS_BASE_URL", "\"ws://10.0.2.2:4000/ws\"")
   }
 
   buildTypes {
+    debug {
+      buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:4000/api/v1/\"")
+      buildConfigField("String", "WS_BASE_URL", "\"ws://10.0.2.2:4000/ws\"")
+    }
     release {
-      isMinifyEnabled = false
+      isMinifyEnabled = true
+      isShrinkResources = true
       proguardFiles(
         getDefaultProguardFile("proguard-android-optimize.txt"),
         "proguard-rules.pro"
       )
+      buildConfigField("String", "API_BASE_URL", "\"https://api.quizroyale.gg/api/v1/\"")
+      buildConfigField("String", "WS_BASE_URL", "\"wss://api.quizroyale.gg/ws\"")
     }
   }
 
@@ -98,7 +104,9 @@ dependencies {
   implementation("androidx.security:security-crypto:1.1.0-alpha06")
   implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
   implementation("com.android.billingclient:billing-ktx:7.1.1")
-  implementation("com.google.firebase:firebase-messaging-ktx:24.1.1")
+  implementation(platform("com.google.firebase:firebase-bom:33.12.0"))
+  implementation("com.google.firebase:firebase-messaging-ktx")
+  implementation("com.google.firebase:firebase-crashlytics-ktx")
 
   debugImplementation("androidx.compose.ui:ui-tooling")
   debugImplementation("androidx.compose.ui:ui-test-manifest")
