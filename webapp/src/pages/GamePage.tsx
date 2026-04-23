@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 
 import { CountdownBar } from '@/components/CountdownBar';
@@ -12,7 +12,7 @@ import { useGameAudio } from '@/hooks/useGameAudio';
 import { useGameSocket } from '@/hooks/useGameSocket';
 import { socketService } from '@/services/socketService';
 import { useAuthStore } from '@/stores/authStore';
-import { selectLeaderboard, useGameStore } from '@/stores/gameStore';
+import { useGameStore } from '@/stores/gameStore';
 import { useProfileStore } from '@/stores/profileStore';
 
 const ANSWER_LABELS = ['A', 'B', 'C', 'D'];
@@ -77,7 +77,11 @@ export const GamePage = () => {
   const clearLootDrop = useGameStore((state) => state.clearLootDrop);
   const levelUpQueue = useGameStore((state) => state.levelUpQueue);
   const dismissLevelUp = useGameStore((state) => state.dismissLevelUp);
-  const leaderboard = useGameStore(selectLeaderboard);
+  const players = useGameStore((state) => state.players);
+  const leaderboard = useMemo(
+    () => [...players].sort((a, b) => b.score - a.score),
+    [players],
+  );
 
   const audio = useGameAudio();
   const [activeFx, setActiveFx] = useState<{ code: PowerUpType; userId: string } | null>(null);
