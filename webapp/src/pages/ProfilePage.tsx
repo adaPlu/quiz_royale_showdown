@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { SeasonRankBadge } from '@/components/SeasonRankBadge';
@@ -38,6 +38,7 @@ const COSMETIC_EMOJI: Record<string, string> = {
 export default function ProfilePage() {
   const { username } = useParams<{ username: string }>();
   const currentUser = useAuthStore((s) => s.user);
+  const navigate = useNavigate();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [cosmetics, setCosmetics] = useState<CosmeticItem[]>([]);
   const { pushState, subscribe, unsubscribe } = useWebPush();
@@ -85,6 +86,13 @@ export default function ProfilePage() {
   return (
     <div className="min-h-screen bg-[#0E0E1A] px-4 py-6 text-white">
       <div className="mx-auto max-w-lg">
+        <button
+          type="button"
+          onClick={() => navigate('/home')}
+          className="mb-4 flex items-center gap-2 text-sm text-white/50 hover:text-white transition-colors"
+        >
+          ← Back to Home
+        </button>
         <div className="flex flex-col items-center gap-4 py-8">
           <PlayerAvatar
             player={{ id: currentUser?.id ?? '', displayName, avatarUrl: profile.avatarUrl, score: 0, streak: 0, isEliminated: false }}
