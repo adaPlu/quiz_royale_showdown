@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { Difficulty, PrismaClient } from "@prisma/client";
 import { ulid } from "ulid";
 
@@ -40,11 +40,11 @@ function toDifficulty(d: string): Difficulty {
 }
 
 export class QuestionGeneratorService {
-  private readonly client: Anthropic | null;
+  private readonly client: OpenAI | null;
 
   constructor() {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    this.client = apiKey ? new Anthropic({ apiKey }) : null;
+    const apiKey = process.env.OPENAI_API_KEY;
+    this.client = apiKey ? new OpenAI({ apiKey }) : null;
   }
 
   get isAvailable(): boolean {
@@ -53,7 +53,7 @@ export class QuestionGeneratorService {
 
   async generateAndStore(targetCount = 200): Promise<number> {
     if (!this.client) {
-      logger.warn("AI question generation skipped — ANTHROPIC_API_KEY not set");
+      logger.warn("AI question generation skipped — OPENAI_API_KEY not set");
       return 0;
     }
 
@@ -92,15 +92,19 @@ export class QuestionGeneratorService {
   }
 
   private async generateBatch(category: string, topic: string, count: number): Promise<AIQuestion[]> {
-    const response = await this.client!.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 8192,
+    const completion = await this.client!.chat.completions.create({
+      model: "gpt-4o-mini",
+      response_format: { type: "json_object" },
       messages: [
+        {
+          role: "system",
+          content: "You are a trivia question generator. Always respond with valid JSON only.",
+        },
         {
           role: "user",
           content: `Generate ${count} unique multiple-choice trivia questions about: ${topic}.
 
-Return ONLY a valid JSON array. No markdown fences, no explanation. Each element:
+Return a JSON object with a single key "questions" containing an array. Each element:
 {
   "prompt": "Question text ending with ?",
   "optionA": "First choice",
@@ -113,22 +117,21 @@ Return ONLY a valid JSON array. No markdown fences, no explanation. Each element
 }
 
 Rules:
-- correctIndex is 0 (A), 1 (B), 2 (C), or 3 (D) — vary it, don't always use 0
+- correctIndex is 0 (A), 1 (B), 2 (C), or 3 (D) — vary it randomly
 - All 4 options must be plausible (no obviously silly wrong answers)
-- Factually accurate only — double-check before including
+- Factually accurate only
 - Mix difficulties: roughly 40% EASY, 40% MEDIUM, 20% HARD
 - No duplicate questions
-- Questions must be self-contained (no "in the image above" references)`,
+- Questions must be self-contained`,
         },
       ],
     });
 
-    const text = response.content[0]?.type === "text" ? response.content[0].text : "";
-    const match = text.match(/\[[\s\S]*\]/);
-    if (!match) return [];
+    const text = completion.choices[0]?.message?.content ?? "";
+    const parsed = JSON.parse(text) as { questions?: unknown[] };
+    const items = parsed.questions ?? [];
 
-    const parsed = JSON.parse(match[0]) as unknown[];
-    return parsed.filter((q): q is AIQuestion => {
+    return items.filter((q): q is AIQuestion => {
       const item = q as Partial<AIQuestion>;
       return (
         typeof item.prompt === "string" &&
