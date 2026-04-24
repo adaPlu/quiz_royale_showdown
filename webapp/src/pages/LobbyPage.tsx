@@ -13,11 +13,14 @@ export const LobbyPage = () => {
   const user = useAuthStore((state) => state.user);
   const players = useGameStore((state) => state.players);
   const phase = useGameStore((state) => state.phase);
-  const code = useGameStore((state) => state.code);
   const storedRoomId = useGameStore((state) => state.roomId);
   const hostUserId = useGameStore((state) => state.hostUserId);
-  const [roomCode, setRoomCode] = useState((roomId ?? code ?? 'ROYALE').toUpperCase());
+  const resetRoom = useGameStore((state) => state.resetRoom);
+  const [roomCode, setRoomCode] = useState((roomId ?? '').toUpperCase());
   const [startError, setStartError] = useState<string | null>(null);
+
+  // Clear any stale game state from a previous room on mount
+  useEffect(() => { resetRoom(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Show Start Game when we know the user is host, OR when backend hasn't sent hostUserId yet (fallback — backend validates on room:start)
   const isHost = !hostUserId || (!!user && user.id === hostUserId);
@@ -25,8 +28,8 @@ export const LobbyPage = () => {
   useGameSocket(roomId ?? roomCode);
 
   const activeRoomId = useMemo(
-    () => storedRoomId ?? code ?? roomId ?? roomCode,
-    [code, roomCode, roomId, storedRoomId],
+    () => storedRoomId ?? roomId ?? roomCode,
+    [roomCode, roomId, storedRoomId],
   );
 
   // Listen for backend socket errors and display them
