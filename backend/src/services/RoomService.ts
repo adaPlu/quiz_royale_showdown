@@ -128,8 +128,9 @@ export class RoomService {
   }
 
   async getRoomByCode(roomCode: string): Promise<RoomWithPlayers> {
-    const room = await prisma.room.findUnique({
-      where: { code: roomCode.toUpperCase() },
+    // Accept either the 6-char room code or the internal UUID/ULID
+    const room = await prisma.room.findFirst({
+      where: { OR: [{ code: roomCode.toUpperCase() }, { id: roomCode }] },
       include: this.roomInclude(),
     });
     if (!room) {

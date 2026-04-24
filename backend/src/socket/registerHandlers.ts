@@ -24,7 +24,7 @@ const createRoomSchema = z.object({
 });
 
 const joinRoomSchema = z.object({
-  roomCode: z.string().trim().min(1).max(8),
+  roomCode: z.string().trim().min(1).max(32),
 });
 
 const roomIdSchema = z.object({
@@ -161,6 +161,46 @@ async function handleJoinRoom(io: Server, socket: Socket, userId: string, payloa
     return;
   }
 
+  // If room is not WAITING, allow existing players to reconnect instead of rejecting
+  let existingRoom: Awaited<ReturnType<typeof roomService.getRoom>> | null = null;
+  try {
+    existingRoom = await roomService.getRoomByCode(parsed.data.roomCode);
+  } catch {
+    // not found — fall through to normal join which will throw a proper error
+  }
+
+  if (existingRoom && existingRoom.status !== "WAITING") {
+    const isInRoom = existingRoom.players.some((p) => p.userId === userId);
+    if (!isInRoom) {
+      emitError(socket, "ROOM_IN_PROGRESS", "Room is already in progress");
+      return;
+    }
+    // Reconnect existing player
+    await socket.join(existingRoom.id);
+    emit(socket, {
+      type: "room:state_sync",
+      version: "v1",
+      payload: { room: roomService.toSnapshot(existingRoom) },
+    });
+    const currentQuestion = await loadCurrentQuestion(existingRoom.id);
+    if (currentQuestion) {
+      emit(socket, {
+        type: "round:question_started",
+        version: "v1",
+        payload: {
+          roomId: existingRoom.id,
+          roundId: currentQuestion.roundId,
+          questionId: currentQuestion.questionId,
+          prompt: currentQuestion.prompt,
+          answers: currentQuestion.answers,
+          timeLimitMs: currentQuestion.timeLimitMs,
+          startedAt: new Date(currentQuestion.startedAtMs).toISOString(),
+        },
+      });
+    }
+    return;
+  }
+
   const { room, snapshot, joined } = await roomService.joinRoom(userId, parsed.data.roomCode);
   await socket.join(room.id);
   emit(socket, {
@@ -211,8 +251,20 @@ async function handleRoomStart(io: Server, _socket: Socket, userId: string, payl
     return emitError(_socket, "VALIDATION_ERROR", "Invalid room:start payload");
   }
 
-  await roomService.startGame(parsed.data.roomId, userId);
-  await startGameLoopOnce(io, parsed.data.roomId);
+  const { roomId } = parsed.data;
+
+  // Reset rooms stuck in COUNTDOWN so the host can retry without refreshing
+  const currentRoom = await roomService.getRoom(roomId).catch(() => null);
+  if (currentRoom?.status === "COUNTDOWN") {
+    await prisma.room.update({ where: { id: roomId }, data: { status: "WAITING" } }).catch(() => null);
+    if (redisService) {
+      await redisService.del(`game:${roomId}:loop_started`).catch(() => null);
+    }
+    localStartedRooms.delete(roomId);
+  }
+
+  await roomService.startGame(roomId, userId);
+  await startGameLoopOnce(io, roomId);
 }
 
 async function handleRoomLeave(io: Server, socket: Socket, userId: string, payload: unknown): Promise<void> {
