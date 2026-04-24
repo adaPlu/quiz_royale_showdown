@@ -4,7 +4,10 @@ import io.socket.client.IO
 import io.socket.client.Socket
 import java.net.URI
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
 import org.json.JSONObject
 import javax.inject.Inject
@@ -22,6 +25,9 @@ class WebSocketManager @Inject constructor(
 ) {
   private val _events = MutableSharedFlow<String>(extraBufferCapacity = 32)
   val events: SharedFlow<String> = _events
+
+  private val _isConnected = MutableStateFlow(false)
+  val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
 
   private var socket: Socket? = null
   private var latestUrl: String? = null
@@ -47,12 +53,15 @@ class WebSocketManager @Inject constructor(
     }
 
     socket = IO.socket(socketIoBaseUrl(url), options).apply {
+      on(Socket.EVENT_CONNECT) { _isConnected.value = true }
+      on(Socket.EVENT_DISCONNECT) { _isConnected.value = false }
       on("message") { args ->
         args.firstOrNull()?.let { payload ->
           _events.tryEmit(payload.toString())
         }
       }
       on(Socket.EVENT_CONNECT_ERROR) { args ->
+        _isConnected.value = false
         _events.tryEmit(errorEnvelope(args.firstOrNull()?.toString() ?: "Socket connection failed"))
       }
       on("error") { args ->
@@ -75,6 +84,7 @@ class WebSocketManager @Inject constructor(
     socket?.off()
     socket?.disconnect()
     socket = null
+    _isConnected.value = false
     if (clearLatest) {
       latestUrl = null
       latestAccessToken = null

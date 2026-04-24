@@ -15,6 +15,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.navDeepLink
+import com.quizroyale.showdown.domain.model.PowerupType
+import com.quizroyale.showdown.ui.game.GameIntent
 import com.quizroyale.showdown.ui.game.GameScreen
 import com.quizroyale.showdown.ui.game.GameSideEffect
 import com.quizroyale.showdown.ui.game.GameUiState
@@ -91,10 +93,18 @@ fun AppNavGraph() {
         }
       }
 
+      val isReconnecting by viewModel.isReconnecting.collectAsState()
+
       Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { _ ->
         GameScreen(
           state = state,
-          onAnswerSelected = viewModel::submitAnswer
+          onAnswerSelected = viewModel::submitAnswer,
+          onPowerupSelected = { code ->
+            runCatching { PowerupType.valueOf(code) }.getOrNull()?.let { type ->
+              viewModel.onIntent(GameIntent.UsePowerup(type))
+            }
+          },
+          isReconnecting = isReconnecting,
         )
       }
     }

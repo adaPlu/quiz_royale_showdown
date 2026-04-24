@@ -17,9 +17,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 sealed class GameIntent {
@@ -38,6 +41,11 @@ class GameViewModel @Inject constructor(
 
   private val _sideEffects = Channel<GameSideEffect>(Channel.BUFFERED)
   val sideEffects = _sideEffects.receiveAsFlow()
+
+  // True when socket is mid-reconnect (connected=false and not Idle/GameOver)
+  val isReconnecting: StateFlow<Boolean> = gameRepository.isConnected
+    .map { connected -> !connected && _uiState.value !is GameUiState.Idle && _uiState.value !is GameUiState.GameOver }
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
   private var timerJob: Job? = null
   private var heartbeatJob: Job? = null

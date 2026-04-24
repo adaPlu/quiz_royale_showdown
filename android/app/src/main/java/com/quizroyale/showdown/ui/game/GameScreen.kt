@@ -67,8 +67,7 @@ fun GameScreen(
             if (ownedPowerups.isNotEmpty()) {
               PowerUpTray(
                 powerups = ownedPowerups,
-                onUse = onPowerupSelected,
-                enabled = !state.isAnswerLocked
+                onActivate = onPowerupSelected
               )
             }
           }
