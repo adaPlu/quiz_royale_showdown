@@ -17,10 +17,13 @@
     "prisma:studio": "prisma studio",
     "prisma:reset": "prisma migrate reset --force",
     "seed": "tsx src/scripts/seed.ts",
+    "fetch:opentdb": "tsx src/scripts/fetchOpenTriviaDB.ts",
+    "generate:questions": "tsx src/scripts/generateAIQuestions.ts",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write src/**/*.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.91.0",
     "@prisma/client": "^6.7.0",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",

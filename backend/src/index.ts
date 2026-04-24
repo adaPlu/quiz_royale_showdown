@@ -20,6 +20,7 @@ import { initRedis } from "./services/RedisService";
 import { socketAuthMiddleware } from "./socket/middleware";
 import { registerSocketHandlers } from "./socket/registerHandlers";
 import { autoSeedIfEmpty } from "./scripts/seed";
+import { questionGeneratorService } from "./services/QuestionGeneratorService";
 
 // ─── Boot ────────────────────────────────────────────────────────────────────
 
@@ -62,6 +63,9 @@ async function bootstrap(): Promise<void> {
 
   // 4. Seed DB if empty
   await autoSeedIfEmpty();
+
+  // 4b. AI refill — fire-and-forget if pool is low and key is configured
+  void questionGeneratorService.refillIfNeeded().catch(() => null);
 
   // 5. HTTP server
   await new Promise<void>((resolve) => {

@@ -46,6 +46,10 @@ const envSchema = z.object({
   VAPID_PUBLIC_KEY: z.string().default(""),
   VAPID_PRIVATE_KEY: z.string().default(""),
   VAPID_SUBJECT: z.string().default("mailto:adapluguez@gmail.com"),
+
+  // AI question generation
+  ANTHROPIC_API_KEY: z.string().optional(),
+  ADMIN_SECRET: z.string().default("change-me-in-production"),
 });
 
 function parseEnv() {
@@ -79,7 +83,9 @@ export const env = {
   vapidPublicKey: parsed.VAPID_PUBLIC_KEY,
   vapidPrivateKey: parsed.VAPID_PRIVATE_KEY,
   vapidSubject: parsed.VAPID_SUBJECT,
+  anthropicApiKey: parsed.ANTHROPIC_API_KEY,
+  adminSecret: parsed.ADMIN_SECRET,
   isProduction: parsed.NODE_ENV === "production",
   isDevelopment: parsed.NODE_ENV === "development",
-  isTest: parsed.NODE_ENV === "test"
+  isTest: parsed.NODE_ENV === "test",
 } as const;
