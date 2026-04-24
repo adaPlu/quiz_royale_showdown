@@ -79,8 +79,8 @@ export class GameOrchestrator {
 
   async startGame(roomId: string, playerIds: string[], io: Server): Promise<void> {
     const uniquePlayerIds = [...new Set(playerIds)];
-    if (uniquePlayerIds.length < 2) {
-      throw new Error("At least 2 players are required to start a game");
+    if (uniquePlayerIds.length < 1) {
+      throw new Error("At least 1 player is required to start a game");
     }
 
     const room = await prisma.room.findUnique({
@@ -103,7 +103,7 @@ export class GameOrchestrator {
 
     let finaleStarted = false;
 
-    for (let roundNumber = 1; roundNumber <= room.totalRounds && activePlayerIds.length > 1; roundNumber += 1) {
+    for (let roundNumber = 1; roundNumber <= room.totalRounds && activePlayerIds.length >= 1; roundNumber += 1) {
       if (state.phase === "ROUND_RESULT" || state.phase === "ELIMINATION") {
         state = transitionGameState(state, { type: "START_NEXT_ROUND" });
         state = { ...state, round: roundNumber, playerCount: activePlayerIds.length };
