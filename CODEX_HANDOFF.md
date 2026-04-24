@@ -1,7 +1,32 @@
 # Quiz Royale Showdown — Codex Handoff Document
-**Updated:** 2026-04-22  
-**Current tag:** `phase-6-launch-ready` (`9e7576e` on `main`)  
-**Status:** Phases 0–6 code-complete — deploy to prod to go live
+**Updated:** 2026-04-23  
+**Current HEAD:** `d6adccb` on `main`  
+**Status:** React #185 crash fixed; webapp deploying to Vercel; pending end-to-end smoke test
+
+---
+
+## Session 2026-04-23 Summary
+
+### Fixed This Session
+1. **CSP blocking login** — `webapp/vercel.json` now allows Railway URLs in `connect-src`
+2. **ProfilePage no back nav** — added `← Back to Home` button (`useNavigate('/home')`)
+3. **React #185 crash on Enter Game** — root cause: `selectLeaderboard` returned new array reference every render → infinite Zustand loop. Fixed with `useMemo` in `GamePage.tsx`
+4. **TypeScript merge type mismatches** — `PowerUpType`/`PowerUpCode` alias, uppercase keys in `LootDropToast`, `PowerUpActivationFx`, `GamePage` power-up slots, `PowerupFeedbackEvent` export in `gameStore`
+5. **Rebuilt `webapp/dist/`** — new deterministic bundle `index-CBwjydlU.js` committed; old `index-vKyUHqL-.js` (broken) never committed to git
+
+### Still In Progress
+- **Verify Enter Game works** — Vercel deploying `d6adccb`; user must confirm #185 gone in incognito after ~2min
+- **Quick play network error** — test after CSP fix propagates
+- **End-to-end smoke test** — login → quick play → create room → enter game → play round → results
+
+### Key Technical Notes for Next Session
+- `PowerUpCode = 'DOUBLE_DOWN' | 'FIFTY_FIFTY' | 'TIME_FREEZE' | 'SHIELD' | 'SABOTAGE'` (uppercase, in `profileStore.ts`)
+- `webapp/dist/` is in `.gitignore`; use `git add -f webapp/dist` to commit pre-built assets
+- Zustand selector returning new array/object every call → React #185; always stabilize with `useMemo`
+- Backend on Railway: `quizroyaleshowdown-production.up.railway.app`
+- Vercel project root is `webapp/` subdirectory
+
+---
 
 ---
 
