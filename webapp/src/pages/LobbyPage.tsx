@@ -17,7 +17,10 @@ export const LobbyPage = () => {
   const storedRoomId = useGameStore((state) => state.roomId);
   const hostUserId = useGameStore((state) => state.hostUserId);
   const [roomCode, setRoomCode] = useState((roomId ?? code ?? 'ROYALE').toUpperCase());
-  const isHost = !!user && !!hostUserId && user.id === hostUserId;
+  const [startError, setStartError] = useState<string | null>(null);
+
+  // Show Start Game when we know the user is host, OR when backend hasn't sent hostUserId yet (fallback — backend validates on room:start)
+  const isHost = !hostUserId || (!!user && user.id === hostUserId);
 
   useGameSocket(roomId ?? roomCode);
 
@@ -26,15 +29,27 @@ export const LobbyPage = () => {
     [code, roomCode, roomId, storedRoomId],
   );
 
+  // Listen for backend socket errors and display them
   useEffect(() => {
-    if (phase !== 'WAITING' && activeRoomId) {
-      navigate(`/game/${activeRoomId}`);
-    }
-  }, [phase, activeRoomId, navigate]);
+    const socket = (socketService as unknown as { socket: { on: (e: string, cb: (msg: unknown) => void) => void; off: (e: string) => void } | null }).socket;
+    if (!socket) return;
+    const handler = (msg: unknown) => {
+      const m = msg as { type?: string; payload?: { message?: string; code?: string } };
+      if (m?.type === 'error') setStartError(m.payload?.message ?? m.payload?.code ?? 'Unknown error');
+    };
+    socket.on('message', handler);
+    return () => socket.off('message');
+  }, []);
 
   const startGame = () => {
-    if (!activeRoomId) return;
-    socketService.emit('room:start', { roomId: activeRoomId });
+    setStartError(null);
+    // Always use storedRoomId (UUID from state_sync), never the room code
+    const roomUuid = storedRoomId;
+    if (!roomUuid) {
+      setStartError('Room not synced yet — wait a moment and try again');
+      return;
+    }
+    socketService.emit('room:start', { roomId: roomUuid });
   };
 
   const joinRoom = () => {
@@ -47,6 +62,15 @@ export const LobbyPage = () => {
 
   return (
     <main className="min-h-screen bg-game-gradient px-6 py-12 text-white">
+      <div className="mx-auto max-w-6xl">
+        <button
+          type="button"
+          onClick={() => navigate('/home')}
+          className="mb-6 flex items-center gap-2 text-sm text-white/50 hover:text-white transition-colors"
+        >
+          ← Back to Home
+        </button>
+      </div>
       <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[1.2fr_0.8fr]">
         <section className="rounded-[32px] border border-white/10 bg-white/5 p-8 shadow-royale backdrop-blur">
           <p className="mb-3 text-sm uppercase tracking-[0.3em] text-gold">Live Lobby</p>
@@ -96,14 +120,19 @@ export const LobbyPage = () => {
               <h2 className="text-2xl font-black">{players.length} queued</h2>
             </div>
             {isHost ? (
-              <button
-                type="button"
-                onClick={startGame}
-                disabled={players.length === 0}
-                className="rounded-xl bg-brand px-4 py-2 text-sm font-bold text-white shadow-brand transition hover:bg-brand/80 disabled:opacity-40"
-              >
-                Start Game
-              </button>
+              <div className="flex flex-col items-end gap-1">
+                <button
+                  type="button"
+                  onClick={startGame}
+                  disabled={players.length === 0 || !storedRoomId}
+                  className="rounded-xl bg-brand px-4 py-2 text-sm font-bold text-white shadow-brand transition hover:bg-brand/80 disabled:opacity-40"
+                >
+                  Start Game
+                </button>
+                {startError && (
+                  <p className="text-xs text-answer-wrong">{startError}</p>
+                )}
+              </div>
             ) : (
               <p className="text-xs text-white/40">Waiting for host...</p>
             )}

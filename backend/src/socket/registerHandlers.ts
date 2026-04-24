@@ -439,12 +439,16 @@ async function startGameLoopOnce(io: Server, roomId: string): Promise<void> {
   const room = await roomService.getRoom(roomId);
   const playerIds = room.players.filter((player) => !player.isEliminated).map((player) => player.userId);
 
-  void gameOrchestrator.startGame(roomId, playerIds, io).catch((error: unknown) => {
+  void gameOrchestrator.startGame(roomId, playerIds, io).catch(async (error: unknown) => {
     logger.error("Game loop crashed", {
       roomId,
       message: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
+    // Reset room to WAITING so host can retry
+    await prisma.room.update({ where: { id: roomId }, data: { status: "WAITING" } }).catch(() => null);
+    await redisService.del(`game:${roomId}:loop_started`).catch(() => null);
+    localStartedRooms.delete(roomId);
   });
 }
 
