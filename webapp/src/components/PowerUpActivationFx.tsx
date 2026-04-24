@@ -3,11 +3,11 @@ import { AnimatePresence, motion } from 'framer-motion';
 import type { PowerUpType } from './PowerUpTray';
 
 const FX_META: Record<PowerUpType, { label: string; emoji: string; color: string }> = {
-  fifty_fifty: { label: '50 / 50', emoji: '✂️', color: 'from-violet-600 to-fuchsia-700' },
-  shield: { label: 'Shield Active', emoji: '🛡️', color: 'from-sky-500 to-blue-700' },
-  time_boost: { label: '+5 Seconds', emoji: '⏱️', color: 'from-amber-400 to-orange-600' },
-  reveal_wrong: { label: 'Wrong Answer Revealed', emoji: '👁️', color: 'from-rose-500 to-red-700' },
-  second_chance: { label: 'Second Chance!', emoji: '🔄', color: 'from-emerald-500 to-green-700' },
+  FIFTY_FIFTY: { label: '50 / 50', emoji: '✂️', color: 'from-violet-600 to-fuchsia-700' },
+  SHIELD: { label: 'Shield Active', emoji: '🛡️', color: 'from-sky-500 to-blue-700' },
+  TIME_FREEZE: { label: 'Time Frozen', emoji: '⏱️', color: 'from-amber-400 to-orange-600' },
+  SABOTAGE: { label: 'Sabotage!', emoji: '👁️', color: 'from-rose-500 to-red-700' },
+  DOUBLE_DOWN: { label: 'Double Down!', emoji: '🔄', color: 'from-emerald-500 to-green-700' },
 };
 
 interface PowerUpActivationFxProps {

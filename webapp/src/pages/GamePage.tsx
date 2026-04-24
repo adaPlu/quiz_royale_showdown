@@ -115,11 +115,11 @@ export const GamePage = () => {
   const activeRoomId = roomId ?? useGameStore.getState().roomId ?? '';
 
   const powerUpSlots: PowerUpSlot[] = [
-    { type: 'fifty_fifty', owned: inventory.fifty_fifty > 0, used: usedPowerUps.includes('fifty_fifty'), count: inventory.fifty_fifty },
-    { type: 'shield', owned: inventory.shield > 0, used: usedPowerUps.includes('shield'), count: inventory.shield },
-    { type: 'time_boost', owned: inventory.time_boost > 0, used: usedPowerUps.includes('time_boost'), count: inventory.time_boost },
-    { type: 'reveal_wrong', owned: inventory.reveal > 0, used: usedPowerUps.includes('reveal_wrong'), count: inventory.reveal },
-    { type: 'second_chance', owned: inventory.second_chance > 0, used: usedPowerUps.includes('second_chance'), count: inventory.second_chance },
+    { code: 'FIFTY_FIFTY', owned: inventory.FIFTY_FIFTY.quantity > 0, used: usedPowerUps.includes('FIFTY_FIFTY'), count: inventory.FIFTY_FIFTY.quantity },
+    { code: 'SHIELD', owned: inventory.SHIELD.quantity > 0, used: usedPowerUps.includes('SHIELD'), count: inventory.SHIELD.quantity },
+    { code: 'TIME_FREEZE', owned: inventory.TIME_FREEZE.quantity > 0, used: usedPowerUps.includes('TIME_FREEZE'), count: inventory.TIME_FREEZE.quantity },
+    { code: 'DOUBLE_DOWN', owned: inventory.DOUBLE_DOWN.quantity > 0, used: usedPowerUps.includes('DOUBLE_DOWN'), count: inventory.DOUBLE_DOWN.quantity },
+    { code: 'SABOTAGE', owned: inventory.SABOTAGE.quantity > 0, used: usedPowerUps.includes('SABOTAGE'), count: inventory.SABOTAGE.quantity },
   ];
 
   const submitAnswer = (answerIndex: number) => {

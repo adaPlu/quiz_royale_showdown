@@ -1,7 +1,15 @@
 import { create } from 'zustand';
 
 import type { ServerEvent } from '@/lib/contracts';
+import type { PowerUpCode } from '@/stores/profileStore';
 import type { PlayerSummary } from '@/types/game';
+
+export type PowerupFeedbackEvent = {
+  id: string;
+  kind: 'activated' | 'effect';
+  powerUpCode: PowerUpCode;
+  effectType?: string;
+};
 
 export type GamePhase =
   | 'WAITING'

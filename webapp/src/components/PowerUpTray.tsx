@@ -4,6 +4,8 @@ import { socketService } from '@/services/socketService';
 import type { PowerUpCode } from '@/stores/profileStore';
 import { POWER_UP_META } from '@/utils/powerUps';
 
+export type PowerUpType = PowerUpCode;
+
 export type PowerUpSlot = {
   code: PowerUpCode;
   powerUpId?: string;

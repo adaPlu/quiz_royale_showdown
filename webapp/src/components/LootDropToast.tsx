@@ -4,19 +4,19 @@ import { useEffect } from 'react';
 import type { PowerUpType } from './PowerUpTray';
 
 const ICONS: Record<PowerUpType, string> = {
-  fifty_fifty: '✂️',
-  shield: '🛡️',
-  time_boost: '⏱️',
-  reveal_wrong: '👁️',
-  second_chance: '🔄',
+  FIFTY_FIFTY: '✂️',
+  SHIELD: '🛡️',
+  TIME_FREEZE: '⏱️',
+  SABOTAGE: '👁️',
+  DOUBLE_DOWN: '🔄',
 };
 
 const LABELS: Record<PowerUpType, string> = {
-  fifty_fifty: '50 / 50',
-  shield: 'Shield',
-  time_boost: 'Time Boost',
-  reveal_wrong: 'Reveal Wrong',
-  second_chance: 'Second Chance',
+  FIFTY_FIFTY: '50 / 50',
+  SHIELD: 'Shield',
+  TIME_FREEZE: 'Time Freeze',
+  SABOTAGE: 'Sabotage',
+  DOUBLE_DOWN: 'Double Down',
 };
 
 interface LootDropToastProps {
