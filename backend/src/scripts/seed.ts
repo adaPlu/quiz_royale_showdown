@@ -196,6 +196,15 @@ const QUESTIONS: Array<{
   }
 ];
 
+// ─── Auto-seed (called on startup) ───────────────────────────────────────────
+
+export async function autoSeedIfEmpty(): Promise<void> {
+  const count = await prisma.questionBank.count();
+  if (count > 0) return;
+  console.log("Question bank is empty — running seed…");
+  await main();
+}
+
 // ─── Main seed ────────────────────────────────────────────────────────────────
 
 async function main() {

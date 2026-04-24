@@ -19,6 +19,7 @@ import { logger } from "./utils/logger";
 import { initRedis } from "./services/RedisService";
 import { socketAuthMiddleware } from "./socket/middleware";
 import { registerSocketHandlers } from "./socket/registerHandlers";
+import { autoSeedIfEmpty } from "./scripts/seed";
 
 // ─── Boot ────────────────────────────────────────────────────────────────────
 
@@ -59,7 +60,10 @@ async function bootstrap(): Promise<void> {
     }
   }
 
-  // 4. HTTP server
+  // 4. Seed DB if empty
+  await autoSeedIfEmpty();
+
+  // 5. HTTP server
   await new Promise<void>((resolve) => {
     server.listen(env.port, resolve);
   });
