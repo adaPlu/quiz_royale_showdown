@@ -153,8 +153,8 @@ export class RoomService {
     }
 
     const activePlayers = room.players.filter((player) => !player.isEliminated);
-    if (activePlayers.length < 2) {
-      throw new BadRequestError("At least 2 players are required to start");
+    if (activePlayers.length < 1) {
+      throw new BadRequestError("At least 1 player is required to start");
     }
 
     await prisma.room.update({
@@ -177,7 +177,7 @@ export class RoomService {
 
     if (!redisService) {
       return {
-        allReady: room.players.filter((player) => !player.isEliminated).length >= 2,
+        allReady: room.players.filter((player) => !player.isEliminated).length >= 1,
         readyPlayerIds: [userId],
       };
     }
@@ -189,7 +189,7 @@ export class RoomService {
     const activePlayers = room.players.filter((player) => !player.isEliminated);
     const readyPlayerIds = await redisService.smembers(readyKey);
     const readySet = new Set(readyPlayerIds);
-    const allReady = activePlayers.length >= 2 && activePlayers.every((player) => readySet.has(player.userId));
+    const allReady = activePlayers.length >= 1 && activePlayers.every((player) => readySet.has(player.userId));
 
     return { allReady, readyPlayerIds };
   }
