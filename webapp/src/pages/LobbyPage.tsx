@@ -1,11 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { useGameSocket } from '@/hooks/useGameSocket';
+import { api } from '@/services/apiClient';
 import { socketService } from '@/services/socketService';
 import { useAuthStore } from '@/stores/authStore';
 import { useGameStore } from '@/stores/gameStore';
+
+type RoomResponse = { room: { roomId: string; code: string } };
+
+const STUCK_ROOM_PHRASES = ['already started', '2 player', 'in progress', 'no longer accepting', 'ROOM_IN_PROGRESS'];
 
 export const LobbyPage = () => {
   const navigate = useNavigate();
@@ -18,11 +23,11 @@ export const LobbyPage = () => {
   const resetRoom = useGameStore((state) => state.resetRoom);
   const [roomCode, setRoomCode] = useState((roomId ?? '').toUpperCase());
   const [startError, setStartError] = useState<string | null>(null);
+  const [isRecovering, setIsRecovering] = useState(false);
+  const recovering = useRef(false);
 
-  // Clear any stale game state from a previous room on mount
   useEffect(() => { resetRoom(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Show Start Game when we know the user is host, OR when backend hasn't sent hostUserId yet (fallback — backend validates on room:start)
   const isHost = !hostUserId || (!!user && user.id === hostUserId);
 
   useGameSocket(roomId ?? roomCode);
@@ -32,21 +37,40 @@ export const LobbyPage = () => {
     [roomCode, roomId, storedRoomId],
   );
 
-  // Listen for backend socket errors and display them
+  const goToFreshRoom = async () => {
+    if (recovering.current) return;
+    recovering.current = true;
+    setIsRecovering(true);
+    try {
+      const res = await api.post<RoomResponse>('/rooms/join', {});
+      resetRoom();
+      navigate(`/lobby/${res.data.room.code}`, { replace: true });
+    } catch {
+      setStartError('Could not create a new room — please go back to Home.');
+      setIsRecovering(false);
+      recovering.current = false;
+    }
+  };
+
+  // Listen for backend socket errors; auto-recover from stuck rooms
   useEffect(() => {
     const socket = (socketService as unknown as { socket: { on: (e: string, cb: (msg: unknown) => void) => void; off: (e: string) => void } | null }).socket;
     if (!socket) return;
     const handler = (msg: unknown) => {
       const m = msg as { type?: string; payload?: { message?: string; code?: string } };
-      if (m?.type === 'error') setStartError(m.payload?.message ?? m.payload?.code ?? 'Unknown error');
+      if (m?.type !== 'error') return;
+      const text = m.payload?.message ?? m.payload?.code ?? 'Unknown error';
+      setStartError(text);
+      if (STUCK_ROOM_PHRASES.some((phrase) => text.toLowerCase().includes(phrase.toLowerCase()))) {
+        void goToFreshRoom();
+      }
     };
     socket.on('message', handler);
     return () => socket.off('message');
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const startGame = () => {
     setStartError(null);
-    // Always use storedRoomId (UUID from state_sync), never the room code
     const roomUuid = storedRoomId;
     if (!roomUuid) {
       setStartError('Room not synced yet — wait a moment and try again');
@@ -58,10 +82,20 @@ export const LobbyPage = () => {
   const joinRoom = () => {
     const normalizedCode = roomCode.trim().toUpperCase();
     if (!normalizedCode) return;
-
     socketService.setActiveRoom(normalizedCode);
     socketService.emit('room:join', { roomCode: normalizedCode });
   };
+
+  if (isRecovering) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-game-gradient text-white">
+        <div className="text-center">
+          <p className="text-lg font-semibold">Room was stuck — creating a fresh one...</p>
+          <p className="mt-2 text-sm text-white/50">Redirecting you now</p>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-game-gradient px-6 py-12 text-white">
@@ -113,6 +147,13 @@ export const LobbyPage = () => {
             <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">
               Room: {activeRoomId}
             </span>
+            <button
+              type="button"
+              onClick={goToFreshRoom}
+              className="rounded-full border border-white/20 bg-white/5 px-3 py-1 hover:bg-white/10 transition-colors"
+            >
+              New Room
+            </button>
           </div>
         </section>
 
