@@ -463,7 +463,28 @@ export class GameOrchestrator {
       orderBy: [{ lastUsedAt: "asc" }, { id: "asc" }],
       take: 100,
     });
-    const pool = questions.length > 0 ? questions : await prisma.questionBank.findMany({ where: { isActive: true } });
+    let pool = questions.length > 0 ? questions : await prisma.questionBank.findMany({ where: { isActive: true } });
+
+    if (pool.length === 0) {
+      const fallback: QuestionBank[] = [
+        { id: "fallback-1", prompt: "What is the capital of France?", optionA: "Berlin", optionB: "Madrid", optionC: "Paris", optionD: "Rome", correctIndex: 2, category: "Geography", difficulty: Difficulty.EASY, lastUsedAt: null, isActive: true, createdAt: new Date() },
+        { id: "fallback-2", prompt: "Which planet is the Red Planet?", optionA: "Jupiter", optionB: "Venus", optionC: "Saturn", optionD: "Mars", correctIndex: 3, category: "Science", difficulty: Difficulty.EASY, lastUsedAt: null, isActive: true, createdAt: new Date() },
+        { id: "fallback-3", prompt: "What is the chemical symbol for gold?", optionA: "Go", optionB: "Gd", optionC: "Au", optionD: "Ag", correctIndex: 2, category: "Science", difficulty: Difficulty.MEDIUM, lastUsedAt: null, isActive: true, createdAt: new Date() },
+        { id: "fallback-4", prompt: "Who painted the Mona Lisa?", optionA: "Michelangelo", optionB: "Leonardo da Vinci", optionC: "Raphael", optionD: "Botticelli", correctIndex: 1, category: "Art", difficulty: Difficulty.EASY, lastUsedAt: null, isActive: true, createdAt: new Date() },
+        { id: "fallback-5", prompt: "What is the square root of 144?", optionA: "11", optionB: "12", optionC: "13", optionD: "14", correctIndex: 1, category: "Math", difficulty: Difficulty.EASY, lastUsedAt: null, isActive: true, createdAt: new Date() },
+        { id: "fallback-6", prompt: "What is the largest ocean on Earth?", optionA: "Atlantic", optionB: "Indian", optionC: "Arctic", optionD: "Pacific", correctIndex: 3, category: "Geography", difficulty: Difficulty.EASY, lastUsedAt: null, isActive: true, createdAt: new Date() },
+        { id: "fallback-7", prompt: "In which year did the Berlin Wall fall?", optionA: "1985", optionB: "1989", optionC: "1991", optionD: "1993", correctIndex: 1, category: "History", difficulty: Difficulty.MEDIUM, lastUsedAt: null, isActive: true, createdAt: new Date() },
+        { id: "fallback-8", prompt: "Who wrote 'To Kill a Mockingbird'?", optionA: "Harper Lee", optionB: "J.K. Rowling", optionC: "Hemingway", optionD: "Twain", correctIndex: 0, category: "Literature", difficulty: Difficulty.MEDIUM, lastUsedAt: null, isActive: true, createdAt: new Date() },
+        { id: "fallback-9", prompt: "Speed of light in a vacuum (km/s)?", optionA: "150,000", optionB: "200,000", optionC: "299,792", optionD: "340", correctIndex: 2, category: "Science", difficulty: Difficulty.HARD, lastUsedAt: null, isActive: true, createdAt: new Date() },
+        { id: "fallback-10", prompt: "Which element has atomic number 79?", optionA: "Silver", optionB: "Platinum", optionC: "Copper", optionD: "Gold", correctIndex: 3, category: "Science", difficulty: Difficulty.HARD, lastUsedAt: null, isActive: true, createdAt: new Date() },
+      ];
+      const unused = fallback.filter((q) => !usedQuestionIds.has(q.id));
+      pool = unused.length > 0 ? unused : fallback;
+      const pick = pool[Math.floor(Math.random() * pool.length)];
+      usedQuestionIds.add(pick.id);
+      logger.warn("No questions in DB — using hardcoded fallback", { roomId, questionId: pick.id });
+      return pick;
+    }
 
     const byId = new Map(pool.map((question) => [question.id, question]));
     const selected = selectQuestion(
