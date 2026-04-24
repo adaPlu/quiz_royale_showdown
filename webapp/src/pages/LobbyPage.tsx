@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { PlayerAvatar } from '@/components/PlayerAvatar';
@@ -15,7 +15,9 @@ export const LobbyPage = () => {
   const phase = useGameStore((state) => state.phase);
   const code = useGameStore((state) => state.code);
   const storedRoomId = useGameStore((state) => state.roomId);
+  const hostUserId = useGameStore((state) => state.hostUserId);
   const [roomCode, setRoomCode] = useState((roomId ?? code ?? 'ROYALE').toUpperCase());
+  const isHost = !!user && !!hostUserId && user.id === hostUserId;
 
   useGameSocket(roomId ?? roomCode);
 
@@ -23,6 +25,17 @@ export const LobbyPage = () => {
     () => storedRoomId ?? code ?? roomId ?? roomCode,
     [code, roomCode, roomId, storedRoomId],
   );
+
+  useEffect(() => {
+    if (phase !== 'WAITING' && activeRoomId) {
+      navigate(`/game/${activeRoomId}`);
+    }
+  }, [phase, activeRoomId, navigate]);
+
+  const startGame = () => {
+    if (!activeRoomId) return;
+    socketService.emit('room:start', { roomId: activeRoomId });
+  };
 
   const joinRoom = () => {
     const normalizedCode = roomCode.trim().toUpperCase();
@@ -82,13 +95,18 @@ export const LobbyPage = () => {
               <p className="text-sm uppercase tracking-[0.3em] text-white/50">Players</p>
               <h2 className="text-2xl font-black">{players.length} queued</h2>
             </div>
-            <button
-              type="button"
-              onClick={() => navigate(`/game/${activeRoomId}`)}
-              className="rounded-xl border border-gold/40 px-4 py-2 text-sm font-bold text-gold transition hover:bg-gold/10"
-            >
-              Enter Game
-            </button>
+            {isHost ? (
+              <button
+                type="button"
+                onClick={startGame}
+                disabled={players.length === 0}
+                className="rounded-xl bg-brand px-4 py-2 text-sm font-bold text-white shadow-brand transition hover:bg-brand/80 disabled:opacity-40"
+              >
+                Start Game
+              </button>
+            ) : (
+              <p className="text-xs text-white/40">Waiting for host...</p>
+            )}
           </div>
 
           <div className="space-y-3">

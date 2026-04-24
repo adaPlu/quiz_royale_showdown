@@ -53,6 +53,7 @@ type RoomStatePayload = {
   room: {
     roomId: string;
     code: string;
+    hostUserId?: string;
     phase: GamePhase;
     roundNumber: number;
     totalRounds: number;
@@ -131,6 +132,7 @@ type ActivePowerupEffect = {
 type GameState = {
   roomId: string | null;
   code: string | null;
+  hostUserId: string | null;
   phase: GamePhase;
   roundNumber: number;
   totalRounds: number;
@@ -175,6 +177,7 @@ type GameActions = {
 const initialState: GameState = {
   roomId: null,
   code: null,
+  hostUserId: null,
   phase: 'WAITING',
   roundNumber: 0,
   totalRounds: 10,
@@ -215,14 +218,15 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
   ...initialState,
 
   applyRoomState: (payload) => {
-    set({
+    set((state) => ({
       roomId: payload.room.roomId,
       code: payload.room.code,
+      hostUserId: payload.room.hostUserId ?? state.hostUserId,
       phase: payload.room.phase,
       roundNumber: payload.room.roundNumber,
       totalRounds: payload.room.totalRounds,
       players: payload.room.players,
-    });
+    }));
   },
 
   applyPlayerJoined: (payload) => {

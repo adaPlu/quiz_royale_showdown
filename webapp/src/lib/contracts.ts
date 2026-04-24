@@ -12,6 +12,7 @@ export const playerSummarySchema = z.object({
 export const roomSnapshotSchema = z.object({
   roomId: z.string(),
   code: z.string(),
+  hostUserId: z.string().optional(),
   phase: z.enum([
     "WAITING",
     "COUNTDOWN",

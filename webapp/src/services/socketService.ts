@@ -135,13 +135,17 @@ export type ServerEventType = keyof typeof ServerEventSchemas;
 export type ServerEventPayload<E extends ServerEventType> = z.infer<(typeof ServerEventSchemas)[E]>;
 
 export type ClientEventType =
+  | 'room:create'
   | 'room:join'
+  | 'room:start'
   | 'round:submit_answer'
   | 'powerup:activate'
   | 'client:heartbeat';
 
 type ClientEventPayloads = {
+  'room:create': Record<string, never>;
   'room:join': { roomCode: string };
+  'room:start': { roomId: string };
   'round:submit_answer': {
     roomId: string;
     questionId: string;

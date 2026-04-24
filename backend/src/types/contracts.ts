@@ -16,6 +16,7 @@ export type PlayerSummary = {
 export type RoomSnapshot = {
   roomId: string;
   code: string;
+  hostUserId: string;
   phase:
     | "WAITING"
     | "COUNTDOWN"
