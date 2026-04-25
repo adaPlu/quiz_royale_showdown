@@ -105,6 +105,7 @@ export class GameOrchestrator {
 
       const totalRounds = 10;
       const usedQuestionIds: string[] = [];
+      const activePlayerIds = new Set(playerIds);
       let round = 0;
 
       while (round < totalRounds && state.playerCount > 1) {
@@ -122,13 +123,14 @@ export class GameOrchestrator {
         await this.runRoundEnd(roomId, io);
 
         if (round % 2 === 0 && state.playerCount > 2) {
-          const scores = await this.loadScores(roomId, playerIds);
+          const scores = await this.loadScores(roomId, [...activePlayerIds]);
           const eliminateCount = this.computeEliminationCount(state.playerCount);
           const { eliminated, survivors } = eliminateBottomN(scores, {
             eliminateCount,
             minimumSurvivors: 2
           });
           const eliminatedIds = eliminated.map((entry) => entry.playerId);
+          eliminatedIds.forEach((playerId) => activePlayerIds.delete(playerId));
 
           state = transitionGameState(state, {
             type: "APPLY_ELIMINATION",
@@ -144,7 +146,7 @@ export class GameOrchestrator {
         }
       }
 
-      const finalistIds = playerIds.filter((playerId) => !state.eliminatedPlayerIds.includes(playerId));
+      const finalistIds = [...activePlayerIds];
 
       if (finalistIds.length > 0) {
         state = transitionGameState(state, {
@@ -158,10 +160,19 @@ export class GameOrchestrator {
       const winnerIds = await this.computeWinners(roomId, finalistIds);
       state = transitionGameState(state, { type: "COMPLETE_GAME", winnerIds });
       await this.persistState(roomId, state);
-      await this.runGameOver(roomId, io, winnerIds);
+      await this.runGameOver(roomId, io, winnerIds, finalistIds);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await roomService.resetStartFailure(roomId, message);
+
+      if (redisService) {
+        await redisService.del(
+          `game:${roomId}:state`,
+          `game:${roomId}:current_question`,
+          `room:${roomId}:players`,
+          `room:${roomId}:scores`
+        ).catch(() => undefined);
+      }
 
       emitRoomEnvelope(io, roomId, {
         type: "error",
@@ -420,19 +431,30 @@ export class GameOrchestrator {
     await this.runRoundEnd(roomId, io);
   }
 
-  private async runGameOver(roomId: string, io: Server, winnerIds: string[]): Promise<void> {
+  private async runGameOver(
+    roomId: string,
+    io: Server,
+    winnerIds: string[],
+    finalistIds: string[]
+  ): Promise<void> {
     logger.info("Game over", { roomId, winnerIds });
 
-    const scoreEntries = redisService
-      ? await redisService.zrevrangeWithScores(`room:${roomId}:scores`, 0, -1)
-      : [];
+    const finalScores = await this.loadScores(roomId, finalistIds);
+    const finalStandings = finalScores
+      .sort((left, right) =>
+        (right.totalScore ?? right.roundScore) - (left.totalScore ?? left.roundScore) ||
+        left.playerId.localeCompare(right.playerId)
+      )
+      .map((standing, index) => {
+        const score = standing.totalScore ?? standing.roundScore;
 
-    const finalStandings = scoreEntries.map(({ member, score }, index) => ({
-      playerId: member,
-      rank: index + 1,
-      score,
-      xpAwarded: Math.max(10, Math.round(score / 10))
-    }));
+        return {
+          playerId: standing.playerId,
+          rank: index + 1,
+          score,
+          xpAwarded: Math.max(10, Math.round(score / 10))
+        };
+      });
 
     await Promise.all(
       finalStandings.map((standing) =>
@@ -514,12 +536,19 @@ export class GameOrchestrator {
   }
 
   private async computeWinners(roomId: string, finalistIds: string[]): Promise<string[]> {
-    if (!redisService || finalistIds.length === 0) {
+    if (finalistIds.length === 0) {
       return finalistIds.slice(0, 1);
     }
 
-    const entries = await redisService.zrevrangeWithScores(`room:${roomId}:scores`, 0, 0);
-    return entries.map((entry) => entry.member);
+    const finalistScores = await this.loadScores(roomId, finalistIds);
+    const highestScore = Math.max(
+      ...finalistScores.map((standing) => standing.totalScore ?? standing.roundScore)
+    );
+
+    return finalistScores
+      .filter((standing) => (standing.totalScore ?? standing.roundScore) === highestScore)
+      .sort((left, right) => left.playerId.localeCompare(right.playerId))
+      .map((standing) => standing.playerId);
   }
 
   private async persistState(roomId: string, state: GameStateSnapshot): Promise<void> {

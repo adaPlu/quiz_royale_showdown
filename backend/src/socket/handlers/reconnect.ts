@@ -9,6 +9,7 @@ type ActiveQuestionContext = {
   questionId: string;
   prompt: string;
   answers: string[];
+  correctAnswerIndex: number;
   timeLimitMs: number;
   startedAt: string;
 };
@@ -64,6 +65,26 @@ export async function syncRoomState(socket: AuthenticatedSocket, roomId: string)
         roomId,
         roundId: latestRound.id,
         lockedAt: latestRound.lockedAt.toISOString()
+      }
+    });
+  }
+
+  if (room.phase === "ROUND_RESULT" && questionContext?.correctAnswerIndex !== undefined && redisService) {
+    const scoreEntries = await redisService.zrevrangeWithScores(`room:${roomId}:scores`, 0, -1);
+    const rankings = scoreEntries.map(({ member, score }) => ({
+      playerId: member,
+      scoreDelta: 0,
+      totalScore: score
+    }));
+
+    emitEnvelope(socket, {
+      type: "round:result",
+      version: "v1",
+      payload: {
+        roomId,
+        roundId: questionContext.roundId,
+        correctAnswerIndex: questionContext.correctAnswerIndex,
+        rankings
       }
     });
   }

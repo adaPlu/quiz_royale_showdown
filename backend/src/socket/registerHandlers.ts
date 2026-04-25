@@ -1,5 +1,6 @@
 import type { Server } from "socket.io";
 import { prisma } from "../models/prismaClient";
+import { redisService } from "../services/RedisService";
 import { roomService } from "../services/RoomService";
 import type { ClientEvents, ServerEvents, SocketErrorEvent } from "../types/contracts";
 import { logger } from "../utils/logger";
@@ -63,6 +64,10 @@ async function handleRoomJoin(io: Server, socket: AuthenticatedSocket, roomCode:
   socket.data.roomId = existingRoom.id;
   socket.data.roomCode = normalizedRoomCode;
 
+  if (redisService) {
+    await redisService.del(`room:${existingRoom.id}:player:${userId}:grace`).catch(() => undefined);
+  }
+
   await syncRoomState(socket, existingRoom.id);
 
   if (!wasMember) {
@@ -100,6 +105,7 @@ export function registerSocketHandlers(io: Server, socket: AuthenticatedSocket):
     }
 
     try {
+      logger.debug("Socket message received", { socketId: socket.id, type: message.type });
       switch (message.type) {
         case "room:join":
           await handleRoomJoin(io, socket, message.payload.roomCode);
@@ -128,8 +134,14 @@ export function registerSocketHandlers(io: Server, socket: AuthenticatedSocket):
 
   socket.on("disconnect", () => {
     const roomId = socket.data.roomId;
+    const userId = socket.data.userId;
 
     if (!roomId) {
+      return;
+    }
+
+    if (redisService) {
+      void redisService.set(`room:${roomId}:player:${userId}:grace`, "1", 30).catch(() => undefined);
       return;
     }
 
@@ -138,7 +150,7 @@ export function registerSocketHandlers(io: Server, socket: AuthenticatedSocket):
       version: "v1",
       payload: {
         roomId,
-        playerId: socket.data.userId
+        playerId: userId
       }
     };
 

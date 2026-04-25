@@ -62,6 +62,7 @@ export const GamePage = () => {
   const timeBoostActive = useGameStore((s) => s.timeBoostActive);
   const setMyAnswer = useGameStore((s) => s.setMyAnswer);
   const leaderboard = useGameStore(selectLeaderboard);
+  const players     = useGameStore((s) => s.players);
 
   const powerupSlots: PowerupSlot[] = [
     { type: 'fifty_fifty',  owned: true, used: fiftyFiftyEliminated.length > 0 },
@@ -236,7 +237,7 @@ export const GamePage = () => {
             <div className="mt-4 space-y-2">
               {result.rankings.slice(0, 5).map((r) => (
                 <div key={r.playerId} className="flex justify-between text-sm">
-                  <span className="text-white/70 truncate">{r.playerId}</span>
+                  <span className="text-white/70 truncate">{players.find((p) => p.id === r.playerId)?.displayName ?? r.playerId}</span>
                   <span className={r.scoreDelta > 0 ? 'text-answer-correct font-bold' : 'text-answer-wrong'}>
                     {r.scoreDelta > 0 ? `+${r.scoreDelta}` : r.scoreDelta}
                   </span>

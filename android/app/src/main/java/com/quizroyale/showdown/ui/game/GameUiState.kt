@@ -43,6 +43,7 @@ data class PlayerUiModel(
   val score: Int,
   val streak: Int,
   val isEliminated: Boolean,
+  val xpAwarded: Int = 0,
 )
 
 /**

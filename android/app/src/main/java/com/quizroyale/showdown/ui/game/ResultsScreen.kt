@@ -93,11 +93,20 @@ fun ResultsScreen(
                                     color = if (player.isEliminated) Color.Gray else Color.White,
                                 )
                             }
-                            Text(
-                                text  = "${player.score} pts",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                color = GoldYellow,
-                            )
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    text  = "${player.score} pts",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = GoldYellow,
+                                )
+                                if (player.xpAwarded > 0) {
+                                    Text(
+                                        text  = "+${player.xpAwarded} XP",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color(0xFF80CBC4),
+                                    )
+                                }
+                            }
                         }
                     }
                 }

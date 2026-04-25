@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
 
 // ── Power-up inventory (keyed by PowerupType) ─────────────────────────────────
@@ -128,7 +129,6 @@ class GameViewModel @Inject constructor(
             val envelope = JSONObject(raw)
             val type = envelope.optString("type")
             val payload = envelope.optJSONObject("payload") ?: JSONObject()
-            val roomId = envelope.optString("roomId")
 
             when (type) {
                 // round:question_started — server pushes a new question
@@ -145,15 +145,13 @@ class GameViewModel @Inject constructor(
                             }
                         }
                     }
-                    val players = parsePlayers(payload)
+                    val players = parsePlayers(payload).ifEmpty { currentPlayers() }
 
                     // Reset per-round used set for the new question
                     usedThisRound.clear()
 
                     _uiState.value = GameUiState.ActiveQuestion(
-                        roomId = roomId.ifEmpty {
-                            payload.optString("roomId", "")
-                        },
+                        roomId = payload.optString("roomId", currentRoomId()),
                         roundId = roundId,
                         questionId = questionId,
                         prompt = prompt,
@@ -169,12 +167,11 @@ class GameViewModel @Inject constructor(
 
                 // round:countdown_started — pre-question countdown; show lobby/waiting state
                 "round:countdown_started" -> {
-                    val currentRoomId = roomId.ifEmpty {
-                        (_uiState.value as? GameUiState.ActiveQuestion)?.roomId
-                            ?: (_uiState.value as? GameUiState.RoundResult)?.roomId
-                            ?: (_uiState.value as? GameUiState.Lobby)?.roomCode ?: ""
-                    }
-                    _uiState.value = GameUiState.Lobby(roomCode = currentRoomId)
+                    val currentRoomId = payload.optString("roomId", currentRoomId())
+                    _uiState.value = GameUiState.Lobby(
+                        roomCode = currentRoomId,
+                        players = currentPlayers(),
+                    )
                 }
 
                 // round:result — round finished, show leaderboard / eliminated markers
@@ -186,10 +183,7 @@ class GameViewModel @Inject constructor(
                     else
                         "Round complete."
                     val players = parseRankings(payload)
-                    val roomIdFinal = roomId.ifEmpty {
-                        payload.optString("roomId",
-                            (_uiState.value as? GameUiState.ActiveQuestion)?.roomId ?: "")
-                    }
+                    val roomIdFinal = payload.optString("roomId", currentRoomId())
                     // Check if local player was eliminated
                     val localId = authRepository.currentUserId() ?: ""
                     val wasEliminated = players.any { it.id == localId && it.isEliminated }
@@ -206,11 +200,7 @@ class GameViewModel @Inject constructor(
                 "game:over" -> {
                     timerJob?.cancel()
                     val players = parseFinalStandings(payload)
-                    val roomIdFinal = roomId.ifEmpty {
-                        payload.optString("roomId",
-                            (_uiState.value as? GameUiState.ActiveQuestion)?.roomId
-                                ?: (_uiState.value as? GameUiState.RoundResult)?.roomId ?: "")
-                    }
+                    val roomIdFinal = payload.optString("roomId", currentRoomId())
                     _uiState.value = GameUiState.GameOver(roomId = roomIdFinal, players = players)
                     _sideEffects.trySend(GameSideEffect.NavigateToResults(roomIdFinal))
                 }
@@ -222,10 +212,20 @@ class GameViewModel @Inject constructor(
 
                 // room:state_sync — full room state snapshot
                 "room:state_sync" -> {
-                    val players = parsePlayers(payload)
-                    val current = _uiState.value
-                    if (current is GameUiState.Lobby && players.isNotEmpty()) {
-                        _uiState.value = current.copy()
+                    applyRoomStateSync(payload)
+                }
+
+                "room:player_joined" -> {
+                    val player = payload.optJSONObject("player")?.toPlayerUiModel()
+                    if (player != null) {
+                        updatePlayers { players -> mergePlayers(players, listOf(player)) }
+                    }
+                }
+
+                "room:player_left" -> {
+                    val playerId = payload.optString("playerId", "")
+                    if (playerId.isNotBlank()) {
+                        updatePlayers { players -> players.filterNot { it.id == playerId } }
                     }
                 }
 
@@ -236,15 +236,28 @@ class GameViewModel @Inject constructor(
 
                 // round:elimination — a player was eliminated mid-round
                 "round:elimination" -> {
-                    val eliminatedId = payload.optString("playerId", "")
+                    val eliminatedIds = payload.optStringArray("eliminatedPlayerIds").toSet()
+                    val survivors = parsePlayersFromArray(payload.optJSONArray("survivors"))
+                    val survivorIds = survivors.map { it.id }.toSet()
+
+                    updatePlayers { players ->
+                        val merged = mergePlayers(players, survivors)
+                        merged.map { player ->
+                            when {
+                                player.id in survivorIds -> player.copy(isEliminated = false)
+                                player.id in eliminatedIds -> player.copy(isEliminated = true)
+                                else -> player
+                            }
+                        }
+                    }
+
                     val localId = authRepository.currentUserId() ?: ""
-                    if (eliminatedId == localId) {
+                    if (localId in eliminatedIds) {
                         _sideEffects.trySend(GameSideEffect.PlayerEliminated)
                     }
                 }
 
-                // v1:powerup:loot_drop — player received a powerup from the server
-                "v1:powerup:loot_drop" -> {
+                "powerup:loot_drop" -> {
                     val powerupName = payload.optString("powerup", "")
                     val parsedType = runCatching { PowerupType.valueOf(powerupName) }.getOrNull()
                     if (parsedType != null) {
@@ -257,15 +270,14 @@ class GameViewModel @Inject constructor(
                     }
                 }
 
-                // v1:round:reveal / v1:answer:reveal — correct answer was revealed
-                "v1:round:reveal", "v1:answer:reveal" -> {
-                    _sideEffects.trySend(GameSideEffect.CorrectAnswerRevealed)
-                }
-
-                // v1:player:levelup — level-up cosmetic event
-                "v1:player:levelup" -> {
-                    val newLevel = payload.optInt("newLevel", 0)
-                    if (newLevel > 0) _sideEffects.trySend(GameSideEffect.ShowLevelUp(newLevel))
+                "error" -> {
+                    val message = payload.optString("message", "Socket error")
+                    val code = payload.optString("code", "")
+                    _sideEffects.trySend(
+                        GameSideEffect.ShowToast(
+                            if (code.isBlank()) message else "$message ($code)"
+                        )
+                    )
                 }
             }
         }.onFailure { /* swallow parse errors — bad envelope shouldn't crash the game */ }
@@ -307,18 +319,105 @@ class GameViewModel @Inject constructor(
 
     private fun parsePlayers(payload: JSONObject): List<PlayerUiModel> {
         val arr = payload.optJSONArray("players") ?: return emptyList()
+        return parsePlayersFromArray(arr)
+    }
+
+    private fun parsePlayersFromArray(arr: JSONArray?): List<PlayerUiModel> {
+        if (arr == null) return emptyList()
         return buildList {
             for (i in 0 until arr.length()) {
                 val o = arr.getJSONObject(i)
-                add(
-                    PlayerUiModel(
-                        id = o.optString("id"),
-                        displayName = o.optString("displayName", o.optString("username")),
-                        score = o.optInt("score", 0),
-                        streak = o.optInt("streak", 0),
-                        isEliminated = o.optBoolean("isEliminated", false),
-                    )
-                )
+                add(o.toPlayerUiModel())
+            }
+        }
+    }
+
+    private fun JSONObject.toPlayerUiModel(): PlayerUiModel =
+        PlayerUiModel(
+            id = optString("id", optString("playerId")),
+            displayName = optString("displayName", optString("username", optString("playerId"))),
+            score = optInt("score", optInt("totalScore", 0)),
+            streak = optInt("streak", 0),
+            isEliminated = optBoolean("isEliminated", false),
+        )
+
+    private fun applyRoomStateSync(payload: JSONObject) {
+        val room = payload.optJSONObject("room") ?: payload
+        val players = parsePlayers(room)
+        val roomId = room.optString("roomId", payload.optString("roomId", currentRoomId()))
+        val roomCode = room.optString("code", room.optString("roomCode", roomId))
+        val phase = room.optString("phase", "")
+        val nextPlayers = players.ifEmpty { currentPlayers() }
+
+        _uiState.value = when (val current = _uiState.value) {
+            is GameUiState.ActiveQuestion -> current.copy(
+                roomId = roomId,
+                players = nextPlayers,
+                phaseLabel = phase.ifBlank { current.phaseLabel },
+            )
+            is GameUiState.RoundResult -> current.copy(
+                roomId = roomId,
+                players = nextPlayers,
+            )
+            is GameUiState.GameOver -> current.copy(
+                roomId = roomId,
+                players = nextPlayers,
+            )
+            is GameUiState.Lobby -> current.copy(
+                roomCode = roomCode,
+                players = nextPlayers,
+            )
+            GameUiState.Idle -> GameUiState.Lobby(
+                roomCode = roomCode,
+                players = nextPlayers,
+            )
+        }
+    }
+
+    private fun updatePlayers(transform: (List<PlayerUiModel>) -> List<PlayerUiModel>) {
+        _uiState.value = when (val current = _uiState.value) {
+            is GameUiState.ActiveQuestion -> current.copy(players = transform(current.players))
+            is GameUiState.RoundResult -> current.copy(players = transform(current.players))
+            is GameUiState.GameOver -> current.copy(players = transform(current.players))
+            is GameUiState.Lobby -> current.copy(players = transform(current.players))
+            GameUiState.Idle -> GameUiState.Lobby(players = transform(emptyList()))
+        }
+    }
+
+    private fun mergePlayers(
+        currentPlayers: List<PlayerUiModel>,
+        nextPlayers: List<PlayerUiModel>,
+    ): List<PlayerUiModel> {
+        val playersById = linkedMapOf<String, PlayerUiModel>()
+        currentPlayers.forEach { playersById[it.id] = it }
+        nextPlayers.forEach { playersById[it.id] = it }
+        return playersById.values.toList()
+    }
+
+    private fun currentPlayers(): List<PlayerUiModel> =
+        when (val current = _uiState.value) {
+            is GameUiState.ActiveQuestion -> current.players
+            is GameUiState.RoundResult -> current.players
+            is GameUiState.GameOver -> current.players
+            is GameUiState.Lobby -> current.players
+            GameUiState.Idle -> emptyList()
+        }
+
+    private fun currentRoomId(): String =
+        when (val current = _uiState.value) {
+            is GameUiState.ActiveQuestion -> current.roomId
+            is GameUiState.RoundResult -> current.roomId
+            is GameUiState.GameOver -> current.roomId
+            is GameUiState.Lobby -> current.roomCode
+            GameUiState.Idle -> ""
+        }
+
+    private fun JSONObject.optStringArray(name: String): List<String> {
+        val arr = optJSONArray(name) ?: return emptyList()
+        return buildList {
+            for (i in 0 until arr.length()) {
+                val value = arr.optString(i)
+                if (value.isNotBlank()) add(value)
             }
         }
     }
@@ -354,7 +453,8 @@ class GameViewModel @Inject constructor(
                         displayName = o.optString("displayName", o.optString("playerId")),
                         score = o.optInt("score", 0),
                         streak = 0,
-                        isEliminated = o.optInt("rank", 1) > 1,
+                        isEliminated = false,
+                        xpAwarded = o.optInt("xpAwarded", 0),
                     )
                 )
             }

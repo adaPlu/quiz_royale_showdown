@@ -100,6 +100,12 @@ export function useGameSocket(roomId: string | undefined) {
       }),
     );
 
+    unsubs.push(
+      socketService.on('error', (payload) => {
+        console.error('[socket] Server error:', payload.code, payload.message, payload.details);
+      }),
+    );
+
     return () => {
       unsubs.forEach((unsubscribe) => unsubscribe());
     };
