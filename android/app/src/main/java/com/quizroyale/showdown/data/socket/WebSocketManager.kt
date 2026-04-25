@@ -6,7 +6,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -35,6 +38,9 @@ class WebSocketManager @Inject constructor(
   private val _events = MutableSharedFlow<String>(extraBufferCapacity = 32)
   val events: SharedFlow<String> = _events
 
+  private val _isConnected = MutableStateFlow(false)
+  val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
+
   private var webSocket: WebSocket? = null
   private var reconnectAttempt = 0
   private var latestUrl: String? = null
@@ -58,21 +64,28 @@ class WebSocketManager @Inject constructor(
   fun disconnect() {
     latestUrl = null
     latestAccessToken = null
+    _isConnected.value = false
     webSocket?.close(1000, "client_disconnect")
     webSocket = null
   }
 
   private val listener = object : WebSocketListener() {
+    override fun onOpen(webSocket: WebSocket, response: Response) {
+      _isConnected.value = true
+    }
+
     override fun onMessage(webSocket: WebSocket, text: String) {
       reconnectAttempt = 0
       _events.tryEmit(text)
     }
 
     override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+      _isConnected.value = false
       scheduleReconnect()
     }
 
     override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+      _isConnected.value = false
       scheduleReconnect()
     }
   }

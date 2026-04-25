@@ -1,22 +1,18 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense, lazy, useEffect } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 
+import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { ReconnectBanner } from '@/components/ReconnectBanner';
 import { GamePage } from '@/pages/GamePage';
 import { LobbyPage } from '@/pages/LobbyPage';
 import { useAuthStore } from '@/stores/authStore';
 
-const LoginPage       = lazy(() => import('@/pages/LoginPage'));
-const RegisterPage    = lazy(() => import('@/pages/RegisterPage'));
-const HomePage        = lazy(() => import('@/pages/HomePage'));
-const ResultsPage     = lazy(() => import('@/pages/ResultsPage'));
-const ProfilePage     = lazy(() => import('@/pages/ProfilePage'));
+const LoginPage = lazy(() => import('@/pages/LoginPage'));
+const RegisterPage = lazy(() => import('@/pages/RegisterPage'));
+const HomePage = lazy(() => import('@/pages/HomePage'));
+const ResultsPage = lazy(() => import('@/pages/ResultsPage'));
+const ProfilePage = lazy(() => import('@/pages/ProfilePage'));
 const LeaderboardPage = lazy(() => import('@/pages/LeaderboardPage'));
-
-function RequireAuth({ children }: { children: React.ReactNode }) {
-  const user = useAuthStore((s) => s.user);
-  if (!user) return <Navigate to="/login" replace />;
-  return <>{children}</>;
-}
 
 const Spinner = () => (
   <div className="min-h-screen bg-game-bg flex items-center justify-center">
@@ -24,26 +20,70 @@ const Spinner = () => (
   </div>
 );
 
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const user = useAuthStore((state) => state.user);
+  const accessToken = useAuthStore((state) => state.accessToken);
+  const authResolved = useAuthStore((state) => state.authResolved);
+
+  if (!authResolved) return <Spinner />;
+  if (!user || !accessToken) return <Navigate to="/login" replace />;
+
+  return <>{children}</>;
+}
+
+function PublicOnly({ children }: { children: React.ReactNode }) {
+  const user = useAuthStore((state) => state.user);
+  const accessToken = useAuthStore((state) => state.accessToken);
+  const authResolved = useAuthStore((state) => state.authResolved);
+
+  if (!authResolved) return <Spinner />;
+  if (user && accessToken) return <Navigate to="/home" replace />;
+
+  return <>{children}</>;
+}
+
+function RootRedirect() {
+  const user = useAuthStore((state) => state.user);
+  const accessToken = useAuthStore((state) => state.accessToken);
+  const authResolved = useAuthStore((state) => state.authResolved);
+
+  if (!authResolved) return <Spinner />;
+
+  return <Navigate to={user && accessToken ? '/home' : '/login'} replace />;
+}
+
 export const App = () => {
+  const hasHydrated = useAuthStore((state) => state.hasHydrated);
+  const bootstrapSession = useAuthStore((state) => state.bootstrapSession);
+
+  useEffect(() => {
+    if (!hasHydrated) return;
+    void bootstrapSession();
+  }, [bootstrapSession, hasHydrated]);
+
+  if (!hasHydrated) {
+    return <Spinner />;
+  }
+
   return (
+    <ErrorBoundary>
+    <ReconnectBanner />
     <Suspense fallback={<Spinner />}>
       <Routes>
-        {/* Public */}
-        <Route path="/login"    element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
+        <Route path="/login" element={<PublicOnly><LoginPage /></PublicOnly>} />
+        <Route path="/register" element={<PublicOnly><RegisterPage /></PublicOnly>} />
 
-        {/* Auth-gated */}
         <Route path="/home" element={<RequireAuth><HomePage /></RequireAuth>} />
         <Route path="/lobby/:roomId" element={<RequireAuth><LobbyPage /></RequireAuth>} />
-        <Route path="/game/:roomId"  element={<RequireAuth><GamePage /></RequireAuth>} />
+        <Route path="/game/:roomId" element={<RequireAuth><GamePage /></RequireAuth>} />
         <Route path="/results/:roomId" element={<RequireAuth><ResultsPage /></RequireAuth>} />
         <Route path="/profile/:username" element={<RequireAuth><ProfilePage /></RequireAuth>} />
         <Route path="/leaderboard" element={<RequireAuth><LeaderboardPage /></RequireAuth>} />
 
-        {/* Root redirects */}
-        <Route path="/" element={<Navigate to="/login" replace />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <Route path="/" element={<RootRedirect />} />
+        <Route path="*" element={<RootRedirect />} />
       </Routes>
     </Suspense>
+    </ErrorBoundary>
   );
 };

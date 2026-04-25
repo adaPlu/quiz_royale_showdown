@@ -27,7 +27,9 @@ class MainActivity : ComponentActivity() {
         if (inGame) {
           GameScreen(
             state = state,
-            onAnswerSelected = viewModel::submitAnswer
+            onAnswerSelected = viewModel::submitAnswer,
+            sideEffects = viewModel.sideEffects,
+            onIntent = viewModel::onIntent,
           )
         } else {
           LobbyScreen(

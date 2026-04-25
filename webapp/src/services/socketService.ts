@@ -1,261 +1,291 @@
-import { io, type Socket } from 'socket.io-client';
-import { z } from 'zod';
+import { io, type Socket } from "socket.io-client";
 
-// ---------------------------------------------------------------------------
-// Envelope schema (wraps every server → client message)
-// ---------------------------------------------------------------------------
-const EnvelopeSchema = z.object({
-  eventType: z.string(),
-  roomId: z.string(),
-  senderId: z.string().optional(),
-  ts: z.number(),
-  payload: z.unknown(),
-});
-
-// ---------------------------------------------------------------------------
-// Payload schemas for every server event
-// ---------------------------------------------------------------------------
-const PlayerSchema = z.object({
-  id: z.string(),
-  displayName: z.string(),
-  avatarUrl: z.string().optional(),
-  score: z.number(),
-  streak: z.number(),
-  isEliminated: z.boolean(),
-});
-
-const RoomStatePayload = z.object({
-  room: z.object({
-    roomId: z.string(),
-    code: z.string(),
-    phase: z.enum([
-      'WAITING',
-      'COUNTDOWN',
-      'QUESTION_ACTIVE',
-      'ANSWER_LOCKED',
-      'ROUND_RESULT',
-      'ELIMINATION',
-      'FINALE',
-      'GAME_OVER',
-    ]),
-    roundNumber: z.number(),
-    totalRounds: z.number(),
-    players: z.array(PlayerSchema),
-  }),
-});
-
-const CountdownStartPayload = z.object({
-  roomId: z.string(),
-  startsAt: z.string(),
-  seconds: z.number(),
-});
-
-const QuestionPayload = z.object({
-  roomId: z.string(),
-  roundId: z.string(),
-  questionId: z.string(),
-  prompt: z.string(),
-  answers: z.array(z.string()).length(4),
-  timeLimitMs: z.number(),
-  startedAt: z.string(),
-});
-
-const AnswerLockedPayload = z.object({
-  roomId: z.string(),
-  roundId: z.string(),
-  lockedAt: z.string(),
-});
-
-const RoundResultPayload = z.object({
-  roomId: z.string(),
-  roundId: z.string(),
-  correctAnswerIndex: z.number(),
-  rankings: z.array(
-    z.object({ playerId: z.string(), scoreDelta: z.number(), totalScore: z.number() }),
-  ),
-});
-
-const PowerupUsedPayload = z.object({
-  roomId: z.string(),
-  playerId: z.string(),
-  powerupId: z.string(),
-});
-
-const PowerupEffectPayload = z.object({
-  roomId: z.string(),
-  effectType: z.string(),
-  affectedPlayerIds: z.array(z.string()),
-  data: z.unknown().optional(),
-});
-
-const GameOverPayload = z.object({
-  roomId: z.string(),
-  winnerId: z.string(),
-  finalStandings: z.array(
-    z.object({
-      playerId: z.string(),
-      rank: z.number(),
-      score: z.number(),
-      xpAwarded: z.number(),
-    }),
-  ),
-});
-
-const LevelUpPayload = z.object({
-  playerId: z.string(),
-  newLevel: z.number(),
-  xp: z.number(),
-  xpToNextLevel: z.number(),
-});
-
-const ErrorPayload = z.object({
-  code: z.string(),
-  message: z.string(),
-  details: z.unknown().optional(),
-});
-
-// ---------------------------------------------------------------------------
-// Server event discriminated union
-// ---------------------------------------------------------------------------
-export const ServerEventSchemas = {
-  'room:state_sync': RoomStatePayload,
-  'room:countdown_start': CountdownStartPayload,
-  'round:question_started': QuestionPayload,
-  'round:answer_locked': AnswerLockedPayload,
-  'round:result': RoundResultPayload,
-  'powerup:used': PowerupUsedPayload,
-  'powerup:effect': PowerupEffectPayload,
-  'game:over': GameOverPayload,
-  'player:level_up': LevelUpPayload,
-  'error': ErrorPayload,
-} as const;
-
-export type ServerEventType = keyof typeof ServerEventSchemas;
-export type ServerEventPayload<E extends ServerEventType> = z.infer<typeof ServerEventSchemas[E]>;
-
-// ---------------------------------------------------------------------------
-// Client event types
-// ---------------------------------------------------------------------------
-export type ClientEventType =
-  | 'room:join'
-  | 'round:submit_answer'
-  | 'powerup:activate'
-  | 'client:heartbeat';
-
-interface ClientEventPayloads {
-  'room:join': { roomCode: string };
-  'round:submit_answer': {
-    roomId: string;
-    questionId: string;
-    answerIndex: number;
-    clientSentAt: string;
-  };
-  'powerup:activate': { roomId: string; powerupId: string; targetPlayerId?: string };
-  'client:heartbeat': { roomId: string; sentAt: string };
-}
+import {
+  type ClientEvent,
+  type ClientEventPayload,
+  type ClientEventType,
+  type PowerupActivatePayload,
+  type ServerEvent,
+  serverEventSchema,
+  type ServerEventPayload,
+  type ServerEventType
+} from "@/lib/contracts";
 
 type Unsubscribe = () => void;
 
-// ---------------------------------------------------------------------------
-// SocketService class
-// ---------------------------------------------------------------------------
+type RoomSession = {
+  roomCode: string;
+  roomId?: string;
+  token?: string | null;
+};
+
+const ROOM_SESSION_STORAGE_KEY = "quiz-room-session";
+
+const isBrowser = typeof window !== "undefined";
+
+const normalizeRoomCode = (roomCode: string) => roomCode.trim().toUpperCase();
+
+const normalizePowerupPayload = (payload: PowerupActivatePayload) => ({
+  roomId: payload.roomId,
+  powerUpId: "powerUpId" in payload ? payload.powerUpId : payload.powerupId,
+  targetPlayerId: payload.targetPlayerId
+});
+
+const normalizeClientEvent = <TType extends ClientEventType>(
+  type: TType,
+  payload: ClientEventPayload<TType>
+): ClientEvent => {
+  if (type === "room:join") {
+    const joinPayload = payload as ClientEventPayload<"room:join">;
+    return {
+      type,
+      version: "v1",
+      payload: { roomCode: normalizeRoomCode(joinPayload.roomCode) }
+    } as ClientEvent;
+  }
+
+  if (type === "powerup:activate") {
+    return {
+      type,
+      version: "v1",
+      payload: normalizePowerupPayload(payload as PowerupActivatePayload)
+    } as ClientEvent;
+  }
+
+  return {
+    type,
+    version: "v1",
+    payload
+  } as ClientEvent;
+};
+
 class SocketService {
   private socket: Socket | null = null;
-  private activeRoomId: string | null = null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private listeners = new Map<string, Set<(payload: any) => void>>();
+  private token: string | null = null;
+  private activeRoom: RoomSession | null = this.readStoredRoomSession();
+  private listeners = new Map<ServerEventType, Set<(payload: unknown) => void>>();
 
-  connect(accessToken: string): void {
-    if (this.socket?.connected) return;
+  private connectionListeners = new Set<(connected: boolean) => void>();
 
-    const WS_URL =
-      (import.meta as unknown as { env: Record<string, string> }).env?.VITE_WS_BASE_URL ??
-      'http://localhost:4000';
+  onConnectionChange(handler: (connected: boolean) => void): () => void {
+    this.connectionListeners.add(handler);
+    return () => this.connectionListeners.delete(handler);
+  }
 
-    this.socket = io(WS_URL, {
-      path: '/socket.io',
-      transports: ['websocket'],
-      auth: { token: accessToken },
+  private notifyConnectionChange(connected: boolean): void {
+    this.connectionListeners.forEach((h) => h(connected));
+  }
+
+  connect(token: string): void {
+    const trimmedToken = token.trim();
+    if (!trimmedToken) {
+      return;
+    }
+
+    if (this.socket && this.token === trimmedToken) {
+      if (!this.socket.connected) {
+        this.socket.connect();
+      }
+      return;
+    }
+
+    this.disconnect(false);
+    this.token = trimmedToken;
+
+    const wsBaseUrl =
+      (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_WS_BASE_URL ??
+      "http://localhost:4000";
+
+    this.socket = io(wsBaseUrl, {
+      path: "/ws",
+      transports: ["websocket"],
+      auth: { token: trimmedToken },
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
+      reconnectionDelayMax: 5000
     });
 
-    this.socket.on('message', (raw: unknown) => {
-      const envelope = EnvelopeSchema.safeParse(raw);
-      if (!envelope.success) return;
+    this.socket.on("message", (raw: unknown) => {
+      const parsed = serverEventSchema.safeParse(raw);
+      if (!parsed.success) {
+        return;
+      }
 
-      const { eventType, payload } = envelope.data;
-      const schema = ServerEventSchemas[eventType as ServerEventType];
-      if (!schema) return;
+      this.handleServerEvent(parsed.data);
+    });
 
-      const parsed = schema.safeParse(payload);
-      if (!parsed.success) return;
-
-      const handlers = this.listeners.get(eventType);
-      if (handlers) {
-        handlers.forEach((h) => h(parsed.data));
+    this.socket.on("connect", () => {
+      this.notifyConnectionChange(true);
+      if (this.activeRoom?.roomCode) {
+        this.emit("room:join", { roomCode: this.activeRoom.roomCode });
       }
     });
 
-    this.socket.on('connect', () => {
-      if (this.activeRoomId) {
-        this.emit('room:join', { roomCode: this.activeRoomId });
-      }
+    this.socket.on("disconnect", () => {
+      this.notifyConnectionChange(false);
+    });
+
+    this.socket.on("connect_error", () => {
+      this.notifyConnectionChange(false);
     });
   }
 
-  disconnect(): void {
+  disconnect(clearSession = false): void {
     this.socket?.disconnect();
     this.socket = null;
-  }
+    this.token = clearSession ? null : this.token;
 
-  setActiveRoom(roomId: string): void {
-    this.activeRoomId = roomId;
-  }
-
-  emit<E extends ClientEventType>(event: E, payload: ClientEventPayloads[E]): void {
-    this.socket?.emit('message', { type: event, version: 'v1', payload });
-  }
-
-  on<E extends ServerEventType>(
-    event: E,
-    handler: (payload: ServerEventPayload<E>) => void,
-  ): Unsubscribe {
-    if (!this.listeners.has(event)) {
-      this.listeners.set(event, new Set());
+    if (clearSession) {
+      this.activeRoom = null;
+      this.clearStoredRoomSession();
     }
-    const handlers = this.listeners.get(event)!;
+  }
+
+  isConnected(): boolean {
+    return this.socket?.connected ?? false;
+  }
+
+  setActiveRoom(room: RoomSession): void {
+    this.activeRoom = {
+      roomCode: normalizeRoomCode(room.roomCode),
+      roomId: room.roomId,
+      token: room.token ?? this.activeRoom?.token ?? this.token
+    };
+    this.storeRoomSession(this.activeRoom);
+  }
+
+  updateRoomSnapshot(roomId: string, roomCode: string): void {
+    this.setActiveRoom({
+      roomId,
+      roomCode,
+      token: this.activeRoom?.token ?? this.token
+    });
+  }
+
+  getActiveRoom(): RoomSession | null {
+    return this.activeRoom;
+  }
+
+  clearActiveRoom(): void {
+    this.activeRoom = null;
+    this.clearStoredRoomSession();
+  }
+
+  joinRoom(roomCode: string, roomId?: string): void {
+    const normalizedRoomCode = normalizeRoomCode(roomCode);
+
+    this.setActiveRoom({
+      roomCode: normalizedRoomCode,
+      roomId: roomId ?? this.activeRoom?.roomId,
+      token: this.activeRoom?.token ?? this.token
+    });
+
+    if (this.socket?.connected) {
+      this.emit("room:join", { roomCode: normalizedRoomCode });
+    }
+  }
+
+  emit<TType extends ClientEventType>(type: TType, payload: ClientEventPayload<TType>): void {
+    const envelope = normalizeClientEvent(type, payload);
+    this.socket?.emit("message", envelope);
+  }
+
+  on<TType extends ServerEventType>(
+    eventType: TType,
+    handler: (payload: ServerEventPayload<TType>) => void
+  ): Unsubscribe {
+    const handlers = this.listeners.get(eventType) ?? new Set<(payload: unknown) => void>();
     handlers.add(handler as (payload: unknown) => void);
+    this.listeners.set(eventType, handlers);
+
     return () => {
-      handlers.delete(handler as (payload: unknown) => void);
+      const currentHandlers = this.listeners.get(eventType);
+      currentHandlers?.delete(handler as (payload: unknown) => void);
+      if (currentHandlers && currentHandlers.size === 0) {
+        this.listeners.delete(eventType);
+      }
     };
   }
 
-  // ── Legacy compatibility shims ──────────────────────────────────────────────
-
-  /** Legacy: send a raw event envelope. Used by GamePage.tsx. */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  send(envelope: { type: string; version: string; payload: Record<string, any> }): void {
-    this.socket?.emit('message', envelope);
+  send(envelope: ClientEvent): void {
+    this.socket?.emit("message", normalizeClientEvent(envelope.type, envelope.payload as never));
   }
 
-  /**
-   * Legacy: subscribe to ALL server events, calling `handler` with a
-   * `{ type, version, payload }` object for each. Returns an unsubscribe fn.
-   * Used by the original App.tsx socket wiring.
-   */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  subscribe(handler: (event: { type: string; version: string; payload: Record<string, any> }) => void): Unsubscribe {
-    // Attach a listener on every known server event type and forward as legacy shape.
-    const unsubs = (Object.keys(ServerEventSchemas) as ServerEventType[]).map((eventType) =>
+  subscribe(handler: (event: ServerEvent) => void): Unsubscribe {
+    const unsubs = ([
+      "room:state_sync",
+      "room:player_joined",
+      "room:player_left",
+      "round:countdown_started",
+      "round:question_started",
+      "round:answer_locked",
+      "round:result",
+      "round:elimination",
+      "round:finale_started",
+      "game:over"
+    ] as const).map((eventType) =>
       this.on(eventType, (payload) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        handler({ type: eventType, version: 'v1', payload: payload as Record<string, any> });
-      }),
+        handler({ type: eventType, version: "v1", payload } as ServerEvent);
+      })
     );
-    return () => unsubs.forEach((u) => u());
+
+    return () => {
+      unsubs.forEach((unsubscribe) => unsubscribe());
+    };
+  }
+
+  private handleServerEvent(event: ServerEvent): void {
+    if (event.type === "room:state_sync") {
+      this.updateRoomSnapshot(event.payload.room.roomId, event.payload.room.code);
+    }
+
+    const handlers = this.listeners.get(event.type);
+    handlers?.forEach((handler) => {
+      handler(event.payload);
+    });
+  }
+
+  private readStoredRoomSession(): RoomSession | null {
+    if (!isBrowser) {
+      return null;
+    }
+
+    const raw = window.sessionStorage.getItem(ROOM_SESSION_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as RoomSession;
+      if (!parsed.roomCode) {
+        return null;
+      }
+
+      return {
+        roomCode: normalizeRoomCode(parsed.roomCode),
+        roomId: parsed.roomId,
+        token: parsed.token ?? null
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private storeRoomSession(room: RoomSession): void {
+    if (!isBrowser) {
+      return;
+    }
+
+    window.sessionStorage.setItem(ROOM_SESSION_STORAGE_KEY, JSON.stringify(room));
+  }
+
+  private clearStoredRoomSession(): void {
+    if (!isBrowser) {
+      return;
+    }
+
+    window.sessionStorage.removeItem(ROOM_SESSION_STORAGE_KEY);
   }
 }
 

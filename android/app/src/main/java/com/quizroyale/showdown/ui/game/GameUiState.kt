@@ -1,5 +1,7 @@
 package com.quizroyale.showdown.ui.game
 
+import com.quizroyale.showdown.domain.model.PowerupType
+
 sealed interface GameUiState {
   data object Idle : GameUiState
 
@@ -19,6 +21,8 @@ sealed interface GameUiState {
     val players: List<PlayerUiModel>,
     val phaseLabel: String,
     val selectedOptionIndex: Int? = null,
+    /** Power-ups owned by the local player for this round. */
+    val ownedPowerups: List<OwnedPowerup> = emptyList(),
   ) : GameUiState
 
   data class RoundResult(
@@ -39,4 +43,17 @@ data class PlayerUiModel(
   val score: Int,
   val streak: Int,
   val isEliminated: Boolean,
+)
+
+/**
+ * Represents a power-up slot in the player's tray.
+ *
+ * @param type        Which power-up this is.
+ * @param quantity    How many charges remain.
+ * @param usedThisRound Whether the player already activated it this round.
+ */
+data class OwnedPowerup(
+  val type: PowerupType,
+  val quantity: Int,
+  val usedThisRound: Boolean = false,
 )

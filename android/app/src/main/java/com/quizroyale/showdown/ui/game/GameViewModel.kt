@@ -12,11 +12,17 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+
+// ── Power-up inventory (keyed by PowerupType) ─────────────────────────────────
+private typealias PowerupInventory = MutableMap<PowerupType, Int>
 
 // ── Intent ────────────────────────────────────────────────────────────────────
 
@@ -41,7 +47,20 @@ class GameViewModel @Inject constructor(
     private val _sideEffects = Channel<GameSideEffect>(Channel.BUFFERED)
     val sideEffects = _sideEffects.receiveAsFlow()
 
+    val isReconnecting: StateFlow<Boolean> = webSocketManager.isConnected
+        .map { connected ->
+            val state = _uiState.value
+            !connected && state !is GameUiState.Idle && state !is GameUiState.GameOver
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     private var timerJob: Job? = null
+
+    /** Persistent inventory that survives across rounds; updated by loot drop events. */
+    private val powerupInventory: PowerupInventory = mutableMapOf()
+
+    /** Set of powerup types used in the current round — cleared on each new question. */
+    private val usedThisRound: MutableSet<PowerupType> = mutableSetOf()
 
     init {
         observeWsEvents()
@@ -75,11 +94,20 @@ class GameViewModel @Inject constructor(
         webSocketManager.send(
             """{"type":"v1:player:answer","roomId":"${state.roomId}","senderId":"${authRepository.currentUserId()}","ts":${System.currentTimeMillis()},"payload":{"questionId":"${state.questionId}","optionIndex":$optionIndex}}"""
         )
+        _sideEffects.trySend(GameSideEffect.AnswerSubmitted)
     }
 
     /** Activate a powerup for the current user. */
     fun usePowerup(type: PowerupType) {
         val state = _uiState.value as? GameUiState.ActiveQuestion ?: return
+        // Don't send if already used this round or no charges remain
+        if (usedThisRound.contains(type)) return
+        val qty = powerupInventory[type] ?: 0
+        if (qty <= 0) return
+
+        usedThisRound.add(type)
+        powerupInventory[type] = (qty - 1).coerceAtLeast(0)
+        _uiState.value = state.copy(ownedPowerups = buildOwnedPowerupList())
         webSocketManager.send(
             """{"type":"v1:powerup:use","roomId":"${state.roomId}","senderId":"${authRepository.currentUserId()}","ts":${System.currentTimeMillis()},"payload":{"powerup":"${type.name}"}}"""
         )
@@ -119,6 +147,9 @@ class GameViewModel @Inject constructor(
                     }
                     val players = parsePlayers(payload)
 
+                    // Reset per-round used set for the new question
+                    usedThisRound.clear()
+
                     _uiState.value = GameUiState.ActiveQuestion(
                         roomId = roomId,
                         roundId = roundId,
@@ -129,6 +160,7 @@ class GameViewModel @Inject constructor(
                         timerSeconds = timeLimitMs / 1_000,
                         players = players,
                         phaseLabel = "QUESTION_ACTIVE",
+                        ownedPowerups = buildOwnedPowerupList(),
                     )
                     startCountdown(timeLimitMs / 1_000)
                 }
@@ -141,6 +173,11 @@ class GameViewModel @Inject constructor(
                     val roomIdFinal = roomId.ifEmpty {
                         (_uiState.value as? GameUiState.ActiveQuestion)?.roomId ?: ""
                     }
+                    // Check if local player was eliminated
+                    val localId = authRepository.currentUserId() ?: ""
+                    val wasEliminated = players.any { it.id == localId && it.isEliminated }
+                    if (wasEliminated) _sideEffects.trySend(GameSideEffect.PlayerEliminated)
+
                     _uiState.value = GameUiState.RoundResult(
                         roomId = roomIdFinal,
                         summary = summary,
@@ -158,6 +195,28 @@ class GameViewModel @Inject constructor(
                     }
                     _uiState.value = GameUiState.GameOver(roomId = roomIdFinal, players = players)
                     _sideEffects.trySend(GameSideEffect.NavigateToResults(roomIdFinal))
+                }
+
+                // v1:powerup:loot_drop — player received a powerup from the server
+                type == "v1:powerup:loot_drop" -> {
+                    val powerupName = payload.optString("powerup", "")
+                    val parsedType = runCatching { PowerupType.valueOf(powerupName) }.getOrNull()
+                    if (parsedType != null) {
+                        // Add one charge to inventory
+                        powerupInventory[parsedType] = (powerupInventory[parsedType] ?: 0) + 1
+                        // Emit banner side-effect
+                        _sideEffects.trySend(GameSideEffect.ShowLootDrop(parsedType))
+                        // If we're currently in an active question, refresh the tray
+                        val current = _uiState.value
+                        if (current is GameUiState.ActiveQuestion) {
+                            _uiState.value = current.copy(ownedPowerups = buildOwnedPowerupList())
+                        }
+                    }
+                }
+
+                // v1:round:reveal — correct answer was revealed
+                type == "v1:round:reveal" || type == "v1:answer:reveal" -> {
+                    _sideEffects.trySend(GameSideEffect.CorrectAnswerRevealed)
                 }
 
                 // Legacy / alternate event name variants for compatibility
@@ -200,6 +259,19 @@ class GameViewModel @Inject constructor(
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * Builds the [OwnedPowerup] list from the current inventory + used-this-round state.
+     * Shows ALL known [PowerupType] values so the tray always has the full set of slots.
+     */
+    private fun buildOwnedPowerupList(): List<OwnedPowerup> =
+        PowerupType.entries.map { type ->
+            OwnedPowerup(
+                type = type,
+                quantity = powerupInventory[type] ?: 0,
+                usedThisRound = usedThisRound.contains(type),
+            )
+        }
 
     private fun parsePlayers(payload: JSONObject): List<PlayerUiModel> {
         val arr = payload.optJSONArray("players") ?: return emptyList()
