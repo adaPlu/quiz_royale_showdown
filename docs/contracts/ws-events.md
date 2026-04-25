@@ -1,6 +1,8 @@
 # WebSocket Contract
 
-This starter contract uses a versioned envelope on the `message` socket event:
+The primary backend mounts Socket.IO at path `/ws`.
+
+All active client and server messages use the Socket.IO event name `message` with this envelope:
 
 ```json
 {
@@ -10,9 +12,23 @@ This starter contract uses a versioned envelope on the `message` socket event:
 }
 ```
 
-The exact event names below were inferred from the handoff summary because the overseer text was not present on disk in this workspace.
+The previous direct Socket.IO event naming style, such as `v1:*`, is retired from the active contract. Clients must not emit or listen for direct `v1:*` event names.
+
+Authentication is passed in the Socket.IO handshake:
+
+```json
+{
+  "auth": {
+    "token": "<accessToken>"
+  }
+}
+```
+
+An `Authorization: Bearer <accessToken>` handshake header is also accepted by the backend middleware.
 
 ## Server to Client
+
+All events below are emitted on Socket.IO event `message`.
 
 1. `room:state_sync`
    Full room snapshot after join or resync.
@@ -34,14 +50,18 @@ The exact event names below were inferred from the handoff summary because the o
    Transition into the final showdown.
 10. `game:over`
     Winner and final standings.
+11. `error`
+    Contract error envelope.
 
 ## Client to Server
+
+All events below are sent on Socket.IO event `message`.
 
 1. `room:join`
    Join a room by short code.
 2. `round:submit_answer`
    Submit the selected answer index with client timestamp.
 3. `powerup:activate`
-   Activate a power-up, optionally against a target.
+   Activate an in-game power-up, optionally against a target.
 4. `client:heartbeat`
    Presence and latency heartbeat.

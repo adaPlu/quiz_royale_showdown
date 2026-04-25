@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { useParams } from 'react-router-dom';
-import { api } from '@services/apiClient';
+import { useAuthStore } from '@stores/authStore';
 import { PlayerAvatar } from '@components/PlayerAvatar';
 import { XpBar } from '@components/XpBar';
 import { SeasonRankBadge } from '@components/SeasonRankBadge';
@@ -17,22 +17,25 @@ interface ProfileData {
 
 export default function ProfilePage() {
   const { username } = useParams<{ username: string }>();
-  const [profile, setProfile] = useState<ProfileData | null>(null);
+  const user = useAuthStore((s) => s.user);
 
-  useEffect(() => {
-    if (!username) return;
-    api.get<ProfileData>(`/users/${username}/profile`)
-      .then((r) => setProfile(r.data))
-      .catch(console.error);
-  }, [username]);
-
-  if (!profile) {
+  if (!user) {
     return (
       <div className="min-h-screen bg-game-bg flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-brand border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
+
+  const profile: ProfileData = {
+    username: username ?? user.displayName,
+    avatarUrl: user.avatarUrl,
+    seasonRank: 'Bronze',
+    xp: 0,
+    level: 1,
+    gamesWon: 0,
+    gamesPlayed: 0,
+  };
 
   return (
     <div className="min-h-screen bg-game-bg p-4 max-w-lg mx-auto">

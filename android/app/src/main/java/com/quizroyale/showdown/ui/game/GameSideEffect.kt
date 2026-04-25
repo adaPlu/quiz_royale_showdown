@@ -7,7 +7,7 @@ sealed class GameSideEffect {
     data class ShowToast(val message: String) : GameSideEffect()
     data class ShowLevelUp(val newLevel: Int) : GameSideEffect()
     data class NavigateToResults(val roomId: String) : GameSideEffect()
-    /** Fired when a v1:powerup:loot_drop WS event arrives — triggers the animated banner. */
+    /** Fired when a power-up loot-drop envelope arrives; triggers the animated banner. */
     data class ShowLootDrop(val powerupType: PowerupType) : GameSideEffect()
     /** Correct answer was revealed — trigger haptic + SFX. */
     data object CorrectAnswerRevealed : GameSideEffect()

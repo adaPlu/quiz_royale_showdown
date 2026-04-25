@@ -65,6 +65,7 @@ export default function HomePage() {
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [launchNotice, setLaunchNotice] = useState<string | null>(null);
 
   const enterLobby = (session: RoomSession) => {
     const socketToken = session.wsToken ?? accessToken;
@@ -86,6 +87,7 @@ export default function HomePage() {
   const quickPlay = async () => {
     setLoading('quick');
     setError(null);
+    setLaunchNotice(null);
 
     try {
       const response = await api.post('/rooms/join', { roomCode: null });
@@ -100,6 +102,7 @@ export default function HomePage() {
   const createRoom = async (isPrivate: boolean) => {
     setLoading(isPrivate ? 'private' : 'create');
     setError(null);
+    setLaunchNotice(null);
 
     try {
       const response = await api.post('/rooms', { isPrivate, maxPlayers: 8 });
@@ -119,6 +122,7 @@ export default function HomePage() {
 
     setLoading('join');
     setError(null);
+    setLaunchNotice(null);
 
     try {
       const response = await api.post('/rooms/join', { roomCode: normalizedCode });
@@ -141,7 +145,8 @@ export default function HomePage() {
           </div>
         </div>
         <button
-          onClick={() => navigate(`/profile/${user?.username}`)}
+          type="button"
+          onClick={() => setLaunchNotice('Profiles are local-only during launch and do not call the backend yet.')}
           className="text-game-muted hover:text-white text-sm"
         >
           Profile
@@ -186,10 +191,12 @@ export default function HomePage() {
         </div>
 
         {error && <p className="text-answer-wrong text-sm text-center">{error}</p>}
+        {launchNotice && <p className="text-game-muted text-sm text-center">{launchNotice}</p>}
 
         <div className="flex gap-3 w-full pt-2">
           <button
-            onClick={() => navigate('/leaderboard')}
+            type="button"
+            onClick={() => setLaunchNotice('Global leaderboard is disabled for launch; in-game standings appear once a room starts.')}
             className="flex-1 py-2 rounded-xl border border-game-border text-game-muted text-sm hover:text-white hover:border-white/30"
           >
             Leaderboard

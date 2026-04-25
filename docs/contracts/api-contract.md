@@ -1,36 +1,53 @@
-# Quiz Royale Showdown — API Contract
+# Quiz Royale Showdown API Contract
 
 **Version:** v1  
-**Last Updated:** 2026-04-18  
-**Base URL (REST):** `https://api.quizroyale.io/api/v1`  
+**Last Updated:** 2026-04-25  
+**Base URL (REST v1):** `https://api.quizroyale.io/api/v1`  
 **WebSocket endpoint:** `wss://api.quizroyale.io/ws`
 
----
+This contract reflects the routes and Socket.IO behavior mounted by the primary backend runtime.
 
-## 1. WebSocket Event Envelope
+## 1. WebSocket Envelope
 
-All Socket.IO messages (both directions) use the `message` event name and this typed envelope:
+Socket.IO is mounted at path `/ws`.
+
+All active client and server messages use Socket.IO event name `message` with this envelope:
 
 ```json
 {
   "type": "namespace:event_name",
   "version": "v1",
-  "payload": { /* event-specific object */ }
+  "payload": {}
 }
 ```
 
-| Field     | Type     | Description                          |
-|-----------|----------|--------------------------------------|
-| `type`    | `string` | Namespaced event identifier          |
-| `version` | `"v1"`   | Protocol version (hard literal)      |
-| `payload` | `object` | Event-specific data (never null)     |
+| Field | Type | Description |
+| --- | --- | --- |
+| `type` | `string` | Namespaced event identifier |
+| `version` | `"v1"` | Protocol version |
+| `payload` | `object` | Event-specific data |
 
----
+The direct Socket.IO event naming style `v1:*` is retired from the active contract. Clients must emit and listen on `message`, then branch on the envelope `type`.
 
-## 2. WebSocket — Server → Client Events
+WebSocket auth is passed in the Socket.IO handshake:
+
+```json
+{
+  "auth": {
+    "token": "<accessToken>"
+  }
+}
+```
+
+The backend also accepts an `Authorization: Bearer <accessToken>` handshake header.
+
+## 2. WebSocket Server to Client Events
+
+All events in this section are emitted on Socket.IO event `message`.
 
 ### `room:state_sync`
-Full room snapshot emitted immediately after a player joins or re-syncs.
+
+Full room snapshot after join or resync.
 
 ```json
 {
@@ -44,7 +61,14 @@ Full room snapshot emitted immediately after a player joins or re-syncs.
       "roundNumber": 0,
       "totalRounds": 10,
       "players": [
-        { "id": "01H...", "displayName": "Alice", "score": 0, "streak": 0, "isEliminated": false }
+        {
+          "id": "01H...",
+          "displayName": "Alice",
+          "avatarUrl": "https://...",
+          "score": 0,
+          "streak": 0,
+          "isEliminated": false
+        }
       ]
     }
   }
@@ -52,7 +76,8 @@ Full room snapshot emitted immediately after a player joins or re-syncs.
 ```
 
 ### `room:player_joined`
-Broadcast to the room when a new player joins.
+
+Broadcast to other room members when a new player joins through the socket path.
 
 ```json
 {
@@ -60,24 +85,35 @@ Broadcast to the room when a new player joins.
   "version": "v1",
   "payload": {
     "roomId": "01HXYZ...",
-    "player": { "id": "01H...", "displayName": "Bob", "score": 0, "streak": 0, "isEliminated": false }
+    "player": {
+      "id": "01H...",
+      "displayName": "Bob",
+      "score": 0,
+      "streak": 0,
+      "isEliminated": false
+    }
   }
 }
 ```
 
 ### `room:player_left`
-Broadcast when a player disconnects or explicitly leaves.
+
+Broadcast when a connected socket disconnects from a joined room.
 
 ```json
 {
   "type": "room:player_left",
   "version": "v1",
-  "payload": { "roomId": "01HXYZ...", "playerId": "01H..." }
+  "payload": {
+    "roomId": "01HXYZ...",
+    "playerId": "01H..."
+  }
 }
 ```
 
 ### `round:countdown_started`
-Signals all clients to show the pre-round countdown animation.
+
+Countdown before the next question starts.
 
 ```json
 {
@@ -85,14 +121,15 @@ Signals all clients to show the pre-round countdown animation.
   "version": "v1",
   "payload": {
     "roomId": "01HXYZ...",
-    "startsAt": "2026-04-18T12:00:05.000Z",
+    "startsAt": "2026-04-25T12:00:05.000Z",
     "seconds": 5
   }
 }
 ```
 
 ### `round:question_started`
-Delivers the question. Clients must NOT trust `timeLimitMs` alone — use `startedAt` + `timeLimitMs` for server-authoritative timing.
+
+Question prompt, answer choices, and server-authoritative start time.
 
 ```json
 {
@@ -105,13 +142,14 @@ Delivers the question. Clients must NOT trust `timeLimitMs` alone — use `start
     "prompt": "What is the capital of France?",
     "answers": ["Berlin", "Madrid", "Paris", "Rome"],
     "timeLimitMs": 20000,
-    "startedAt": "2026-04-18T12:00:10.000Z"
+    "startedAt": "2026-04-25T12:00:10.000Z"
   }
 }
 ```
 
 ### `round:answer_locked`
-Server closes submission window. Clients must disable answer buttons.
+
+Server closes the submission window.
 
 ```json
 {
@@ -120,13 +158,14 @@ Server closes submission window. Clients must disable answer buttons.
   "payload": {
     "roomId": "01HXYZ...",
     "roundId": "01HRND...",
-    "lockedAt": "2026-04-18T12:00:30.000Z"
+    "lockedAt": "2026-04-25T12:00:30.000Z"
   }
 }
 ```
 
 ### `round:result`
-Reveals correct answer and updated scores for all players.
+
+Correct answer and score changes.
 
 ```json
 {
@@ -137,14 +176,19 @@ Reveals correct answer and updated scores for all players.
     "roundId": "01HRND...",
     "correctAnswerIndex": 2,
     "rankings": [
-      { "playerId": "01H...", "scoreDelta": 950, "totalScore": 4200 }
+      {
+        "playerId": "01H...",
+        "scoreDelta": 950,
+        "totalScore": 4200
+      }
     ]
   }
 }
 ```
 
 ### `round:elimination`
-Reports which players were eliminated and who survived.
+
+Eliminated players and remaining survivors.
 
 ```json
 {
@@ -154,14 +198,21 @@ Reports which players were eliminated and who survived.
     "roomId": "01HXYZ...",
     "eliminatedPlayerIds": ["01HELIM..."],
     "survivors": [
-      { "id": "01H...", "displayName": "Alice", "score": 4200, "streak": 3, "isEliminated": false }
+      {
+        "id": "01H...",
+        "displayName": "Alice",
+        "score": 4200,
+        "streak": 3,
+        "isEliminated": false
+      }
     ]
   }
 }
 ```
 
 ### `round:finale_started`
-Announces the final showdown round with surviving finalists.
+
+Final showdown transition.
 
 ```json
 {
@@ -175,7 +226,8 @@ Announces the final showdown round with surviving finalists.
 ```
 
 ### `game:over`
-Final event. Contains winner and full standings with XP awarded.
+
+Final standings.
 
 ```json
 {
@@ -185,29 +237,56 @@ Final event. Contains winner and full standings with XP awarded.
     "roomId": "01HXYZ...",
     "winnerId": "01HWINNER...",
     "finalStandings": [
-      { "playerId": "01H...", "rank": 1, "score": 8400, "xpAwarded": 500 }
+      {
+        "playerId": "01H...",
+        "rank": 1,
+        "score": 8400,
+        "xpAwarded": 500
+      }
     ]
   }
 }
 ```
 
----
+### `error`
 
-## 3. WebSocket — Client → Server Events
+Socket error envelope.
+
+```json
+{
+  "type": "error",
+  "version": "v1",
+  "payload": {
+    "code": "VALIDATION_ERROR",
+    "message": "Invalid payload",
+    "details": {}
+  }
+}
+```
+
+## 3. WebSocket Client to Server Events
+
+All events in this section are sent on Socket.IO event `message`.
 
 ### `room:join`
-Join a room by its short code.
+
+Join a room by room code.
 
 ```json
 {
   "type": "room:join",
   "version": "v1",
-  "payload": { "roomCode": "ROYALE" }
+  "payload": {
+    "roomCode": "ROYALE"
+  }
 }
 ```
 
+The backend currently also accepts messages without a `version` field as v1 for Android compatibility.
+
 ### `round:submit_answer`
-Submit the selected answer. `clientSentAt` is used for latency measurement only — the server uses its own receipt timestamp for scoring.
+
+Submit an answer for the active question.
 
 ```json
 {
@@ -217,13 +296,14 @@ Submit the selected answer. `clientSentAt` is used for latency measurement only 
     "roomId": "01HXYZ...",
     "questionId": "01HQST...",
     "answerIndex": 2,
-    "clientSentAt": "2026-04-18T12:00:22.741Z"
+    "clientSentAt": "2026-04-25T12:00:22.741Z"
   }
 }
 ```
 
 ### `powerup:activate`
-Activate a power-up, optionally targeting another player.
+
+Activate an in-game power-up. This is a mounted socket message handler, not a mounted REST feature area.
 
 ```json
 {
@@ -238,7 +318,8 @@ Activate a power-up, optionally targeting another player.
 ```
 
 ### `client:heartbeat`
-Periodic presence ping (every 30 s). Used for latency tracking and connection health.
+
+Client presence and latency heartbeat.
 
 ```json
 {
@@ -246,161 +327,126 @@ Periodic presence ping (every 30 s). Used for latency tracking and connection he
   "version": "v1",
   "payload": {
     "roomId": "01HXYZ...",
-    "sentAt": "2026-04-18T12:01:00.000Z"
+    "sentAt": "2026-04-25T12:01:00.000Z"
   }
 }
 ```
 
----
+## 4. Mounted REST Endpoints
 
-## 4. REST Endpoints
+The primary backend runtime mounts:
+
+- `GET /`
+- `GET /health`
+- `/api/v1/auth/*`
+- `/api/v1/rooms/*`
 
 ### Auth
 
-| Method | Path                      | Auth | Description                   |
-|--------|---------------------------|------|-------------------------------|
-| POST   | `/api/v1/auth/register`   | —    | Register a new account        |
-| POST   | `/api/v1/auth/login`      | —    | Login, receive JWT pair       |
-| POST   | `/api/v1/auth/refresh`    | —    | Rotate access + refresh token |
-| POST   | `/api/v1/auth/logout`     | —    | Revoke refresh token          |
-| GET    | `/api/v1/auth/me`         | JWT  | Current user profile          |
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| POST | `/api/v1/auth/register` | None | Register a new account |
+| POST | `/api/v1/auth/login` | None | Login and receive token pair |
+| POST | `/api/v1/auth/refresh` | None | Rotate refresh token |
+| POST | `/api/v1/auth/logout` | None | Revoke refresh token |
+| GET | `/api/v1/auth/me` | JWT | Current authenticated user |
 
-**Register request:**
-```json
-{ "email": "alice@example.com", "displayName": "Alice", "password": "sup3rS3cr3t" }
-```
-**Register response (201):**
+Register accepts `email`, `password`, and either `displayName` or `username`.
+
+Register and login return top-level tokens:
+
 ```json
 {
-  "user": { "id": "01H...", "email": "alice@example.com", "displayName": "Alice" },
-  "tokens": { "accessToken": "...", "refreshToken": "..." }
+  "user": {
+    "id": "01H...",
+    "email": "alice@example.com",
+    "displayName": "Alice"
+  },
+  "accessToken": "...",
+  "refreshToken": "..."
 }
 ```
 
-**Token lifetimes:** `accessToken` = 15 min, `refreshToken` = 7 days.
+Refresh returns:
 
----
+```json
+{
+  "accessToken": "...",
+  "refreshToken": "..."
+}
+```
 
 ### Rooms
 
-| Method | Path                        | Auth | Description                    |
-|--------|-----------------------------|------|--------------------------------|
-| POST   | `/api/v1/rooms`             | JWT  | Create a new room (host)       |
-| POST   | `/api/v1/rooms/join`        | JWT  | Join by code or quick-play matchmaking |
-| GET    | `/api/v1/rooms/:roomCode`   | —    | Get room info by 6-char code   |
-| POST   | `/api/v1/rooms/:roomId/start` | JWT | Host starts the countdown      |
-| POST   | `/api/v1/rooms/:roomId/leave` | JWT | Leave a room                   |
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| POST | `/api/v1/rooms` | JWT | Create a room |
+| POST | `/api/v1/rooms/join` | JWT | Join by code or quick-play matchmaking |
+| GET | `/api/v1/rooms/:roomCode` | None | Get room by 6-character code |
+| POST | `/api/v1/rooms/:roomId/start` | JWT | Host starts game countdown |
+| POST | `/api/v1/rooms/:roomId/leave` | JWT | Leave a room |
 
----
+Create room accepts:
 
-### Power-Ups
+```json
+{
+  "isPrivate": true,
+  "maxPlayers": 8
+}
+```
 
-| Method | Path                             | Auth | Description              |
-|--------|----------------------------------|------|--------------------------|
-| GET    | `/api/v1/powerups`               | JWT  | List all power-up types  |
-| GET    | `/api/v1/powerups/inventory`     | JWT  | Current user's inventory |
-| POST   | `/api/v1/powerups/:id/equip`     | JWT  | Equip a power-up slot    |
+Join room accepts:
 
----
+```json
+{
+  "roomCode": "ROYALE"
+}
+```
 
-### Cosmetics
+`roomCode` may be omitted or null for quick-play matchmaking.
 
-| Method | Path                              | Auth | Description               |
-|--------|-----------------------------------|------|---------------------------|
-| GET    | `/api/v1/cosmetics`               | JWT  | All cosmetic items        |
-| GET    | `/api/v1/cosmetics/inventory`     | JWT  | Owned cosmetics           |
-| POST   | `/api/v1/cosmetics/:id/equip`     | JWT  | Equip a cosmetic          |
+## 5. Future / Unmounted REST Areas
 
----
+The following areas are future or unmounted in the primary backend runtime. Do not treat these as active REST contract endpoints unless a router is mounted in `backend/src/app.ts`.
 
-### Shop
+| Area | Status |
+| --- | --- |
+| Power-ups REST catalog, inventory, equip | Future / unmounted |
+| Cosmetics catalog, inventory, equip | Future / unmounted |
+| Shop catalog, checkout, receipt verification | Future / unmounted |
+| Leaderboard | Future / unmounted |
+| Seasons | Future / unmounted |
+| Challenges | Future / unmounted |
+| Friends | Future / unmounted |
+| Admin | Future / unmounted |
+| Profile routes beyond `GET /api/v1/auth/me` | Future / unmounted |
 
-| Method | Path                                   | Auth | Description                  |
-|--------|----------------------------------------|------|------------------------------|
-| GET    | `/api/v1/shop/catalog`                 | JWT  | Available SKUs               |
-| POST   | `/api/v1/shop/checkout/google-play`    | JWT  | Verify Google Play purchase  |
-| POST   | `/api/v1/shop/checkout/stripe`         | JWT  | Create Stripe checkout session |
-| POST   | `/api/v1/shop/receipts/verify`         | JWT  | Verify a receipt             |
+## 6. Error Format
 
----
-
-### Competitive
-
-| Method | Path                                  | Auth | Description            |
-|--------|---------------------------------------|------|------------------------|
-| GET    | `/api/v1/leaderboard`                 | JWT  | Global leaderboard     |
-| GET    | `/api/v1/seasons/current`             | —    | Active season metadata |
-| GET    | `/api/v1/seasons/:seasonId`           | —    | Season info            |
-| GET    | `/api/v1/seasons/:seasonId/leaderboard` | JWT | Season leaderboard   |
-
----
-
-### Challenges
-
-| Method | Path                                  | Auth | Description           |
-|--------|---------------------------------------|------|-----------------------|
-| GET    | `/api/v1/challenges`                  | JWT  | Active daily challenges |
-| POST   | `/api/v1/challenges/:id/claim`        | JWT  | Claim a completed challenge |
-
----
-
-### Friends
-
-| Method | Path                         | Auth | Description              |
-|--------|------------------------------|------|--------------------------|
-| GET    | `/api/v1/friends`            | JWT  | Friends list             |
-| POST   | `/api/v1/friends/invite`     | JWT  | Send a friend request    |
-| POST   | `/api/v1/friends/:id/accept` | JWT  | Accept a friend request  |
-| DELETE | `/api/v1/friends/:id`        | JWT  | Remove a friend          |
-
----
-
-### Admin (service-account only)
-
-| Method | Path                               | Auth         | Description                 |
-|--------|------------------------------------|--------------|-----------------------------|
-| POST   | `/api/v1/admin/questions/import`   | Service JWT  | Bulk import questions       |
-| POST   | `/api/v1/admin/questions/activate` | Service JWT  | Toggle question active flag |
-| POST   | `/api/v1/admin/seasons`            | Service JWT  | Create a new season         |
-| POST   | `/api/v1/admin/powerups/rebalance` | Service JWT  | Adjust power-up parameters  |
-
----
-
-## 5. Error Format
-
-All REST error responses use this shape:
+REST error responses use this shape:
 
 ```json
 {
   "error": "Human-readable message",
   "code": "MACHINE_READABLE_CODE",
-  "issues": { /* Zod flatten output, validation errors only */ }
+  "issues": {}
 }
 ```
 
-Standard HTTP status codes apply: 400 (validation), 401 (auth), 403 (forbidden), 404, 409 (conflict), 429 (rate-limit), 500.
+`issues` is present for validation errors.
 
----
+## 7. Auth Header
 
-## 6. Auth Header
+REST endpoints that require auth use:
 
-```
+```text
 Authorization: Bearer <accessToken>
 ```
 
-WebSocket auth is passed in the Socket.IO handshake auth object:
-```json
-{ "auth": { "token": "<accessToken>" } }
-```
+## 8. Primary Keys
 
----
+Primary application IDs are ULIDs: 26-character, time-sortable, URL-safe strings stored as `VARCHAR(26)` in PostgreSQL.
 
-## 7. Primary Keys
+## 9. Versioning
 
-All primary keys are ULIDs: 26-character, time-sortable, URL-safe (`VARCHAR(26)` in PostgreSQL).
-
----
-
-## 8. Versioning
-
-Breaking changes bump the version prefix in the WS `version` field and add a new `/api/v2/` REST prefix. All v1 endpoints remain supported for at least one release cycle.
+Breaking changes bump the WebSocket envelope `version` and add a new REST prefix such as `/api/v2`.

@@ -1,5 +1,4 @@
-import React, { useEffect, useState } from 'react';
-import { api } from '@services/apiClient';
+import React, { useState } from 'react';
 import { PlayerAvatar } from '@components/PlayerAvatar';
 import { useAuthStore } from '@stores/authStore';
 import { selectLeaderboard, useGameStore } from '@stores/gameStore';
@@ -12,6 +11,8 @@ interface GlobalLeaderboardEntry {
   points?: number;
 }
 
+const GLOBAL_LEADERBOARD_ENABLED = false;
+
 export default function LeaderboardPage() {
   const user = useAuthStore((s) => s.user);
   const [tab, setTab] = useState<'global' | 'in-game'>('global');
@@ -23,13 +24,7 @@ export default function LeaderboardPage() {
   // TODO: implement GET /api/v1/leaderboard on the backend (not yet available)
   const [globalEntries, setGlobalEntries] = useState<GlobalLeaderboardEntry[]>([]);
 
-  useEffect(() => {
-    if (tab !== 'global') return;
-    api
-      .get<GlobalLeaderboardEntry[]>('/leaderboard?page=1')
-      .then((r) => setGlobalEntries(r.data))
-      .catch(() => setGlobalEntries([]));
-  }, [tab]);
+  const globalUnavailable = tab === 'global' && !GLOBAL_LEADERBOARD_ENABLED;
 
   return (
     <div className="min-h-screen bg-game-bg p-4 max-w-lg mx-auto">
@@ -91,13 +86,12 @@ export default function LeaderboardPage() {
       {/* Global tab: fetched from REST API */}
       {tab === 'global' && (
         <div className="space-y-2">
-          {globalEntries.length === 0 && (
+          {(globalUnavailable || globalEntries.length === 0) && (
             <p className="text-game-muted text-center py-8">
-              {/* TODO: backend GET /api/v1/leaderboard not yet implemented */}
               No global rankings available yet. Play games to appear here!
             </p>
           )}
-          {globalEntries.map((e, i) => (
+          {!globalUnavailable && globalEntries.map((e, i) => (
             <div
               key={e.userId ?? i}
               className={`flex items-center gap-3 p-3 rounded-xl border ${

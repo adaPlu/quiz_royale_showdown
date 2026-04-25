@@ -60,7 +60,7 @@ export class PowerUpService {
   /**
    * Main entry-point.
    * Validates ownership, prevents double-use, applies the effect, and
-   * emits `v1:powerup:activated` to the room.
+   * emits a canonical `message` envelope to the room.
    */
   async activatePowerUp(
     roomId: string,
@@ -141,12 +141,13 @@ export class PowerUpService {
 
     // 8. Broadcast activation envelope to every player in the room
     const ts = Date.now();
-    io.to(roomId).emit("v1:powerup:activated", {
-      eventType: "v1:powerup:activated",
-      roomId,
-      senderId: userId,
-      ts,
+    io.to(roomId).emit("message", {
+      type: "powerup:activated",
+      version: "v1",
       payload: {
+        roomId,
+        senderId: userId,
+        ts,
         powerupCode,
         userId,
         effect,
@@ -193,7 +194,7 @@ export class PowerUpService {
    * FIFTY_FIFTY: removes 2 wrong options from the current question.
    * Emits the indices to eliminate directly to the requesting socket's room.
    * (The per-socket targeted emit happens via the caller — here we compute
-   * and return the masked indices so the caller / gameHandlers can send it.)
+   * and return the masked indices so the active game loop can send it.)
    */
   private async applyFiftyFifty(
     roomId: string,
@@ -284,12 +285,10 @@ export class PowerUpService {
         : null;
 
     // Also emit a targeted reveal event to ALL room members
-    io.to(roomId).emit("v1:powerup:reveal_wrong", {
-      eventType: "v1:powerup:reveal_wrong",
-      roomId,
-      senderId: userId,
-      ts: Date.now(),
-      payload: { revealedIndex, revealedText },
+    io.to(roomId).emit("message", {
+      type: "powerup:reveal_wrong",
+      version: "v1",
+      payload: { roomId, senderId: userId, ts: Date.now(), revealedIndex, revealedText },
     });
 
     return { type: "REVEAL_WRONG", revealedIndex, revealedText };
@@ -338,12 +337,10 @@ export class PowerUpService {
     await redisService.set(revivedKey(roomId, userId), "1", POWERUP_STATE_TTL);
 
     // Notify room of the revival
-    io.to(roomId).emit("v1:powerup:second_chance", {
-      eventType: "v1:powerup:second_chance",
-      roomId,
-      senderId: userId,
-      ts: Date.now(),
-      payload: { revivedPlayerId: userId },
+    io.to(roomId).emit("message", {
+      type: "powerup:second_chance",
+      version: "v1",
+      payload: { roomId, senderId: userId, ts: Date.now(), revivedPlayerId: userId },
     });
 
     logger.info("Player revived via Second Chance", { roomId, userId });

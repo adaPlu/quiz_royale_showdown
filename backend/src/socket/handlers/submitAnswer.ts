@@ -73,7 +73,12 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
         throw new Error("Redis unavailable");
       }
 
-      if (socket.data.roomId && socket.data.roomId !== roomId) {
+      if (!socket.data.roomId) {
+        emitError(socket, "ROOM_NOT_JOINED", "Socket has not joined a room");
+        return;
+      }
+
+      if (socket.data.roomId !== roomId) {
         emitError(socket, "ROOM_MISMATCH", "Socket is not joined to the requested room");
         return;
       }
