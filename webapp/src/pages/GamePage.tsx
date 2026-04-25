@@ -39,16 +39,6 @@ function answerButtonClass(
   return 'border-white/10 bg-black/20 hover:border-gold hover:bg-white/10 cursor-pointer';
 }
 
-// ---------------------------------------------------------------------------
-// Placeholder powerup slots (a real implementation would come from profileStore
-// or a dedicated powerup store; this gives the tray something to render)
-// ---------------------------------------------------------------------------
-const DEFAULT_SLOTS: PowerupSlot[] = [
-  { type: 'fifty_fifty',   owned: true,  used: false },
-  { type: 'shield',        owned: true,  used: false },
-  { type: 'time_boost',    owned: false, used: false },
-  { type: 'reveal_wrong',  owned: true,  used: false },
-];
 
 // ---------------------------------------------------------------------------
 // GamePage
@@ -66,9 +56,19 @@ export const GamePage = () => {
   const myAnswer   = useGameStore((s) => s.myAnswerIndex);
   const roundNum   = useGameStore((s) => s.roundNumber);
   const totalRounds = useGameStore((s) => s.totalRounds);
-  const eliminated = useGameStore((s) => s.fiftyFiftyEliminated);
+  const fiftyFiftyEliminated = useGameStore((s) => s.fiftyFiftyEliminated);
+  const eliminated = fiftyFiftyEliminated;
+  const revealedOptionIndex = useGameStore((s) => s.revealedOptionIndex);
+  const timeBoostActive = useGameStore((s) => s.timeBoostActive);
   const setMyAnswer = useGameStore((s) => s.setMyAnswer);
   const leaderboard = useGameStore(selectLeaderboard);
+
+  const powerupSlots: PowerupSlot[] = [
+    { type: 'fifty_fifty',  owned: true, used: fiftyFiftyEliminated.length > 0 },
+    { type: 'shield',       owned: true, used: false },
+    { type: 'time_boost',   owned: true, used: timeBoostActive },
+    { type: 'reveal_wrong', owned: true, used: revealedOptionIndex !== null },
+  ];
 
   const isLocked = myAnswer !== null || phase === 'ANSWER_LOCKED' || phase === 'ROUND_RESULT';
   const correctIndex = result?.correctAnswerIndex ?? null;
@@ -181,7 +181,7 @@ export const GamePage = () => {
           <div className="mt-8 flex items-center gap-4">
             <p className="text-xs uppercase tracking-[0.25em] text-white/40">Power-ups</p>
             <PowerUpTray
-              slots={DEFAULT_SLOTS}
+              slots={powerupSlots}
               roomId={roomId ?? ''}
               disabled={isLocked || !question}
             />

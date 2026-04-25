@@ -1,43 +1,39 @@
-/**
- * Socket.IO server setup.
- *
- * Registers the auth middleware and routes all WS events to their handlers.
- * Non-fatal handler exceptions are caught and broadcast as `v1:error`.
- */
-
-import type { Server, Socket } from "socket.io";
-import { socketAuthMiddleware } from "./middleware";
-import { registerPlayerReadyHandler } from "./handlers/playerReady";
-import { registerSubmitAnswerHandler } from "./handlers/submitAnswer";
-import { registerUsePowerupHandler } from "./handlers/usePowerup";
-import { registerReconnectHandler } from "./handlers/reconnect";
+import type { Server } from "socket.io";
 import { logger } from "../utils/logger";
+import type { AuthenticatedSocket } from "./middleware";
+import { socketAuthMiddleware } from "./middleware";
+import { registerSocketHandlers } from "./registerHandlers";
+
+let _io: Server | undefined;
+
+/** Returns the Socket.IO server instance (available after initSocketServer is called). */
+export function getIo(): Server {
+  if (!_io) {
+    throw new Error("Socket.IO server has not been initialized yet");
+  }
+  return _io;
+}
 
 export function initSocketServer(io: Server): void {
-  // Register JWT auth middleware on every connection
+  _io = io;
   io.use(socketAuthMiddleware);
 
-  io.on("connection", (socket: Socket) => {
-    const userId = socket.data.userId as string | undefined;
-    const username = socket.data.username as string | undefined;
+  io.on("connection", (rawSocket) => {
+    const socket = rawSocket as AuthenticatedSocket;
 
-    logger.info("Socket connected", { socketId: socket.id, userId, username });
-
-    // Register event handlers
-    registerPlayerReadyHandler(io, socket);
-    registerSubmitAnswerHandler(io, socket);
-    registerUsePowerupHandler(io, socket);
-    registerReconnectHandler(io, socket);
-
-    socket.on("disconnect", (reason: string) => {
-      logger.info("Socket disconnected", { socketId: socket.id, userId, reason });
+    logger.info("Socket connected", {
+      socketId: socket.id,
+      userId: socket.data.userId,
+      displayName: socket.data.displayName
     });
 
-    socket.on("error", (err: Error) => {
+    registerSocketHandlers(io, socket);
+
+    socket.on("error", (error: Error) => {
       logger.error("Socket error", {
         socketId: socket.id,
-        userId,
-        message: err.message,
+        userId: socket.data.userId,
+        message: error.message
       });
     });
   });

@@ -10,6 +10,7 @@ export default function ResultsPage() {
   const user = useAuthStore((s) => s.user);
   const finalScores = useGameStore((s) => s.finalScores);
   const winnerId = useGameStore((s) => s.winnerId);
+  const players = useGameStore((s) => s.players);
   const resetRoom = useGameStore((s) => s.resetRoom);
 
   useEffect(() => { return () => resetRoom(); }, [resetRoom]);
@@ -24,6 +25,8 @@ export default function ResultsPage() {
 
   const myScore = finalScores.find((s) => s.playerId === user?.id);
   const winner = finalScores.find((s) => s.playerId === winnerId);
+  const winnerPlayer = players.find((p) => p.id === winnerId);
+  const winnerName = winnerPlayer?.displayName ?? winnerId;
 
   return (
     <div className="min-h-screen bg-game-bg flex flex-col p-4">
@@ -33,7 +36,7 @@ export default function ResultsPage() {
             {myScore?.rank === 1 ? '🏆' : myScore?.rank === 2 ? '🥈' : myScore?.rank === 3 ? '🥉' : '🎮'}
           </p>
           <h1 className="text-white text-3xl font-black">Game Over!</h1>
-          {winner && <p className="text-gold font-semibold mt-1">Winner: {winner.playerId}</p>}
+          {winner && <p className="text-gold font-semibold mt-1">Winner: {winnerName}</p>}
           {myScore && <p className="text-game-muted text-sm">Your rank: #{myScore.rank}</p>}
         </div>
 
@@ -57,9 +60,9 @@ export default function ResultsPage() {
                 <span className="text-lg w-8 text-center">
                   {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`}
                 </span>
-                <PlayerAvatar username={s.playerId} size="xs" />
+                <PlayerAvatar username={players.find((p) => p.id === s.playerId)?.displayName ?? s.playerId} size="xs" />
                 <span className="flex-1 text-white text-sm font-medium truncate">
-                  {s.playerId}{s.playerId === user?.id ? ' (you)' : ''}
+                  {players.find((p) => p.id === s.playerId)?.displayName ?? s.playerId}{s.playerId === user?.id ? ' (you)' : ''}
                 </span>
                 <span className="text-white font-bold text-sm tabular-nums">
                   {s.score.toLocaleString()}
