@@ -19,6 +19,8 @@
     "seed": "tsx src/scripts/seed.ts",
     "fetch:opentdb": "tsx src/scripts/fetchOpenTriviaDB.ts",
     "generate:questions": "tsx src/scripts/generateAIQuestions.ts",
+    "generate:targeted": "tsx src/scripts/generateTargeted.ts",
+    "audit:questions": "tsx src/scripts/auditQuestions.ts",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write src/**/*.ts"
   },
