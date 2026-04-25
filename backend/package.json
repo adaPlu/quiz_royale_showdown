@@ -21,6 +21,7 @@
     "generate:questions": "tsx src/scripts/generateAIQuestions.ts",
     "generate:targeted": "tsx src/scripts/generateTargeted.ts",
     "audit:questions": "tsx src/scripts/auditQuestions.ts",
+    "consolidate:categories": "tsx src/scripts/consolidateCategories.ts",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write src/**/*.ts"
   },
