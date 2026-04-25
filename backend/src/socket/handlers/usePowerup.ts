@@ -1,127 +1,110 @@
-/**
- * Handler: v1:use_powerup
- *
- * Validates power-up type, checks Redis that player hasn't used it this game,
- * and emits effect events. Full mechanical enforcement deferred to Phase 2.
- */
-
-import type { Server, Socket } from "socket.io";
+import type { Server } from "socket.io";
 import { z } from "zod";
+import { prisma } from "../../models/prismaClient";
 import { redisService } from "../../services/RedisService";
+import type { SocketErrorEvent } from "../../types/contracts";
 import { logger } from "../../utils/logger";
+import type { AuthenticatedSocket } from "../middleware";
 
-const POWERUP_TYPES = ["FIFTY_FIFTY", "SHIELD", "TIME_BOOST", "REVEAL", "SECOND_CHANCE"] as const;
-type PowerupType = (typeof POWERUP_TYPES)[number];
-
-const usePowerupSchema = z.object({
+const activatePowerupSchema = z.object({
   roomId: z.string().min(1),
-  type: z.enum(POWERUP_TYPES),
-  /** Optional: current question's wrong answer indices (needed for FIFTY_FIFTY masking) */
-  wrongIndices: z.array(z.number().int().min(0).max(3)).optional(),
+  powerUpId: z.string().min(1),
+  targetPlayerId: z.string().min(1).optional()
 });
 
-const POWERUP_TTL_SECONDS = 7200; // 2 hours (full game session)
+const POWERUP_TTL_SECONDS = 7200;
 
-function pickTwoRandom<T>(arr: T[]): T[] {
-  const copy = [...arr];
-  const result: T[] = [];
-  for (let i = 0; i < 2 && copy.length > 0; i++) {
-    const idx = Math.floor(Math.random() * copy.length);
-    result.push(copy[idx]);
-    copy.splice(idx, 1);
-  }
-  return result;
-}
+const emitError = (
+  socket: AuthenticatedSocket,
+  code: string,
+  message: string,
+  details?: unknown
+): void => {
+  const envelope: SocketErrorEvent = {
+    type: "error",
+    version: "v1",
+    payload: { code, message, details }
+  };
 
-export function registerUsePowerupHandler(io: Server, socket: Socket): void {
-  socket.on("v1:use_powerup", async (payload: unknown) => {
-    const parsed = usePowerupSchema.safeParse(payload);
-    if (!parsed.success) {
-      socket.emit("v1:error", {
-        code: "VALIDATION_ERROR",
-        message: "Invalid payload for v1:use_powerup",
-        issues: parsed.error.flatten(),
-      });
+  socket.emit("message", envelope);
+};
+
+export function registerUsePowerupHandler(_io: Server, socket: AuthenticatedSocket): void {
+  socket.on("message", async (message: unknown) => {
+    if (
+      !message ||
+      typeof message !== "object" ||
+      !("type" in message) ||
+      (message as { type?: string }).type !== "powerup:activate"
+    ) {
       return;
     }
 
-    const { roomId, type, wrongIndices } = parsed.data;
-    const userId = socket.data.userId as string;
+    const parsed = activatePowerupSchema.safeParse(
+      (message as { payload?: unknown }).payload
+    );
+    if (!parsed.success) {
+      emitError(socket, "VALIDATION_ERROR", "Invalid payload for powerup:activate", parsed.error.flatten());
+      return;
+    }
+
+    const { roomId, powerUpId, targetPlayerId } = parsed.data;
+    const userId = socket.data.userId;
 
     try {
       if (!redisService) {
         throw new Error("Redis unavailable");
       }
 
-      // Check if player already used this power-up this game
-      const usedKey = `powerup:${roomId}:${userId}:${type}`;
-      const alreadyUsed = await redisService.get(usedKey);
-      if (alreadyUsed) {
-        socket.emit("v1:error", {
-          code: "POWERUP_ALREADY_USED",
-          message: `You have already used ${type} in this game`,
-        });
+      if (socket.data.roomId && socket.data.roomId !== roomId) {
+        emitError(socket, "ROOM_MISMATCH", "Socket is not joined to the requested room");
         return;
       }
 
-      // Mark as used
-      await redisService.set(usedKey, "1", POWERUP_TTL_SECONDS);
-
-      logger.info("Power-up used", { userId, roomId, type });
-
-      // Broadcast to room that a power-up was activated
-      io.to(roomId).emit("v1:powerup_used", {
-        roomId,
-        userId,
-        type,
-        usedAt: new Date().toISOString(),
+      const powerUp = await prisma.powerUp.findFirst({
+        where: { id: powerUpId, isActive: true },
+        select: { id: true, code: true }
       });
 
-      // Build targeted effect payload based on type
-      let effectPayload: Record<string, unknown> = { type, roomId };
-
-      switch (type as PowerupType) {
-        case "FIFTY_FIFTY": {
-          // Randomly mask 2 wrong answer indices
-          const candidates = wrongIndices ?? [0, 1, 2, 3].filter(() => Math.random() > 0.25);
-          const masked = pickTwoRandom(candidates);
-          effectPayload = { ...effectPayload, maskedIndices: masked };
-          break;
-        }
-
-        case "TIME_BOOST": {
-          // Signal GameOrchestrator to apply 5-second extension (Phase 2 wires this fully)
-          effectPayload = { ...effectPayload, extraMs: 5000 };
-          // Publish to game loop channel for crash-recovery aware timer adjustment
-          await redisService.publish(
-            `game:${roomId}:events`,
-            JSON.stringify({ type: "TIME_BOOST", userId, extraMs: 5000 })
-          );
-          break;
-        }
-
-        case "SHIELD":
-        case "REVEAL":
-        case "SECOND_CHANCE": {
-          // Client animates; server enforcement in Phase 2
-          effectPayload = { ...effectPayload };
-          break;
-        }
+      if (!powerUp) {
+        emitError(socket, "POWERUP_NOT_FOUND", `Power-up ${powerUpId} was not found`);
+        return;
       }
 
-      // Send targeted effect to the requesting player
-      socket.emit("v1:powerup_effect", effectPayload);
-    } catch (err) {
+      const usedKey = `powerup:${roomId}:${userId}:${powerUp.id}:used`;
+      const reserved = await redisService.setnx(usedKey, "1", POWERUP_TTL_SECONDS);
+      if (!reserved) {
+        emitError(socket, "POWERUP_ALREADY_USED", "This power-up has already been activated in the current game");
+        return;
+      }
+
+      await redisService.publish(
+        `game:${roomId}:events`,
+        JSON.stringify({
+          type: "POWERUP_ACTIVATED",
+          roomId,
+          userId,
+          powerUpId: powerUp.id,
+          powerUpCode: powerUp.code,
+          targetPlayerId: targetPlayerId ?? null
+        })
+      );
+
+      logger.info("Power-up activated", {
+        roomId,
+        userId,
+        powerUpId: powerUp.id,
+        powerUpCode: powerUp.code,
+        targetPlayerId
+      });
+    } catch (error) {
       logger.error("Error in usePowerup handler", {
         userId,
         roomId,
-        type,
-        message: err instanceof Error ? err.message : String(err),
+        powerUpId,
+        message: error instanceof Error ? error.message : String(error)
       });
-      socket.emit("v1:error", {
-        code: "INTERNAL_ERROR",
-        message: "Failed to apply power-up",
-      });
+      emitError(socket, "INTERNAL_ERROR", "Failed to activate power-up");
     }
   });
 }

@@ -4,115 +4,116 @@ import { useNavigate } from 'react-router-dom';
 import { socketService } from '@/services/socketService';
 import { useGameStore } from '@/stores/gameStore';
 
-/**
- * Subscribes to all game-related WS events and syncs them into `gameStore`.
- * Cleans up all subscriptions on unmount.
- *
- * Must be called inside a component that has access to React Router context.
- */
 export function useGameSocket(roomId: string | undefined) {
   const navigate = useNavigate();
 
-  const applyRoomState    = useGameStore((s) => s.applyRoomState);
-  const applyCountdown    = useGameStore((s) => s.applyCountdown);
-  const applyQuestion     = useGameStore((s) => s.applyQuestion);
-  const applyAnswerLocked = useGameStore((s) => s.applyAnswerLocked);
-  const applyRoundResult  = useGameStore((s) => s.applyRoundResult);
-  const applyPowerupUsed  = useGameStore((s) => s.applyPowerupUsed);
-  const applyPowerupEffect = useGameStore((s) => s.applyPowerupEffect);
-  const applyGameOver     = useGameStore((s) => s.applyGameOver);
-  const applyLevelUp      = useGameStore((s) => s.applyLevelUp);
+  const roomCode = useGameStore((state) => state.code);
+  const applyRoomState = useGameStore((state) => state.applyRoomState);
+  const applyPlayerJoined = useGameStore((state) => state.applyPlayerJoined);
+  const applyPlayerLeft = useGameStore((state) => state.applyPlayerLeft);
+  const applyCountdown = useGameStore((state) => state.applyCountdown);
+  const applyQuestion = useGameStore((state) => state.applyQuestion);
+  const applyAnswerLocked = useGameStore((state) => state.applyAnswerLocked);
+  const applyRoundResult = useGameStore((state) => state.applyRoundResult);
+  const applyElimination = useGameStore((state) => state.applyElimination);
+  const applyFinaleStarted = useGameStore((state) => state.applyFinaleStarted);
+  const applyGameOver = useGameStore((state) => state.applyGameOver);
 
   useEffect(() => {
-    if (roomId) {
-      socketService.setActiveRoom(roomId);
+    if (roomId && roomCode) {
+      socketService.setActiveRoom({ roomId, roomCode });
     }
+  }, [roomCode, roomId]);
 
+  useEffect(() => {
     const unsubs: Array<() => void> = [];
 
-    // v1:room:state  ──────────────────────────────────────────────────────────
     unsubs.push(
       socketService.on('room:state_sync', (payload) => {
         applyRoomState(payload);
-      }),
-    );
+        socketService.updateRoomSnapshot(payload.room.roomId, payload.room.code);
 
-    // v1:game:start countdown ─────────────────────────────────────────────────
-    unsubs.push(
-      socketService.on('room:countdown_start', (payload) => {
-        applyCountdown(payload);
-        // Navigate to game route when countdown starts (lobby → game)
-        if (roomId) {
-          navigate(`/game/${roomId}`, { replace: true });
+        if (payload.room.phase === 'GAME_OVER') {
+          navigate(`/results/${payload.room.roomId}`, { replace: true });
+          return;
+        }
+
+        if (payload.room.phase !== 'WAITING') {
+          navigate(`/game/${payload.room.roomId}`, { replace: true });
         }
       }),
     );
 
-    // v1:round:question ───────────────────────────────────────────────────────
+    unsubs.push(
+      socketService.on('room:player_joined', (payload) => {
+        applyPlayerJoined(payload);
+      }),
+    );
+
+    unsubs.push(
+      socketService.on('room:player_left', (payload) => {
+        applyPlayerLeft(payload);
+      }),
+    );
+
+    unsubs.push(
+      socketService.on('round:countdown_started', (payload) => {
+        applyCountdown(payload);
+        navigate(`/game/${payload.roomId}`, { replace: true });
+      }),
+    );
+
     unsubs.push(
       socketService.on('round:question_started', (payload) => {
         applyQuestion(payload);
       }),
     );
 
-    // v1:round:answer locked ──────────────────────────────────────────────────
     unsubs.push(
       socketService.on('round:answer_locked', (payload) => {
         applyAnswerLocked(payload);
       }),
     );
 
-    // v1:round:end ────────────────────────────────────────────────────────────
     unsubs.push(
       socketService.on('round:result', (payload) => {
         applyRoundResult(payload);
       }),
     );
 
-    // powerup events ──────────────────────────────────────────────────────────
     unsubs.push(
-      socketService.on('powerup:used', (payload) => {
-        applyPowerupUsed(payload);
+      socketService.on('round:elimination', (payload) => {
+        applyElimination(payload);
       }),
     );
 
     unsubs.push(
-      socketService.on('powerup:effect', (payload) => {
-        applyPowerupEffect(payload);
+      socketService.on('round:finale_started', (payload) => {
+        applyFinaleStarted(payload);
       }),
     );
 
-    // v1:game:end ─────────────────────────────────────────────────────────────
     unsubs.push(
       socketService.on('game:over', (payload) => {
         applyGameOver(payload);
-        if (roomId) {
-          navigate(`/results/${roomId}`);
-        }
-      }),
-    );
-
-    // level-up notification ───────────────────────────────────────────────────
-    unsubs.push(
-      socketService.on('player:level_up', (payload) => {
-        applyLevelUp(payload);
+        navigate(`/results/${payload.roomId}`, { replace: true });
       }),
     );
 
     return () => {
-      unsubs.forEach((u) => u());
+      unsubs.forEach((unsubscribe) => unsubscribe());
     };
   }, [
-    roomId,
-    navigate,
-    applyRoomState,
-    applyCountdown,
-    applyQuestion,
     applyAnswerLocked,
-    applyRoundResult,
-    applyPowerupUsed,
-    applyPowerupEffect,
+    applyCountdown,
+    applyElimination,
+    applyFinaleStarted,
     applyGameOver,
-    applyLevelUp,
+    applyPlayerJoined,
+    applyPlayerLeft,
+    applyQuestion,
+    applyRoomState,
+    applyRoundResult,
+    navigate,
   ]);
 }

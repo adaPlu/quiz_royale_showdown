@@ -48,6 +48,10 @@ export class RedisService {
     }
   }
 
+  async ping(): Promise<string> {
+    return this.client.ping();
+  }
+
   // ─── String ─────────────────────────────────────────────────────────────
 
   async get(key: string): Promise<string | null> {

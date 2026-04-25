@@ -286,6 +286,7 @@ Periodic presence ping (every 30 s). Used for latency tracking and connection he
 | Method | Path                        | Auth | Description                    |
 |--------|-----------------------------|------|--------------------------------|
 | POST   | `/api/v1/rooms`             | JWT  | Create a new room (host)       |
+| POST   | `/api/v1/rooms/join`        | JWT  | Join by code or quick-play matchmaking |
 | GET    | `/api/v1/rooms/:roomCode`   | —    | Get room info by 6-char code   |
 | POST   | `/api/v1/rooms/:roomId/start` | JWT | Host starts the countdown      |
 | POST   | `/api/v1/rooms/:roomId/leave` | JWT | Leave a room                   |

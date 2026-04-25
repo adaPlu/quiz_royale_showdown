@@ -15,10 +15,9 @@ import { Server } from "socket.io";
 
 import { createApp } from "./app";
 import { env } from "./config/env";
-import { logger } from "./utils/logger";
 import { initRedis } from "./services/RedisService";
-import { socketAuthMiddleware } from "./socket/middleware";
-import { registerSocketHandlers } from "./socket/registerHandlers";
+import { initSocketServer } from "./socket";
+import { logger } from "./utils/logger";
 
 // ─── Boot ────────────────────────────────────────────────────────────────────
 
@@ -38,8 +37,7 @@ async function bootstrap(): Promise<void> {
     pingInterval: 25_000
   });
 
-  io.use(socketAuthMiddleware);
-  registerSocketHandlers(io);
+  initSocketServer(io);
 
   // 3. Redis
   const redis = initRedis(env.redisUrl);

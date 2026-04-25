@@ -3,8 +3,9 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Link, useNavigate } from 'react-router-dom';
+
 import { api } from '@services/apiClient';
-import { useAuthStore } from '@stores/authStore';
+import { type AuthResponse, useAuthStore } from '@stores/authStore';
 
 const schema = z.object({
   username: z
@@ -15,7 +16,7 @@ const schema = z.object({
   email: z.string().email('Enter a valid email'),
   password: z.string().min(8, 'Password must be at least 8 characters'),
   confirmPassword: z.string(),
-}).refine((d) => d.password === d.confirmPassword, {
+}).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ['confirmPassword'],
 });
@@ -24,26 +25,32 @@ type FormData = z.infer<typeof schema>;
 
 export default function RegisterPage() {
   const navigate = useNavigate();
-  const setUser = useAuthStore((s) => s.setUser);
-  const setAccessToken = useAuthStore((s) => s.setAccessToken);
+  const setSession = useAuthStore((state) => state.setSession);
 
-  const { register, handleSubmit, formState: { errors, isSubmitting }, setError } = useForm<FormData>({
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+    setError,
+  } = useForm<FormData>({
     resolver: zodResolver(schema),
   });
 
   const onSubmit = async (data: FormData) => {
     try {
-      const resp = await api.post<{ user: Parameters<typeof setUser>[0]; accessToken: string; refreshToken: string }>('/auth/register', {
-        username: data.username,
-        email: data.email,
+      const normalizedUsername = data.username.trim();
+      const response = await api.post<AuthResponse>('/auth/register', {
+        username: normalizedUsername,
+        displayName: normalizedUsername,
+        email: data.email.trim().toLowerCase(),
         password: data.password,
       });
-      setAccessToken(resp.data.accessToken);
-      setUser(resp.data.user);
+
+      setSession(response.data);
       navigate('/home', { replace: true });
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Registration failed. Please try again.';
-      setError('root', { message: msg });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Registration failed. Please try again.';
+      setError('root', { message });
     }
   };
 
@@ -55,7 +62,10 @@ export default function RegisterPage() {
           <p className="text-brand font-semibold text-xl">Showdown</p>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="bg-game-surface rounded-3xl p-6 border border-game-border shadow-royale space-y-4">
+        <form
+          onSubmit={handleSubmit(onSubmit)}
+          className="bg-game-surface rounded-3xl p-6 border border-game-border shadow-royale space-y-4"
+        >
           <h2 className="text-white text-xl font-bold text-center">Create Account</h2>
 
           <div>
@@ -89,7 +99,7 @@ export default function RegisterPage() {
               type="password"
               autoComplete="new-password"
               className="w-full bg-game-card border border-game-border rounded-xl px-4 py-3 text-white placeholder-game-muted focus:outline-none focus:border-brand transition-colors"
-              placeholder="••••••••"
+              placeholder="********"
             />
             {errors.password && <p className="text-answer-wrong text-xs mt-1">{errors.password.message}</p>}
           </div>
@@ -101,7 +111,7 @@ export default function RegisterPage() {
               type="password"
               autoComplete="new-password"
               className="w-full bg-game-card border border-game-border rounded-xl px-4 py-3 text-white placeholder-game-muted focus:outline-none focus:border-brand transition-colors"
-              placeholder="••••••••"
+              placeholder="********"
             />
             {errors.confirmPassword && <p className="text-answer-wrong text-xs mt-1">{errors.confirmPassword.message}</p>}
           </div>
@@ -117,7 +127,7 @@ export default function RegisterPage() {
             disabled={isSubmitting}
             className="w-full py-3 rounded-xl bg-brand text-white font-bold text-lg shadow-royale hover:opacity-90 disabled:opacity-60 transition-all"
           >
-            {isSubmitting ? 'Creating account…' : 'Create Account'}
+            {isSubmitting ? 'Creating account...' : 'Create Account'}
           </button>
 
           <p className="text-center text-game-muted text-sm">

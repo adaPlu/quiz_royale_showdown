@@ -3,33 +3,42 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Link, useNavigate } from 'react-router-dom';
+
 import { api } from '@services/apiClient';
-import { useAuthStore } from '@stores/authStore';
+import { type AuthResponse, useAuthStore } from '@stores/authStore';
 
 const schema = z.object({
   email: z.string().email('Enter a valid email'),
   password: z.string().min(8, 'Password must be at least 8 characters'),
 });
+
 type FormData = z.infer<typeof schema>;
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const setUser = useAuthStore((s) => s.setUser);
-  const setAccessToken = useAuthStore((s) => s.setAccessToken);
+  const setSession = useAuthStore((state) => state.setSession);
 
-  const { register, handleSubmit, formState: { errors, isSubmitting }, setError } = useForm<FormData>({
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+    setError,
+  } = useForm<FormData>({
     resolver: zodResolver(schema),
   });
 
   const onSubmit = async (data: FormData) => {
     try {
-      const resp = await api.post<{ user: Parameters<typeof setUser>[0]; accessToken: string; refreshToken: string }>('/auth/login', data);
-      setAccessToken(resp.data.accessToken);
-      setUser(resp.data.user);
+      const response = await api.post<AuthResponse>('/auth/login', {
+        email: data.email.trim().toLowerCase(),
+        password: data.password,
+      });
+
+      setSession(response.data);
       navigate('/home', { replace: true });
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Login failed. Check your credentials.';
-      setError('root', { message: msg });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Login failed. Check your credentials.';
+      setError('root', { message });
     }
   };
 
@@ -41,7 +50,10 @@ export default function LoginPage() {
           <p className="text-brand font-semibold text-xl">Showdown</p>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="bg-game-surface rounded-3xl p-6 border border-game-border shadow-royale space-y-4">
+        <form
+          onSubmit={handleSubmit(onSubmit)}
+          className="bg-game-surface rounded-3xl p-6 border border-game-border shadow-royale space-y-4"
+        >
           <h2 className="text-white text-xl font-bold text-center">Sign In</h2>
 
           <div>
@@ -63,7 +75,7 @@ export default function LoginPage() {
               type="password"
               autoComplete="current-password"
               className="w-full bg-game-card border border-game-border rounded-xl px-4 py-3 text-white placeholder-game-muted focus:outline-none focus:border-brand transition-colors"
-              placeholder="••••••••"
+              placeholder="********"
             />
             {errors.password && <p className="text-answer-wrong text-xs mt-1">{errors.password.message}</p>}
           </div>
@@ -79,7 +91,7 @@ export default function LoginPage() {
             disabled={isSubmitting}
             className="w-full py-3 rounded-xl bg-brand text-white font-bold text-lg shadow-royale hover:opacity-90 disabled:opacity-60 transition-all"
           >
-            {isSubmitting ? 'Signing in…' : 'Sign In'}
+            {isSubmitting ? 'Signing in...' : 'Sign In'}
           </button>
 
           <p className="text-center text-game-muted text-sm">

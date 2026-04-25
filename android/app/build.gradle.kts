@@ -4,6 +4,7 @@ plugins {
   id("com.google.dagger.hilt.android")
   id("com.google.devtools.ksp")
   id("org.jetbrains.kotlin.plugin.serialization")
+  id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
@@ -50,10 +51,6 @@ android {
     buildConfig = true
   }
 
-  composeOptions {
-    kotlinCompilerExtensionVersion = "1.5.15"
-  }
-
   packaging {
     resources {
       excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -72,6 +69,7 @@ dependencies {
   implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
   implementation("androidx.activity:activity-compose:1.10.1")
   implementation("androidx.navigation:navigation-compose:2.8.9")
+  implementation("com.google.android.material:material:1.12.0")
   implementation("androidx.compose.ui:ui")
   implementation("androidx.compose.ui:ui-graphics")
   implementation("androidx.compose.ui:ui-tooling-preview")

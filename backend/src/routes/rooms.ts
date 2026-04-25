@@ -140,7 +140,23 @@ roomsRouter.post(
     try {
       const requesterId = getAuthenticatedUserId(req.jwtClaims?.sub);
       const { roomId } = req.params as z.infer<typeof roomIdParamsSchema>;
+
+      await roomService.recoverStaleCountdown(
+        roomId,
+        gameOrchestrator.hasActiveGame(roomId)
+      );
+
       const room = await roomService.startGame(roomId, requesterId);
+
+      try {
+        await gameOrchestrator.assertQuestionBankReady();
+      } catch (error) {
+        await roomService.resetStartFailure(
+          roomId,
+          error instanceof Error ? error.message : String(error)
+        );
+        throw error;
+      }
 
       // Fetch player IDs and fire the game loop asynchronously.
       // Do NOT await — the FSM drives itself over socket events.

@@ -46,6 +46,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import com.quizroyale.showdown.domain.model.PowerupType
 import com.quizroyale.showdown.ui.game.components.PowerUpTray
 import com.quizroyale.showdown.ui.theme.AnswerCorrect
 import com.quizroyale.showdown.ui.theme.AnswerLocked
@@ -278,6 +279,9 @@ fun GameScreen(
 
 @Composable
 private fun CountdownRing() {
+    val trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
+    val progressColor = MaterialTheme.colorScheme.primary
+
     Canvas(
         modifier = Modifier
             .fillMaxWidth()
@@ -286,13 +290,13 @@ private fun CountdownRing() {
         val radius = size.minDimension / 4f
         val center = Offset(size.width / 2f, size.height / 2f)
         drawCircle(
-            color  = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f),
+            color  = trackColor,
             radius = radius,
             center = center,
             style  = Stroke(width = 18f)
         )
         drawArc(
-            color      = MaterialTheme.colorScheme.primary,
+            color      = progressColor,
             startAngle = -90f,
             sweepAngle = 216f,
             useCenter  = false,

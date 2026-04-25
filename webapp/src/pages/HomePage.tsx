@@ -1,47 +1,133 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '@services/apiClient';
-import { useAuthStore } from '@stores/authStore';
+
 import { PlayerAvatar } from '@components/PlayerAvatar';
+import { api } from '@services/apiClient';
+import { socketService } from '@services/socketService';
+import { useAuthStore } from '@stores/authStore';
+
+type RoomApiRecord = {
+  id?: unknown;
+  roomId?: unknown;
+  code?: unknown;
+  roomCode?: unknown;
+};
+
+type RoomFlowResponse = {
+  room?: RoomApiRecord;
+  roomId?: unknown;
+  code?: unknown;
+  roomCode?: unknown;
+  wsToken?: unknown;
+};
+
+type RoomSession = {
+  roomId: string;
+  roomCode: string;
+  wsToken?: string;
+};
+
+const normalizeRoomSession = (data: unknown, fallbackRoomCode?: string): RoomSession => {
+  const payload = (data ?? {}) as RoomFlowResponse;
+  const room = payload.room ?? {};
+
+  const roomIdCandidate = room.id ?? room.roomId ?? payload.roomId;
+  if (typeof roomIdCandidate !== 'string' || !roomIdCandidate.trim()) {
+    throw new Error('Room response is missing roomId');
+  }
+
+  const roomCodeCandidate =
+    room.code ??
+    room.roomCode ??
+    payload.code ??
+    payload.roomCode ??
+    fallbackRoomCode ??
+    roomIdCandidate;
+
+  if (typeof roomCodeCandidate !== 'string' || !roomCodeCandidate.trim()) {
+    throw new Error('Room response is missing roomCode');
+  }
+
+  return {
+    roomId: roomIdCandidate,
+    roomCode: roomCodeCandidate.trim().toUpperCase(),
+    wsToken: typeof payload.wsToken === 'string' && payload.wsToken.trim() ? payload.wsToken : undefined,
+  };
+};
+
+const getErrorMessage = (error: unknown, fallback: string) =>
+  error instanceof Error && error.message ? error.message : fallback;
 
 export default function HomePage() {
   const navigate = useNavigate();
-  const user = useAuthStore((s) => s.user);
+  const user = useAuthStore((state) => state.user);
+  const accessToken = useAuthStore((state) => state.accessToken);
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const go = (roomId: string) => navigate(`/lobby/${roomId}`);
+  const enterLobby = (session: RoomSession) => {
+    const socketToken = session.wsToken ?? accessToken;
+    if (!socketToken) {
+      throw new Error('Missing websocket auth token');
+    }
+
+    socketService.connect(socketToken);
+    socketService.setActiveRoom({
+      roomId: session.roomId,
+      roomCode: session.roomCode,
+      token: socketToken,
+    });
+    socketService.joinRoom(session.roomCode, session.roomId);
+
+    navigate(`/lobby/${session.roomId}`);
+  };
 
   const quickPlay = async () => {
-    setLoading('quick'); setError(null);
+    setLoading('quick');
+    setError(null);
+
     try {
-      const r = await api.post<{ roomId: string }>('/rooms/join', { roomCode: null });
-      go(r.data.roomId);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed');
-    } finally { setLoading(null); }
+      const response = await api.post('/rooms/join', { roomCode: null });
+      enterLobby(normalizeRoomSession(response.data));
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to find a room'));
+    } finally {
+      setLoading(null);
+    }
   };
 
   const createRoom = async (isPrivate: boolean) => {
-    setLoading(isPrivate ? 'private' : 'create'); setError(null);
+    setLoading(isPrivate ? 'private' : 'create');
+    setError(null);
+
     try {
-      const r = await api.post<{ roomId: string }>('/rooms', { isPrivate, maxPlayers: 8 });
-      go(r.data.roomId);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed');
-    } finally { setLoading(null); }
+      const response = await api.post('/rooms', { isPrivate, maxPlayers: 8 });
+      enterLobby(normalizeRoomSession(response.data));
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to create room'));
+    } finally {
+      setLoading(null);
+    }
   };
 
   const joinByCode = async () => {
-    if (code.length < 4) return;
-    setLoading('join'); setError(null);
+    const normalizedCode = code.trim().toUpperCase();
+    if (normalizedCode.length < 4) {
+      return;
+    }
+
+    setLoading('join');
+    setError(null);
+
     try {
-      const r = await api.post<{ roomId: string }>('/rooms/join', { roomCode: code.toUpperCase() });
-      go(r.data.roomId);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Room not found');
-    } finally { setLoading(null); }
+      const response = await api.post('/rooms/join', { roomCode: normalizedCode });
+      enterLobby(normalizeRoomSession(response.data, normalizedCode));
+    } catch (err) {
+      setError(getErrorMessage(err, 'Room not found'));
+    } finally {
+      setLoading(null);
+    }
   };
 
   return (
@@ -70,7 +156,7 @@ export default function HomePage() {
           disabled={!!loading}
           className="w-full py-4 rounded-2xl bg-brand text-white font-bold text-lg shadow-royale hover:opacity-90 disabled:opacity-60"
         >
-          {loading === 'quick' ? 'Finding game…' : '⚡ Quick Play'}
+          {loading === 'quick' ? 'Finding game...' : 'Quick Play'}
         </button>
 
         <button
@@ -78,20 +164,20 @@ export default function HomePage() {
           disabled={!!loading}
           className="w-full py-3 rounded-2xl bg-game-surface border border-game-border text-white font-semibold hover:border-brand/50 disabled:opacity-60"
         >
-          {loading === 'private' ? 'Creating…' : '🔒 Create Private Room'}
+          {loading === 'private' ? 'Creating...' : 'Create Private Room'}
         </button>
 
         <div className="w-full border-t border-game-border pt-4">
           <div className="flex gap-2">
             <input
               value={code}
-              onChange={(e) => setCode(e.target.value.toUpperCase().slice(0, 8))}
+              onChange={(event) => setCode(event.target.value.toUpperCase().slice(0, 8))}
               placeholder="Room Code"
               className="flex-1 bg-game-card border border-game-border rounded-xl px-4 py-3 text-white placeholder-game-muted focus:outline-none focus:border-brand uppercase tracking-widest font-mono"
             />
             <button
               onClick={joinByCode}
-              disabled={code.length < 4 || !!loading}
+              disabled={code.trim().length < 4 || !!loading}
               className="px-4 py-3 rounded-xl bg-brand/20 border border-brand/40 text-brand font-semibold hover:bg-brand/30 disabled:opacity-40"
             >
               Join
@@ -106,7 +192,7 @@ export default function HomePage() {
             onClick={() => navigate('/leaderboard')}
             className="flex-1 py-2 rounded-xl border border-game-border text-game-muted text-sm hover:text-white hover:border-white/30"
           >
-            🏆 Leaderboard
+            Leaderboard
           </button>
         </div>
       </main>

@@ -1,53 +1,83 @@
-/**
- * Environment configuration with Zod validation.
- *
- * All environment variables are validated at startup.
- * A missing or invalid required variable causes the process to exit(1) immediately,
- * preventing the app from starting in a broken state.
- */
-
 import "dotenv/config";
 import { z } from "zod";
 
-const envSchema = z.object({
-  // Runtime
-  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  PORT: z.coerce.number().int().positive().default(4000),
+const DEFAULT_JWT_ACCESS_SECRET = "dev-access-secret-change-in-production";
+const DEFAULT_JWT_REFRESH_SECRET = "dev-refresh-secret-change-in-production";
 
-  // CORS
-  CORS_ORIGIN: z.string().default("http://localhost:5173"),
+const envSchema = z
+  .object({
+    NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+    PORT: z.coerce.number().int().positive().default(4000),
+    CORS_ORIGIN: z.string().default("http://localhost:5173"),
+    JWT_ACCESS_SECRET: z
+      .string()
+      .min(16, "JWT_ACCESS_SECRET must be at least 16 characters")
+      .default(DEFAULT_JWT_ACCESS_SECRET),
+    JWT_REFRESH_SECRET: z
+      .string()
+      .min(16, "JWT_REFRESH_SECRET must be at least 16 characters")
+      .default(DEFAULT_JWT_REFRESH_SECRET),
+    JWT_ACCESS_TTL: z.string().default("15m"),
+    JWT_REFRESH_TTL: z.string().default("7d"),
+    DATABASE_URL: z
+      .string()
+      .default("postgresql://postgres:postgres@localhost:5432/quiz_royale?schema=public"),
+    REDIS_URL: z.string().default("redis://localhost:6379"),
+    LOG_LEVEL: z
+      .enum(["trace", "debug", "info", "warn", "error", "fatal"])
+      .default("info")
+  })
+  .superRefine((data, ctx) => {
+    if (data.NODE_ENV !== "production") {
+      return;
+    }
 
-  // JWT
-  JWT_ACCESS_SECRET: z
-    .string()
-    .min(16, "JWT_ACCESS_SECRET must be at least 16 characters")
-    .default("dev-access-secret-change-in-production"),
-  JWT_REFRESH_SECRET: z
-    .string()
-    .min(16, "JWT_REFRESH_SECRET must be at least 16 characters")
-    .default("dev-refresh-secret-change-in-production"),
-  JWT_ACCESS_TTL: z.string().default("15m"),
-  JWT_REFRESH_TTL: z.string().default("7d"),
+    if (data.JWT_ACCESS_SECRET === DEFAULT_JWT_ACCESS_SECRET) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["JWT_ACCESS_SECRET"],
+        message: "JWT_ACCESS_SECRET must be explicitly set in production"
+      });
+    }
 
-  // Database
-  DATABASE_URL: z
-    .string()
-    .default("postgresql://postgres:postgres@localhost:5432/quiz_royale?schema=public"),
+    if (data.JWT_REFRESH_SECRET === DEFAULT_JWT_REFRESH_SECRET) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["JWT_REFRESH_SECRET"],
+        message: "JWT_REFRESH_SECRET must be explicitly set in production"
+      });
+    }
 
-  // Redis
-  REDIS_URL: z.string().default("redis://localhost:6379"),
+    if (data.JWT_ACCESS_SECRET.length < 32) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["JWT_ACCESS_SECRET"],
+        message: "JWT_ACCESS_SECRET must be at least 32 characters in production"
+      });
+    }
 
-  // Logging
-  LOG_LEVEL: z
-    .enum(["trace", "debug", "info", "warn", "error", "fatal"])
-    .default("info")
-});
+    if (data.JWT_REFRESH_SECRET.length < 32) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["JWT_REFRESH_SECRET"],
+        message: "JWT_REFRESH_SECRET must be at least 32 characters in production"
+      });
+    }
+
+    if (data.JWT_ACCESS_SECRET === data.JWT_REFRESH_SECRET) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["JWT_REFRESH_SECRET"],
+        message: "JWT_REFRESH_SECRET must differ from JWT_ACCESS_SECRET in production"
+      });
+    }
+  });
 
 function parseEnv() {
   const result = envSchema.safeParse(process.env);
 
   if (!result.success) {
-    console.error("❌ Invalid environment configuration:");
+    console.error("Invalid environment configuration:");
     const formatted = result.error.flatten().fieldErrors;
     for (const [field, messages] of Object.entries(formatted)) {
       console.error(`  ${field}: ${(messages ?? []).join(", ")}`);

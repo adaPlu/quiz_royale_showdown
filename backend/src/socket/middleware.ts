@@ -1,68 +1,66 @@
 /**
  * Socket.IO authentication middleware.
  *
- * Verifies JWT from `socket.handshake.auth.token` or `Authorization: Bearer` header.
- * Attaches `socket.data.userId` and `socket.data.username` on success.
- * Rejects banned users with an error.
+ * Verifies JWT from `socket.handshake.auth.token` or `Authorization: Bearer` header
+ * and stores the contract-facing user fields on `socket.data`.
  */
 
 import type { Socket } from "socket.io";
-import { verifyAccessToken } from "../services/AuthService";
 import { prisma } from "../models/prismaClient";
+import { verifyAccessToken } from "../services/AuthService";
 import { logger } from "../utils/logger";
 
-// ─── Augmented socket interface ───────────────────────────────────────────────
-
-export interface AuthenticatedSocket extends Socket {
-  data: Socket["data"] & {
-    userId: string;
-    username: string;
-    email: string;
-  };
+export interface AuthenticatedSocketData {
+  userId: string;
+  displayName: string;
+  email: string;
+  roomId?: string;
+  roomCode?: string;
 }
 
-// ─── Middleware ───────────────────────────────────────────────────────────────
+export interface AuthenticatedSocket extends Socket {
+  data: Socket["data"] & AuthenticatedSocketData;
+}
 
 export const socketAuthMiddleware = async (
   socket: Socket,
   next: (error?: Error) => void
 ): Promise<void> => {
   try {
-    const rawToken: unknown =
-      socket.handshake.auth["token"] ??
-      socket.handshake.headers["authorization"]?.replace(/^Bearer\s+/i, "");
+    const authToken = socket.handshake.auth?.token;
+    const authHeader = socket.handshake.headers.authorization;
+    const rawToken =
+      (typeof authToken === "string" ? authToken : undefined) ??
+      (typeof authHeader === "string" ? authHeader.replace(/^Bearer\s+/i, "") : undefined);
 
-    if (!rawToken || typeof rawToken !== "string") {
+    if (!rawToken) {
       return next(new Error("Missing auth token"));
     }
 
-    // verifyAccessToken throws UnauthorizedError on failure
     const payload = verifyAccessToken(rawToken);
 
-    // Try Prisma first; fall back gracefully if DB is unavailable
     try {
       const dbUser = await prisma.user.findUnique({
         where: { id: payload.sub },
-        select: { id: true, displayName: true, email: true },
+        select: { id: true, displayName: true, email: true }
       });
 
       if (!dbUser) {
         return next(new Error("User not found"));
       }
 
-      socket.data["userId"] = dbUser.id;
-      socket.data["username"] = dbUser.displayName;
-      socket.data["email"] = dbUser.email;
+      socket.data.userId = dbUser.id;
+      socket.data.displayName = dbUser.displayName;
+      socket.data.email = dbUser.email;
     } catch {
-      // DB unavailable — use payload claims (degraded mode)
-      socket.data["userId"] = payload.sub;
-      socket.data["username"] = payload.displayName;
-      socket.data["email"] = payload.email;
+      socket.data.userId = payload.sub;
+      socket.data.displayName = payload.displayName;
+      socket.data.email = payload.email;
     }
 
     logger.debug("Socket authenticated", {
       socketId: socket.id,
-      userId: socket.data["userId"] as string,
+      userId: socket.data.userId
     });
 
     next();

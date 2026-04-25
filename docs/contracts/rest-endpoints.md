@@ -13,6 +13,7 @@ The endpoints below are the agreed starter surface for Phase 0 and Phase 1. Only
 ## Rooms
 
 - `POST /api/v1/rooms`
+- `POST /api/v1/rooms/join`
 - `GET /api/v1/rooms/:roomCode`
 - `POST /api/v1/rooms/:roomId/start`
 - `POST /api/v1/rooms/:roomId/leave`

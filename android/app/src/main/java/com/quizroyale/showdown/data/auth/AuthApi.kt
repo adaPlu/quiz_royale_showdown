@@ -20,6 +20,7 @@ data class AuthUser(
 @Serializable
 data class RegisterRequest(
   val email: String,
+  val username: String,
   val displayName: String,
   val password: String
 )
@@ -38,7 +39,8 @@ data class RefreshRequest(
 @Serializable
 data class AuthResponse(
   val user: AuthUser? = null,
-  val tokens: AuthTokens
+  val accessToken: String,
+  val refreshToken: String
 )
 
 interface AuthApi {

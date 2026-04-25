@@ -1,22 +1,24 @@
 /**
- * GameOrchestrator — drives the GameStateMachine through the game loop.
- *
- * All timers write a Redis heartbeat key so crash-recovery agents can detect stale games.
+ * GameOrchestrator drives the GameStateMachine through the game loop and emits
+ * contract-aligned socket envelopes on the `message` event.
  */
 
+import type { QuestionBank } from "@prisma/client";
 import type { Server } from "socket.io";
 import { prisma } from "../models/prismaClient";
-import { redisService } from "./RedisService";
 import {
-  transitionGameState,
   createInitialGameState,
-  type GameStateSnapshot,
+  transitionGameState,
+  type GameStateSnapshot
 } from "../game/GameStateMachine";
 import { eliminateBottomN } from "../game/EliminationEngine";
 import type { PlayerStanding } from "../game/types";
-import type { QuestionBank, Difficulty } from "@prisma/client";
+import { redisService } from "./RedisService";
+import { roomService } from "./RoomService";
 import { generateId } from "../utils/ulid";
+import { BadRequestError } from "../utils/errors";
 import { logger } from "../utils/logger";
+import type { PlayerSummary, ServerEvents } from "../types/contracts";
 
 const COUNTDOWN_MS = 5_000;
 const ROUND_RESULT_DISPLAY_MS = 4_000;
@@ -25,13 +27,30 @@ const DEFAULT_TIME_LIMIT_MS = 20_000;
 const HEARTBEAT_TTL_SECONDS = 60;
 const GAME_STATE_TTL_SECONDS = 7200;
 
-// ─── Helper: timed delay with Redis heartbeat ─────────────────────────────────
+type CurrentQuestionContext = {
+  roundId: string;
+  questionId: string;
+  prompt: string;
+  answers: string[];
+  correctAnswerIndex: number;
+  startTs: number;
+  startedAt: string;
+  timeLimitMs: number;
+};
 
-function timedDelay(
-  roomId: string,
-  label: string,
-  durationMs: number
-): Promise<void> {
+type StoredAnswerRecord = {
+  answerIndex: number;
+  clientSentAt: string;
+  isCorrect: boolean;
+  scoreDelta: number;
+  submittedAt: string;
+};
+
+function emitRoomEnvelope(io: Server, roomId: string, envelope: ServerEvents): void {
+  io.to(roomId).emit("message", envelope);
+}
+
+function timedDelay(roomId: string, label: string, durationMs: number): Promise<void> {
   return new Promise<void>((resolve) => {
     const heartbeatKey = `game:${roomId}:heartbeat:${label}`;
     const resolveWithHeartbeat = async () => {
@@ -40,155 +59,168 @@ function timedDelay(
       }
       resolve();
     };
+
     setTimeout(() => void resolveWithHeartbeat(), durationMs);
   });
 }
 
-// ─── GameOrchestrator ─────────────────────────────────────────────────────────
-
 export class GameOrchestrator {
-  private usedQuestionIds: string[] = [];
+  private readonly activeRooms = new Set<string>();
+
+  hasActiveGame(roomId: string): boolean {
+    return this.activeRooms.has(roomId);
+  }
+
+  async assertQuestionBankReady(): Promise<void> {
+    const activeQuestionCount = await prisma.questionBank.count({
+      where: { isActive: true }
+    });
+
+    if (activeQuestionCount === 0) {
+      throw new BadRequestError("No active questions are available. Add questions before starting a game.");
+    }
+  }
 
   async startGame(roomId: string, playerIds: string[], io: Server): Promise<void> {
     logger.info("GameOrchestrator starting", { roomId, playerCount: playerIds.length });
+    this.activeRooms.add(roomId);
 
-    // Bootstrap state
-    let state = transitionGameState(
-      { ...createInitialGameState(), playerCount: playerIds.length },
-      { type: "READY_FOR_COUNTDOWN", playerCount: playerIds.length }
-    );
+    try {
+      await this.assertQuestionBankReady();
 
-    await this.persistState(roomId, state);
-
-    // Seed Redis scores and player set
-    if (redisService) {
-      await Promise.all(
-        playerIds.map((pid) => redisService!.zadd(`room:${roomId}:scores`, 0, pid))
+      let state = transitionGameState(
+        { ...createInitialGameState(), playerCount: playerIds.length },
+        { type: "READY_FOR_COUNTDOWN", playerCount: playerIds.length }
       );
-      await Promise.all(playerIds.map((pid) => redisService!.sadd(`room:${roomId}:players`, pid)));
-    }
 
-    await this.runCountdown(roomId, io, state);
-
-    // Game loop — up to totalRounds rounds, then finale
-    const totalRounds = 10;
-    let round = 0;
-
-    while (round < totalRounds && state.playerCount > 1) {
-      round++;
-
-      state = transitionGameState(state, { type: "BEGIN_QUESTION" });
-      await this.persistState(roomId, state);
-      await this.runQuestion(roomId, io, state);
-
-      state = transitionGameState(state, { type: "LOCK_ANSWERS" });
       await this.persistState(roomId, state);
 
-      state = transitionGameState(state, { type: "SHOW_ROUND_RESULT" });
-      await this.persistState(roomId, state);
-      await this.runRoundEnd(roomId, io, state, playerIds);
-
-      // Eliminate after every 2 rounds, keeping at least 2 players
-      if (round % 2 === 0 && state.playerCount > 2) {
-        const scores = await this.loadScores(roomId, playerIds);
-        const eliminateCount = this.computeEliminationCount(state.playerCount);
-        const { eliminated, survivors } = eliminateBottomN(scores, {
-          eliminateCount,
-          minimumSurvivors: 2,
-        });
-        const eliminatedIds = eliminated.map((e) => e.playerId);
-
-        state = transitionGameState(state, {
-          type: "APPLY_ELIMINATION",
-          eliminatedPlayerIds: eliminatedIds,
-        });
-        await this.persistState(roomId, state);
-
-        await this.runElimination(roomId, io, eliminatedIds, survivors);
-
-        state = transitionGameState(state, { type: "START_NEXT_ROUND" });
-        await this.persistState(roomId, state);
-        await this.runCountdown(roomId, io, state);
+      if (redisService) {
+        const redis = redisService;
+        await Promise.all(playerIds.map((playerId) => redis.zadd(`room:${roomId}:scores`, 0, playerId)));
+        await Promise.all(playerIds.map((playerId) => redis.sadd(`room:${roomId}:players`, playerId)));
       }
-    }
 
-    // Finale round
-    const finalistIds = playerIds.filter(
-      (pid) => !state.eliminatedPlayerIds.includes(pid)
-    );
+      await this.runCountdown(roomId, io);
 
-    if (finalistIds.length > 0) {
-      state = transitionGameState(state, {
-        type: "START_FINALE",
-        finalistIds,
-      });
+      const totalRounds = 10;
+      const usedQuestionIds: string[] = [];
+      let round = 0;
+
+      while (round < totalRounds && state.playerCount > 1) {
+        round++;
+
+        state = transitionGameState(state, { type: "BEGIN_QUESTION" });
+        await this.persistState(roomId, state);
+        await this.runQuestion(roomId, io, usedQuestionIds);
+
+        state = transitionGameState(state, { type: "LOCK_ANSWERS" });
+        await this.persistState(roomId, state);
+
+        state = transitionGameState(state, { type: "SHOW_ROUND_RESULT" });
+        await this.persistState(roomId, state);
+        await this.runRoundEnd(roomId, io);
+
+        if (round % 2 === 0 && state.playerCount > 2) {
+          const scores = await this.loadScores(roomId, playerIds);
+          const eliminateCount = this.computeEliminationCount(state.playerCount);
+          const { eliminated, survivors } = eliminateBottomN(scores, {
+            eliminateCount,
+            minimumSurvivors: 2
+          });
+          const eliminatedIds = eliminated.map((entry) => entry.playerId);
+
+          state = transitionGameState(state, {
+            type: "APPLY_ELIMINATION",
+            eliminatedPlayerIds: eliminatedIds
+          });
+          await this.persistState(roomId, state);
+
+          await this.runElimination(roomId, io, eliminatedIds, survivors);
+
+          state = transitionGameState(state, { type: "START_NEXT_ROUND" });
+          await this.persistState(roomId, state);
+          await this.runCountdown(roomId, io);
+        }
+      }
+
+      const finalistIds = playerIds.filter((playerId) => !state.eliminatedPlayerIds.includes(playerId));
+
+      if (finalistIds.length > 0) {
+        state = transitionGameState(state, {
+          type: "START_FINALE",
+          finalistIds
+        });
+        await this.persistState(roomId, state);
+        await this.runFinale(roomId, io, state, usedQuestionIds);
+      }
+
+      const winnerIds = await this.computeWinners(roomId, finalistIds);
+      state = transitionGameState(state, { type: "COMPLETE_GAME", winnerIds });
       await this.persistState(roomId, state);
-      await this.runFinale(roomId, io, state);
-    }
+      await this.runGameOver(roomId, io, winnerIds);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await roomService.resetStartFailure(roomId, message);
 
-    // Game over
-    const winnerIds = await this.computeWinners(roomId, finalistIds);
-    state = transitionGameState(state, { type: "COMPLETE_GAME", winnerIds });
-    await this.persistState(roomId, state);
-    await this.runGameOver(roomId, io, winnerIds);
+      emitRoomEnvelope(io, roomId, {
+        type: "error",
+        version: "v1",
+        payload: {
+          code: "GAME_START_FAILED",
+          message
+        }
+      });
+
+      throw error;
+    } finally {
+      this.activeRooms.delete(roomId);
+    }
   }
 
-  // ─── Phase runners ───────────────────────────────────────────────────────
+  private async runCountdown(roomId: string, io: Server): Promise<void> {
+    const startsAt = new Date(Date.now() + COUNTDOWN_MS).toISOString();
 
-  private async runCountdown(
-    roomId: string,
-    io: Server,
-    _state: GameStateSnapshot
-  ): Promise<void> {
-    logger.info("Countdown started", { roomId });
-    io.to(roomId).emit("v1:countdown_start", {
-      roomId,
-      startsInMs: COUNTDOWN_MS,
-      startedAt: new Date().toISOString(),
+    logger.info("Countdown started", { roomId, startsAt });
+
+    emitRoomEnvelope(io, roomId, {
+      type: "round:countdown_started",
+      version: "v1",
+      payload: {
+        roomId,
+        startsAt,
+        seconds: COUNTDOWN_MS / 1000
+      }
     });
+
     await timedDelay(roomId, "countdown", COUNTDOWN_MS);
   }
 
-  private async runQuestion(
-    roomId: string,
-    io: Server,
-    _state: GameStateSnapshot
-  ): Promise<void> {
+  private async runQuestion(roomId: string, io: Server, usedQuestionIds: string[]): Promise<void> {
     let question: QuestionBank;
+
     try {
-      question = await this.selectQuestion(this.usedQuestionIds);
-    } catch (err) {
-      logger.error("No questions available", { roomId, err });
-      return;
+      question = await this.selectQuestion(usedQuestionIds);
+    } catch (error) {
+      logger.error("No questions available", {
+        roomId,
+        message: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
     }
 
-    this.usedQuestionIds.push(question.id);
+    usedQuestionIds.push(question.id);
 
-    const options = [question.optionA, question.optionB, question.optionC, question.optionD];
+    const answers = [question.optionA, question.optionB, question.optionC, question.optionD];
     const startTs = Date.now();
+    const startedAt = new Date(startTs).toISOString();
 
-    // Persist question context for reconnects
-    if (redisService) {
-      await redisService.setJson(
-        `game:${roomId}:current_question`,
-        {
-          questionId: question.id,
-          prompt: question.prompt,
-          options,
-          correctIndex: question.correctIndex,
-          startTs,
-          timeLimitMs: DEFAULT_TIME_LIMIT_MS,
-        },
-        GAME_STATE_TTL_SECONDS
-      );
-    }
-
-    // Create round record in Prisma
-    const round = await prisma.round.findFirst({
+    const latestRound = await prisma.round.findFirst({
       where: { roomId },
       orderBy: { roundNumber: "desc" },
+      select: { roundNumber: true }
     });
-    const roundNumber = (round?.roundNumber ?? 0) + 1;
+    const roundNumber = (latestRound?.roundNumber ?? 0) + 1;
     const roundId = generateId();
 
     await prisma.round.create({
@@ -198,45 +230,79 @@ export class GameOrchestrator {
         roundNumber,
         questionId: question.id,
         difficulty: question.difficulty,
-        startedAt: new Date(startTs),
-      },
+        startedAt: new Date(startTs)
+      }
     });
 
-    logger.info("Question started", { roomId, questionId: question.id, roundId });
+    if (redisService) {
+      await redisService.setJson<CurrentQuestionContext>(
+        `game:${roomId}:current_question`,
+        {
+          roundId,
+          questionId: question.id,
+          prompt: question.prompt,
+          answers,
+          correctAnswerIndex: question.correctIndex,
+          startTs,
+          startedAt,
+          timeLimitMs: DEFAULT_TIME_LIMIT_MS
+        },
+        GAME_STATE_TTL_SECONDS
+      );
+    }
 
-    // Emit question WITHOUT correctIndex
-    io.to(roomId).emit("v1:question", {
-      roomId,
-      roundId,
-      questionId: question.id,
-      prompt: question.prompt,
-      options,
-      timeLimitMs: DEFAULT_TIME_LIMIT_MS,
-      startTs,
+    logger.info("Question started", { roomId, roundId, questionId: question.id });
+
+    emitRoomEnvelope(io, roomId, {
+      type: "round:question_started",
+      version: "v1",
+      payload: {
+        roomId,
+        roundId,
+        questionId: question.id,
+        prompt: question.prompt,
+        answers,
+        timeLimitMs: DEFAULT_TIME_LIMIT_MS,
+        startedAt
+      }
     });
 
-    // Wait for time limit + grace
     await timedDelay(roomId, "question", DEFAULT_TIME_LIMIT_MS + 500);
 
-    // Lock answers in Prisma
+    const lockedAt = new Date().toISOString();
+
     await prisma.round.update({
       where: { id: roundId },
-      data: { lockedAt: new Date() },
+      data: { lockedAt: new Date(lockedAt) }
+    });
+
+    emitRoomEnvelope(io, roomId, {
+      type: "round:answer_locked",
+      version: "v1",
+      payload: {
+        roomId,
+        roundId,
+        lockedAt
+      }
     });
   }
 
-  private async runRoundEnd(
-    roomId: string,
-    io: Server,
-    _state: GameStateSnapshot,
-    _playerIds: string[]
-  ): Promise<void> {
-    const questionCtx = redisService
-      ? await redisService.getJson<{
-          questionId: string;
-          correctIndex: number;
-        }>(`game:${roomId}:current_question`)
+  private async runRoundEnd(roomId: string, io: Server): Promise<void> {
+    const questionContext = redisService
+      ? await redisService.getJson<CurrentQuestionContext>(`game:${roomId}:current_question`)
       : null;
+
+    if (!questionContext) {
+      logger.warn("Skipping round result emit without current question context", { roomId });
+      return;
+    }
+
+    const answers = redisService
+      ? await redisService.hgetall(`room:${roomId}:round:${questionContext.roundId}:answers`)
+      : {};
+    const answerRecords = Object.fromEntries(
+      Object.entries(answers).map(([playerId, raw]) => [playerId, JSON.parse(raw) as StoredAnswerRecord])
+    );
 
     const scoreEntries = redisService
       ? await redisService.zrevrangeWithScores(`room:${roomId}:scores`, 0, -1)
@@ -244,15 +310,26 @@ export class GameOrchestrator {
 
     const rankings = scoreEntries.map(({ member, score }) => ({
       playerId: member,
-      totalScore: score,
+      scoreDelta: answerRecords[member]?.scoreDelta ?? 0,
+      totalScore: score
     }));
 
-    logger.info("Round ended", { roomId });
+    logger.info("Round ended", { roomId, roundId: questionContext.roundId });
 
-    io.to(roomId).emit("v1:round_result", {
-      roomId,
-      correctIndex: questionCtx?.correctIndex ?? -1,
-      rankings,
+    emitRoomEnvelope(io, roomId, {
+      type: "round:result",
+      version: "v1",
+      payload: {
+        roomId,
+        roundId: questionContext.roundId,
+        correctAnswerIndex: questionContext.correctAnswerIndex,
+        rankings
+      }
+    });
+
+    await prisma.round.updateMany({
+      where: { id: questionContext.roundId, resolvedAt: null },
+      data: { resolvedAt: new Date() }
     });
 
     await timedDelay(roomId, "round_result", ROUND_RESULT_DISPLAY_MS);
@@ -266,13 +343,57 @@ export class GameOrchestrator {
   ): Promise<void> {
     logger.info("Elimination phase", { roomId, eliminatedIds });
 
-    io.to(roomId).emit("v1:elimination", {
-      roomId,
-      eliminatedPlayerIds: eliminatedIds,
-      survivors: survivors.map((s) => ({
-        playerId: s.playerId,
-        score: s.totalScore ?? s.roundScore,
-      })),
+    const survivorIds = survivors.map((survivor) => survivor.playerId);
+    const survivorRows = survivorIds.length
+      ? await prisma.roomPlayer.findMany({
+          where: {
+            roomId,
+            userId: { in: survivorIds }
+          },
+          include: {
+            user: {
+              select: {
+                id: true,
+                displayName: true,
+                avatarUrl: true
+              }
+            }
+          }
+        })
+      : [];
+
+    const survivorScoreMap = new Map(
+      survivors.map((survivor) => [survivor.playerId, survivor.totalScore ?? survivor.roundScore])
+    );
+    const survivorById = new Map(survivorRows.map((row) => [row.userId, row]));
+
+    const survivorSummaries = survivorIds.reduce<PlayerSummary[]>((result, playerId) => {
+      const row = survivorById.get(playerId);
+
+      if (!row) {
+        return result;
+      }
+
+      result.push({
+        id: row.userId,
+        displayName: row.user.displayName,
+        avatarUrl: row.user.avatarUrl ?? undefined,
+        score: survivorScoreMap.get(playerId) ?? row.score,
+        streak: row.streak,
+        isEliminated: false
+      });
+
+      return result;
+    }, []);
+
+    emitRoomEnvelope(io, roomId, {
+      type: "round:elimination",
+      version: "v1",
+      payload: {
+        roomId,
+        eliminatedPlayerIds: eliminatedIds,
+        survivors: survivorSummaries
+      }
     });
 
     await timedDelay(roomId, "elimination", ELIMINATION_DISPLAY_MS);
@@ -281,28 +402,27 @@ export class GameOrchestrator {
   private async runFinale(
     roomId: string,
     io: Server,
-    state: GameStateSnapshot
+    state: GameStateSnapshot,
+    usedQuestionIds: string[]
   ): Promise<void> {
     logger.info("Finale started", { roomId, finalists: state.finalists });
 
-    io.to(roomId).emit("v1:finale_start", {
-      roomId,
-      finalistIds: state.finalists,
+    emitRoomEnvelope(io, roomId, {
+      type: "round:finale_started",
+      version: "v1",
+      payload: {
+        roomId,
+        finalistIds: [...state.finalists]
+      }
     });
 
-    // Run one final question — no Second Chance in finale
-    await this.runQuestion(roomId, io, state);
-    await this.runRoundEnd(roomId, io, state, [...state.finalists]);
+    await this.runQuestion(roomId, io, usedQuestionIds);
+    await this.runRoundEnd(roomId, io);
   }
 
-  private async runGameOver(
-    roomId: string,
-    io: Server,
-    winnerIds: string[]
-  ): Promise<void> {
+  private async runGameOver(roomId: string, io: Server, winnerIds: string[]): Promise<void> {
     logger.info("Game over", { roomId, winnerIds });
 
-    // Award XP to all players
     const scoreEntries = redisService
       ? await redisService.zrevrangeWithScores(`room:${roomId}:scores`, 0, -1)
       : [];
@@ -311,37 +431,38 @@ export class GameOrchestrator {
       playerId: member,
       rank: index + 1,
       score,
-      xpAwarded: Math.max(10, Math.round(score / 10)),
+      xpAwarded: Math.max(10, Math.round(score / 10))
     }));
 
-    // Write XP events
     await Promise.all(
-      finalStandings.map(async (s) => {
-        await prisma.xpEvent.create({
+      finalStandings.map((standing) =>
+        prisma.xpEvent.create({
           data: {
             id: generateId(),
-            userId: s.playerId,
+            userId: standing.playerId,
             reason: "GAME_FINISH",
-            amount: s.xpAwarded,
-            metadata: { roomId, rank: s.rank },
-          },
-        });
-      })
+            amount: standing.xpAwarded,
+            metadata: { roomId, rank: standing.rank }
+          }
+        })
+      )
     );
 
-    // Update room status in Prisma
     await prisma.room.update({
       where: { id: roomId },
-      data: { status: "GAME_OVER", finishedAt: new Date() },
+      data: { status: "GAME_OVER", finishedAt: new Date() }
     });
 
-    io.to(roomId).emit("v1:game_over", {
-      roomId,
-      winnerIds,
-      finalStandings,
+    emitRoomEnvelope(io, roomId, {
+      type: "game:over",
+      version: "v1",
+      payload: {
+        roomId,
+        winnerId: winnerIds[0] ?? finalStandings[0]?.playerId ?? "",
+        finalStandings
+      }
     });
 
-    // Clean up Redis keys
     if (redisService) {
       await redisService.del(
         `game:${roomId}:state`,
@@ -352,23 +473,22 @@ export class GameOrchestrator {
     }
   }
 
-  // ─── Helpers ──────────────────────────────────────────────────────────────
-
   private async selectQuestion(usedIds: string[]): Promise<QuestionBank> {
     const question = await prisma.questionBank.findFirst({
       where: {
         isActive: true,
-        id: { notIn: usedIds.length > 0 ? usedIds : undefined },
+        id: { notIn: usedIds.length > 0 ? usedIds : undefined }
       },
-      orderBy: [{ lastUsedAt: "asc" }, { id: "asc" }],
+      orderBy: [{ lastUsedAt: "asc" }, { id: "asc" }]
     });
 
-    if (!question) throw new Error("No available questions in the bank");
+    if (!question) {
+      throw new Error("No available questions in the bank");
+    }
 
-    // Update lastUsedAt
     await prisma.questionBank.update({
       where: { id: question.id },
-      data: { lastUsedAt: new Date() },
+      data: { lastUsedAt: new Date() }
     });
 
     return question;
@@ -376,33 +496,37 @@ export class GameOrchestrator {
 
   private async loadScores(roomId: string, playerIds: string[]): Promise<PlayerStanding[]> {
     if (!redisService) {
-      return playerIds.map((pid) => ({ playerId: pid, roundScore: 0, totalScore: 0 }));
+      return playerIds.map((playerId) => ({ playerId, roundScore: 0, totalScore: 0 }));
     }
 
     const entries = await redisService.zrevrangeWithScores(`room:${roomId}:scores`, 0, -1);
     const scoreMap = Object.fromEntries(entries.map(({ member, score }) => [member, score]));
 
-    return playerIds.map((pid) => ({
-      playerId: pid,
-      roundScore: scoreMap[pid] ?? 0,
-      totalScore: scoreMap[pid] ?? 0,
+    return playerIds.map((playerId) => ({
+      playerId,
+      roundScore: scoreMap[playerId] ?? 0,
+      totalScore: scoreMap[playerId] ?? 0
     }));
   }
 
   private computeEliminationCount(playersRemaining: number): number {
-    // Eliminate bottom 20% or at least 1, but keep minimum 2
     return Math.max(1, Math.floor(playersRemaining * 0.2));
   }
 
   private async computeWinners(roomId: string, finalistIds: string[]): Promise<string[]> {
-    if (!redisService || finalistIds.length === 0) return finalistIds.slice(0, 1);
+    if (!redisService || finalistIds.length === 0) {
+      return finalistIds.slice(0, 1);
+    }
 
     const entries = await redisService.zrevrangeWithScores(`room:${roomId}:scores`, 0, 0);
-    return entries.map((e) => e.member);
+    return entries.map((entry) => entry.member);
   }
 
   private async persistState(roomId: string, state: GameStateSnapshot): Promise<void> {
-    if (!redisService) return;
+    if (!redisService) {
+      return;
+    }
+
     await redisService.setJson(`game:${roomId}:state`, state, GAME_STATE_TTL_SECONDS);
   }
 }

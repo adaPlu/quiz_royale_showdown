@@ -223,7 +223,8 @@ class SocketService {
       "round:result",
       "round:elimination",
       "round:finale_started",
-      "game:over"
+      "game:over",
+      "error"
     ] as const).map((eventType) =>
       this.on(eventType, (payload) => {
         handler({ type: eventType, version: "v1", payload } as ServerEvent);

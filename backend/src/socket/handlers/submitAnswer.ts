@@ -1,107 +1,141 @@
-/**
- * Handler: v1:submit_answer
- *
- * Server-side timing validation, duplicate-submission prevention via Redis SETNX,
- * score calculation, and broadcast of v1:answer_locked.
- */
-
-import type { Server, Socket } from "socket.io";
+import type { Server } from "socket.io";
 import { z } from "zod";
 import { redisService } from "../../services/RedisService";
+import type { SocketErrorEvent } from "../../types/contracts";
 import { logger } from "../../utils/logger";
+import type { AuthenticatedSocket } from "../middleware";
 
 const submitAnswerSchema = z.object({
   roomId: z.string().min(1),
-  roundId: z.string().min(1),
+  questionId: z.string().min(1),
   answerIndex: z.number().int().min(0).max(3),
-  clientTs: z.number().int().positive(),        // client epoch ms when submitted
-  questionStartTs: z.number().int().positive(),  // epoch ms when question was emitted
-  timeLimitMs: z.number().int().positive(),
+  clientSentAt: z.string().datetime()
 });
 
-const ANSWER_LOCK_TTL_SECONDS = 3600; // 1 hour
+const ANSWER_LOCK_TTL_SECONDS = 3600;
+const ANSWER_GRACE_MS = 500;
 
-function calculateScore(latencyMs: number, timeLimitMs: number): number {
-  return Math.max(0, 1000 - Math.floor((latencyMs / timeLimitMs) * 400));
+type CurrentQuestionContext = {
+  roundId: string;
+  questionId: string;
+  prompt: string;
+  answers: string[];
+  correctAnswerIndex: number;
+  startTs: number;
+  startedAt: string;
+  timeLimitMs: number;
+};
+
+const emitError = (
+  socket: AuthenticatedSocket,
+  code: string,
+  message: string,
+  details?: unknown
+): void => {
+  const envelope: SocketErrorEvent = {
+    type: "error",
+    version: "v1",
+    payload: { code, message, details }
+  };
+
+  socket.emit("message", envelope);
+};
+
+function calculateScore(receivedAtMs: number, startTs: number, timeLimitMs: number): number {
+  const elapsedMs = Math.max(0, receivedAtMs - startTs);
+  return Math.max(0, 1000 - Math.floor((elapsedMs / timeLimitMs) * 400));
 }
 
-export function registerSubmitAnswerHandler(io: Server, socket: Socket): void {
-  socket.on("v1:submit_answer", async (payload: unknown) => {
-    const parsed = submitAnswerSchema.safeParse(payload);
-    if (!parsed.success) {
-      socket.emit("v1:error", {
-        code: "VALIDATION_ERROR",
-        message: "Invalid payload for v1:submit_answer",
-        issues: parsed.error.flatten(),
-      });
+export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSocket): void {
+  socket.on("message", async (message: unknown) => {
+    if (
+      !message ||
+      typeof message !== "object" ||
+      !("type" in message) ||
+      (message as { type?: string }).type !== "round:submit_answer"
+    ) {
       return;
     }
 
-    const { roomId, roundId, answerIndex, clientTs, questionStartTs, timeLimitMs } = parsed.data;
-    const userId = socket.data.userId as string;
+    const parsed = submitAnswerSchema.safeParse(
+      (message as { payload?: unknown }).payload
+    );
+    if (!parsed.success) {
+      emitError(socket, "VALIDATION_ERROR", "Invalid payload for round:submit_answer", parsed.error.flatten());
+      return;
+    }
+
+    const { roomId, questionId, answerIndex, clientSentAt } = parsed.data;
+    const userId = socket.data.userId;
 
     try {
       if (!redisService) {
         throw new Error("Redis unavailable");
       }
 
-      // Server-side timing validation
-      const serverNow = Date.now();
-      const deadline = questionStartTs + timeLimitMs + 500; // 500ms grace
-      if (clientTs > deadline) {
-        socket.emit("v1:error", {
-          code: "ANSWER_TOO_LATE",
-          message: "Answer submitted after deadline",
-        });
+      if (socket.data.roomId && socket.data.roomId !== roomId) {
+        emitError(socket, "ROOM_MISMATCH", "Socket is not joined to the requested room");
         return;
       }
 
-      // Prevent duplicate submissions via SETNX
-      const lockKey = `answer_lock:${roomId}:${userId}:${roundId}`;
-      const locked = await redisService.setnx(lockKey, "1", ANSWER_LOCK_TTL_SECONDS);
-      if (!locked) {
-        socket.emit("v1:error", {
-          code: "ALREADY_ANSWERED",
-          message: "You have already submitted an answer for this round",
-        });
-        return;
-      }
-
-      // Calculate score based on latency
-      const latencyMs = Math.max(0, clientTs - questionStartTs);
-      const score = calculateScore(latencyMs, timeLimitMs);
-
-      // Increment cumulative score in Redis sorted set (room:roomId:scores, score=total)
-      await redisService.zincrby(`room:${roomId}:scores`, score, userId);
-
-      // Store answer detail for round resolution
-      await redisService.hset(
-        `room:${roomId}:round:${roundId}:answers`,
-        userId,
-        JSON.stringify({ answerIndex, latencyMs, score, submittedAt: serverNow })
+      const questionContext = await redisService.getJson<CurrentQuestionContext>(
+        `game:${roomId}:current_question`
       );
 
-      logger.info("Answer submitted", { userId, roomId, roundId, score, latencyMs });
+      if (!questionContext || questionContext.questionId !== questionId) {
+        emitError(socket, "QUESTION_NOT_ACTIVE", "Question is no longer active for this room");
+        return;
+      }
 
-      // Broadcast answer_locked to room WITHOUT revealing answerIndex
-      io.to(roomId).emit("v1:answer_locked", {
-        roomId,
-        roundId,
+      const receivedAtMs = Date.now();
+      const deadline = questionContext.startTs + questionContext.timeLimitMs + ANSWER_GRACE_MS;
+
+      if (receivedAtMs > deadline) {
+        emitError(socket, "ANSWER_TOO_LATE", "Answer submitted after the round was locked");
+        return;
+      }
+
+      const lockKey = `answer_lock:${roomId}:${questionContext.roundId}:${userId}`;
+      const locked = await redisService.setnx(lockKey, "1", ANSWER_LOCK_TTL_SECONDS);
+      if (!locked) {
+        emitError(socket, "ALREADY_ANSWERED", "You have already submitted an answer for this round");
+        return;
+      }
+
+      const isCorrect = answerIndex === questionContext.correctAnswerIndex;
+      const scoreDelta = isCorrect
+        ? calculateScore(receivedAtMs, questionContext.startTs, questionContext.timeLimitMs)
+        : 0;
+
+      await redisService.zincrby(`room:${roomId}:scores`, scoreDelta, userId);
+
+      await redisService.hset(
+        `room:${roomId}:round:${questionContext.roundId}:answers`,
         userId,
-        score,
-        lockedAt: new Date(serverNow).toISOString(),
+        JSON.stringify({
+          answerIndex,
+          clientSentAt,
+          isCorrect,
+          scoreDelta,
+          submittedAt: new Date(receivedAtMs).toISOString()
+        })
+      );
+
+      logger.info("Answer submitted", {
+        roomId,
+        roundId: questionContext.roundId,
+        userId,
+        isCorrect,
+        scoreDelta
       });
-    } catch (err) {
+    } catch (error) {
       logger.error("Error in submitAnswer handler", {
         userId,
         roomId,
-        roundId,
-        message: err instanceof Error ? err.message : String(err),
+        questionId,
+        message: error instanceof Error ? error.message : String(error)
       });
-      socket.emit("v1:error", {
-        code: "INTERNAL_ERROR",
-        message: "Failed to submit answer",
-      });
+      emitError(socket, "INTERNAL_ERROR", "Failed to submit answer");
     }
   });
 }

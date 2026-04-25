@@ -185,13 +185,13 @@ private sealed class QuizRoyaleRoute(val route: String) {
     }
   }
 
-  data object Game : QuizRoyaleRoute("game/{$ROOM_CODE_ARG}") {
+  data object Game : QuizRoyaleRoute("game/{$ROOM_CODE_ARGUMENT}") {
     const val ROOM_CODE_ARG = ROOM_CODE_ARGUMENT
 
     fun createRoute(roomCode: String): String = "game/${Uri.encode(roomCode)}"
   }
 
-  data object Results : QuizRoyaleRoute("results/{$ROOM_CODE_ARG}") {
+  data object Results : QuizRoyaleRoute("results/{$ROOM_CODE_ARGUMENT}") {
     const val ROOM_CODE_ARG = ROOM_CODE_ARGUMENT
 
     fun createRoute(roomCode: String): String = "results/${Uri.encode(roomCode)}"
