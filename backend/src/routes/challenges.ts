@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { z } from "zod";
 import { requireAuth } from "../middleware/auth";
 import { prisma } from "../models/prismaClient";
 import { generateId } from "../utils/ulid";
@@ -69,12 +70,16 @@ router.get("/daily", requireAuth, async (req, res, next) => {
   }
 });
 
+const progressBodySchema = z.object({ delta: z.number().int().min(1).max(100) });
+
 // POST /challenges/:id/progress — record progress toward a challenge
 router.post("/:id/progress", requireAuth, async (req, res, next) => {
   try {
     const userId = req.jwtClaims!.sub;
     const challengeId = req.params.id;
-    const delta = Number(req.body?.delta ?? 1);
+    const parsed = progressBodySchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid delta", details: parsed.error.flatten() });
+    const delta = parsed.data.delta;
     const today = todayKey();
 
     const template = DAILY_CHALLENGE_TEMPLATES.find((c) => c.id === challengeId);
