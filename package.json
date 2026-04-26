@@ -8,6 +8,7 @@
   "scripts": {
     "dev:backend": "npm run dev -w backend",
     "dev:webapp": "npm run dev -w webapp",
+    "staging:preflight": "node scripts/staging-preflight.mjs",
     "smoke:phase1": "node load-test/phase1-live-flow-smoke.mjs",
     "smoke:phase2": "node load-test/phase2-full-loop-smoke.mjs",
     "typecheck": "npm run typecheck -w backend && npm run typecheck -w webapp",

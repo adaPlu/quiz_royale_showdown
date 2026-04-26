@@ -4,6 +4,8 @@ import { useAuthStore } from '@/stores/authStore';
 
 export type PushState = 'unsupported' | 'denied' | 'subscribed' | 'unsubscribed';
 
+const PUSH_BACKEND_ENABLED = false;
+
 async function getVapidKey(): Promise<string> {
   const res = await api.get<{ key: string }>('/push/vapid-public-key');
   return res.data.key;
@@ -23,6 +25,10 @@ export function useWebPush() {
   const [pushState, setPushState] = useState<PushState>('unsubscribed');
 
   useEffect(() => {
+    if (!PUSH_BACKEND_ENABLED) {
+      setPushState('unsupported');
+      return;
+    }
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
       setPushState('unsupported');
       return;
@@ -33,6 +39,7 @@ export function useWebPush() {
   }, []);
 
   const subscribe = async () => {
+    if (!PUSH_BACKEND_ENABLED) return;
     if (!user || pushState === 'unsupported') return;
     try {
       const permission = await Notification.requestPermission();
@@ -53,6 +60,7 @@ export function useWebPush() {
   };
 
   const unsubscribe = async () => {
+    if (!PUSH_BACKEND_ENABLED) return;
     try {
       const registration = await navigator.serviceWorker.ready;
       const subscription = await registration.pushManager.getSubscription();

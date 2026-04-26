@@ -16,6 +16,27 @@ Backend deployment files:
 - `backend/railway.json` uses the Dockerfile builder and `/health` as the
   Railway health check.
 
+Operator checklist:
+
+1. Deploy the primary repo, not `QuizGame-main`.
+2. In Railway, set the service root directory to `backend`.
+3. Confirm Railway detects `backend/railway.json`.
+4. Set the required variables below in the Railway service environment.
+5. Leave `PRISMA_BASELINE_CURRENT_INIT` unset for a fresh staging database.
+6. Deploy the latest pushed commit and wait for `/health` to pass.
+7. Run the staging smoke commands from this document.
+8. Run the Railway question audit from `QuizGame-main\backend` separately.
+
+Local preflight before deploy:
+
+```powershell
+npm run staging:preflight
+```
+
+This command does not require secrets and does not run migrations. It checks the
+Railway files, runtime Prisma dependency, migration startup shape, smoke scripts,
+and mounted backend route surface.
+
 Required Railway variables:
 
 ```text
@@ -158,6 +179,9 @@ is received or no auth/connect error occurs before disconnect.
 npm run smoke:phase1
 ```
 
+The command uses `API_BASE_URL`, `WS_BASE_URL`, and `SMOKE_TIMEOUT_MS` from the
+PowerShell setup section above.
+
 Pass criteria: registers/logs in two users, blocks one-player start, creates and
 joins a room, connects both sockets on `/ws`, starts the room, observes
 `round:countdown_started`, then observes `round:question_started` or an expected
@@ -168,6 +192,9 @@ canonical `error` only when `EXPECT_START_ERROR=1`.
 ```powershell
 npm run smoke:phase2
 ```
+
+The command uses `API_BASE_URL`, `WS_BASE_URL`, and `SMOKE_TIMEOUT_MS` from the
+PowerShell setup section above.
 
 Pass criteria: reaches `game:over` and records all checkpoints:
 `roomStateSync`, `countdownStarted`, `questionStarted`, `answerLocked`,
