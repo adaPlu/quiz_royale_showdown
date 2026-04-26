@@ -470,6 +470,43 @@ export class GameOrchestrator {
       )
     );
 
+    // Upsert SeasonScore for each finalist if an active season exists
+    const season = await prisma.season.findFirst({
+      where: { startsAt: { lte: new Date() }, endsAt: { gte: new Date() } },
+      orderBy: { startsAt: "desc" },
+    });
+
+    if (season) {
+      const winnerSet = new Set(winnerIds);
+      await Promise.all(
+        finalStandings.map((standing) => {
+          const isWinner = winnerSet.has(standing.playerId);
+          const mmrDelta = isWinner ? 25 : -10;
+          return prisma.seasonScore.upsert({
+            where: { seasonId_userId: { seasonId: season.id, userId: standing.playerId } },
+            create: {
+              id: generateId(),
+              seasonId: season.id,
+              userId: standing.playerId,
+              mmr: Math.max(0, 1000 + mmrDelta),
+              wins: isWinner ? 1 : 0,
+              gamesPlayed: 1,
+            },
+            update: {
+              mmr: isWinner
+                ? { increment: 25 }
+                : { decrement: 10 },
+              wins: isWinner ? { increment: 1 } : undefined,
+              gamesPlayed: { increment: 1 },
+            },
+          });
+        })
+      );
+      logger.info("SeasonScore upserted", { roomId, seasonId: season.id, count: finalStandings.length });
+    } else {
+      logger.info("No active season found, skipping SeasonScore upsert", { roomId });
+    }
+
     await prisma.room.update({
       where: { id: roomId },
       data: { status: "GAME_OVER", finishedAt: new Date() }

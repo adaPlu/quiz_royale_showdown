@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
+import { useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 
 import { CountdownBar } from '@/components/CountdownBar';
@@ -87,6 +88,27 @@ export const GamePage = () => {
       clientSentAt: new Date().toISOString(),
     });
   };
+
+  // ── Keyboard shortcuts 1–4 for answer selection ──────────────────────────
+  useEffect(() => {
+    if (phase !== 'QUESTION_ACTIVE' || !question) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      // Skip if the user is typing in a form field
+      const tag = (event.target as HTMLElement | null)?.tagName ?? '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+      const keyToIndex: Record<string, number> = { '1': 0, '2': 1, '3': 2, '4': 3 };
+      const index = keyToIndex[event.key];
+      if (index === undefined) return;
+
+      handleAnswer(index);
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, question, isLocked, roomId]);
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(255,215,0,0.12),_transparent_40%),linear-gradient(180deg,#101020,#06060C)] px-4 py-6 text-white md:px-8">

@@ -1,17 +1,24 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { PlayerAvatar } from '@components/PlayerAvatar';
 import { useAuthStore } from '@stores/authStore';
 import { selectLeaderboard, useGameStore } from '@stores/gameStore';
+import { api } from '@services/apiClient';
 
 interface GlobalLeaderboardEntry {
   userId?: string;
   username: string;
+  displayName?: string;
   avatarUrl?: string;
   score?: number;
   points?: number;
+  rating?: number;
 }
 
-const GLOBAL_LEADERBOARD_ENABLED = false;
+interface LeaderboardApiResponse {
+  entries?: GlobalLeaderboardEntry[];
+  rankings?: GlobalLeaderboardEntry[];
+  data?: GlobalLeaderboardEntry[];
+}
 
 export default function LeaderboardPage() {
   const user = useAuthStore((s) => s.user);
@@ -21,10 +28,41 @@ export default function LeaderboardPage() {
   const inGamePlayers = useGameStore(selectLeaderboard);
 
   // Global leaderboard: fetched from REST API
-  // TODO: implement GET /api/v1/leaderboard on the backend (not yet available)
   const [globalEntries, setGlobalEntries] = useState<GlobalLeaderboardEntry[]>([]);
+  const [globalLoading, setGlobalLoading] = useState(false);
+  const [globalError, setGlobalError] = useState<string | null>(null);
 
-  const globalUnavailable = tab === 'global' && !GLOBAL_LEADERBOARD_ENABLED;
+  useEffect(() => {
+    if (tab !== 'global') return;
+
+    let cancelled = false;
+    setGlobalLoading(true);
+    setGlobalError(null);
+
+    api.get<LeaderboardApiResponse | GlobalLeaderboardEntry[]>('/leaderboard?limit=50')
+      .then((res) => {
+        if (cancelled) return;
+        const raw = res.data;
+        // Handle both array and object response shapes
+        if (Array.isArray(raw)) {
+          setGlobalEntries(raw);
+        } else {
+          const list = (raw as LeaderboardApiResponse).entries
+            ?? (raw as LeaderboardApiResponse).rankings
+            ?? (raw as LeaderboardApiResponse).data
+            ?? [];
+          setGlobalEntries(list);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setGlobalError('Could not load global rankings. Try again later.');
+      })
+      .finally(() => {
+        if (!cancelled) setGlobalLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [tab]);
 
   return (
     <div className="min-h-screen bg-game-bg p-4 max-w-lg mx-auto">
@@ -86,28 +124,42 @@ export default function LeaderboardPage() {
       {/* Global tab: fetched from REST API */}
       {tab === 'global' && (
         <div className="space-y-2">
-          {(globalUnavailable || globalEntries.length === 0) && (
+          {globalLoading && (
+            <div className="flex justify-center py-8">
+              <div className="w-8 h-8 border-2 border-brand border-t-transparent rounded-full animate-spin" />
+            </div>
+          )}
+          {!globalLoading && globalError && (
+            <p className="text-answer-wrong text-center py-8">{globalError}</p>
+          )}
+          {!globalLoading && !globalError && globalEntries.length === 0 && (
             <p className="text-game-muted text-center py-8">
               No global rankings available yet. Play games to appear here!
             </p>
           )}
-          {!globalUnavailable && globalEntries.map((e, i) => (
-            <div
-              key={e.userId ?? i}
-              className={`flex items-center gap-3 p-3 rounded-xl border ${
-                e.userId === user?.id
-                  ? 'bg-brand/10 border-brand/30'
-                  : 'bg-game-surface border-game-border'
-              }`}
-            >
-              <span className="w-8 text-center font-bold text-game-muted">{i + 1}</span>
-              <PlayerAvatar username={e.username} avatarUrl={e.avatarUrl} size="sm" />
-              <span className="flex-1 text-white text-sm font-medium">{e.username}</span>
-              <span className="text-white font-bold tabular-nums">
-                {(e.score ?? e.points ?? 0).toLocaleString()}
-              </span>
-            </div>
-          ))}
+          {!globalLoading && !globalError && globalEntries.map((e, i) => {
+            const displayName = e.displayName ?? e.username;
+            const pts = e.score ?? e.points ?? e.rating ?? 0;
+            return (
+              <div
+                key={e.userId ?? i}
+                className={`flex items-center gap-3 p-3 rounded-xl border ${
+                  e.userId === user?.id
+                    ? 'bg-brand/10 border-brand/30'
+                    : 'bg-game-surface border-game-border'
+                }`}
+              >
+                <span className="w-8 text-center font-bold text-game-muted">
+                  {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}`}
+                </span>
+                <PlayerAvatar username={displayName} avatarUrl={e.avatarUrl} size="sm" />
+                <span className="flex-1 text-white text-sm font-medium">{displayName}</span>
+                <span className="text-white font-bold tabular-nums">
+                  {pts.toLocaleString()}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

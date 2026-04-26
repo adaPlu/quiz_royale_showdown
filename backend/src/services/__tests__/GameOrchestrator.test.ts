@@ -14,6 +14,12 @@ const prismaMock = {
   },
   room: {
     update: vi.fn()
+  },
+  season: {
+    findFirst: vi.fn()
+  },
+  seasonScore: {
+    upsert: vi.fn()
   }
 };
 
@@ -61,6 +67,8 @@ describe("GameOrchestrator hardening", () => {
     redisMock.del.mockResolvedValue(1);
     prismaMock.room.update.mockResolvedValue({});
     prismaMock.xpEvent.create.mockResolvedValue({});
+    prismaMock.season.findFirst.mockResolvedValue(null);
+    prismaMock.seasonScore.upsert.mockResolvedValue({});
   });
 
   it("computes winners from finalists only, excluding eliminated high scorers", async () => {
@@ -257,5 +265,72 @@ describe("GameOrchestrator hardening", () => {
     for (const code of droppedPowerups) {
       expect(CANONICAL_POWERUP_CODES).toContain(code as CanonicalPowerupCode);
     }
+  });
+
+  describe("SeasonScore upsert", () => {
+    const activeSeason = { id: "season-1", slug: "s1", name: "Season 1", startsAt: new Date(), endsAt: new Date() };
+
+    function makeIo() {
+      const emit = vi.fn();
+      return { to: vi.fn(() => ({ emit })), emit };
+    }
+
+    it("upserts SeasonScore for each finalist when an active season exists", async () => {
+      const { GameOrchestrator } = await import("../GameOrchestrator");
+      const orchestrator = new GameOrchestrator();
+      const io = makeIo();
+
+      prismaMock.season.findFirst.mockResolvedValue(activeSeason);
+      redisMock.zrevrangeWithScores.mockResolvedValue([
+        { member: "finalist-a", score: 500 },
+        { member: "finalist-b", score: 300 },
+      ]);
+
+      await (orchestrator as unknown as {
+        runGameOver(roomId: string, io: unknown, winnerIds: string[], finalistIds: string[]): Promise<void>;
+      }).runGameOver("room-10", io, ["finalist-a"], ["finalist-a", "finalist-b"]);
+
+      expect(prismaMock.seasonScore.upsert).toHaveBeenCalledTimes(2);
+
+      // Winner gets wins increment
+      expect(prismaMock.seasonScore.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { seasonId_userId: { seasonId: "season-1", userId: "finalist-a" } },
+          update: expect.objectContaining({
+            mmr: { increment: 25 },
+            wins: { increment: 1 },
+            gamesPlayed: { increment: 1 },
+          }),
+        })
+      );
+
+      // Loser gets no wins increment, gets mmr decrement
+      expect(prismaMock.seasonScore.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { seasonId_userId: { seasonId: "season-1", userId: "finalist-b" } },
+          update: expect.objectContaining({
+            mmr: { decrement: 10 },
+            gamesPlayed: { increment: 1 },
+          }),
+        })
+      );
+    });
+
+    it("skips SeasonScore upsert when no active season exists", async () => {
+      const { GameOrchestrator } = await import("../GameOrchestrator");
+      const orchestrator = new GameOrchestrator();
+      const io = makeIo();
+
+      prismaMock.season.findFirst.mockResolvedValue(null);
+      redisMock.zrevrangeWithScores.mockResolvedValue([
+        { member: "finalist-a", score: 200 },
+      ]);
+
+      await (orchestrator as unknown as {
+        runGameOver(roomId: string, io: unknown, winnerIds: string[], finalistIds: string[]): Promise<void>;
+      }).runGameOver("room-11", io, ["finalist-a"], ["finalist-a"]);
+
+      expect(prismaMock.seasonScore.upsert).not.toHaveBeenCalled();
+    });
   });
 });

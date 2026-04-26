@@ -21,6 +21,9 @@ import { generateId } from "../utils/ulid";
 import { signTokenPair } from "./AuthService";
 import { redisService } from "./RedisService";
 
+const BOT_FILL_DELAY_MS = 10_000;
+const BOT_PLAYER_ID_PREFIX = "bot:";
+
 interface CreateRoomOpts {
   isPrivate: boolean;
   maxPlayers: number;
@@ -275,6 +278,43 @@ export class RoomService {
     logger.info("Game started", { roomId, hostUserId: requesterId });
 
     return this.getRoomById(roomId);
+  }
+
+  /**
+   * Wait up to BOT_FILL_DELAY_MS for a second human player to join.
+   * If only 1 human player remains after the delay, inject a bot entry
+   * into Redis so the game can proceed.
+   *
+   * Returns the full list of player IDs (including any bot) that should
+   * be passed to GameOrchestrator.startGame.
+   */
+  async waitForPlayersOrFillBots(roomId: string, humanPlayerIds: string[]): Promise<string[]> {
+    await new Promise<void>((resolve) => setTimeout(resolve, BOT_FILL_DELAY_MS));
+
+    if (!redisService) {
+      return humanPlayerIds;
+    }
+
+    // Check current live player count
+    const liveCount = await redisService.scard(`room:${roomId}:players`);
+
+    if (liveCount >= 2) {
+      // Enough human players — no bot needed
+      const members = await redisService.smembers(`room:${roomId}:players`);
+      return members;
+    }
+
+    // Only 1 human — add a bot
+    const botId = `${BOT_PLAYER_ID_PREFIX}${generateId()}`;
+    const botEntry = JSON.stringify({ id: botId, displayName: "QuizBot", isBot: true });
+
+    await redisService.sadd(`room:${roomId}:players`, botId);
+    await redisService.setJson(`room:${roomId}:bot:${botId}`, JSON.parse(botEntry), 7200);
+
+    logger.info("Bot added to room for solo matchmaking", { roomId, botId });
+
+    const members = await redisService.smembers(`room:${roomId}:players`);
+    return members;
   }
 
   async leaveRoom(roomId: string, userId: string): Promise<LeaveRoomResult> {
