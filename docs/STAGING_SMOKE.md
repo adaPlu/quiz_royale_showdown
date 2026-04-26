@@ -25,7 +25,9 @@ Operator checklist:
 5. Leave `PRISMA_BASELINE_CURRENT_INIT` unset for a fresh staging database.
 6. Deploy the latest pushed commit and wait for `/health` to pass.
 7. Run the staging smoke commands from this document.
-8. Run the Railway question audit from `QuizGame-main\backend` separately.
+8. Run the guarded 50-player staging load probe only after Phase 1 and Phase 2
+   smoke pass.
+9. Run the Railway question audit from `QuizGame-main\backend` separately.
 
 Local preflight before deploy:
 
@@ -199,6 +201,44 @@ PowerShell setup section above.
 Pass criteria: reaches `game:over` and records all checkpoints:
 `roomStateSync`, `countdownStarted`, `questionStarted`, `answerLocked`,
 `roundResult`, and `gameOver`.
+
+## 50-Player Staging Load Probe
+
+Run only after `/health`, auth, room/socket checks, `smoke:phase1`, and
+`smoke:phase2` pass against staging. This is a guarded connectivity/load probe,
+not a gameplay correctness test and not a production load test.
+
+Dry run the command first:
+
+```powershell
+$env:STAGING_LOAD_ACK = "50_PLAYERS_STAGING"
+$env:STAGING_LOAD_DRY_RUN = "1"
+npm run load:staging:50
+```
+
+Run the actual k6 probe only against the staging backend:
+
+```powershell
+Remove-Item Env:\STAGING_LOAD_DRY_RUN -ErrorAction SilentlyContinue
+$env:STAGING_LOAD_ACK = "50_PLAYERS_STAGING"
+$env:K6_VUS = "50"
+$env:K6_DURATION = "2m"
+$env:LOAD_ROOM_CODE = "<existing staging room code, optional>"
+npm run load:staging:50
+```
+
+Required:
+
+- `API_BASE_URL` must point to staging and include `/api/v1`.
+- `WS_BASE_URL` must point to the same staging backend.
+- `k6` must be installed and available on `PATH`.
+- Keep `K6_VUS` at or below `50` for this command.
+
+Pass criteria: registration/login requests succeed, access tokens are present,
+and Socket.IO websocket upgrades return `101`. If `LOAD_ROOM_CODE` does not
+exist, room-join application errors may appear after connection; that does not
+invalidate the transport probe but does mean the script did not validate lobby
+membership.
 
 ## Railway Question Audit
 

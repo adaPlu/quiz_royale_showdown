@@ -32,8 +32,10 @@ function checkFile(relativePath) {
   "backend/package.json",
   "backend/prisma/schema.prisma",
   "docs/STAGING_SMOKE.md",
+  "scripts/guard-staging-load.mjs",
   "load-test/phase1-live-flow-smoke.mjs",
-  "load-test/phase2-full-loop-smoke.mjs"
+  "load-test/phase2-full-loop-smoke.mjs",
+  "load-test/game-simulation.js"
 ].forEach(checkFile);
 
 const backendPackage = JSON.parse(read("backend/package.json"));
@@ -104,6 +106,13 @@ if (mountedFutureImports.length === 0) {
   pass("future route modules are not imported by backend/src/app.ts");
 } else {
   fail(`future route modules imported by app.ts: ${mountedFutureImports.join(", ")}`);
+}
+
+const loadGuard = read("scripts/guard-staging-load.mjs");
+if (loadGuard.includes("STAGING_LOAD_ACK") && loadGuard.includes("50_PLAYERS_STAGING")) {
+  pass("50-player staging load command requires explicit acknowledgement");
+} else {
+  fail("50-player staging load command must require STAGING_LOAD_ACK=50_PLAYERS_STAGING");
 }
 
 if (failures.length > 0) {
