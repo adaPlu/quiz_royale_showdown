@@ -1,8 +1,8 @@
 # Quiz Royale Showdown - Codex Handoff
 
-**Updated:** 2026-04-25  
+**Updated:** 2026-04-26  
 **Primary repo:** `c:\Users\plugu\AndroidStudioProjects\QuizGame`  
-**Status:** Phase 1 recovery verified to first live question. Phase 2 full-game hardening is next.
+**Status:** Phase 2 code complete. Full game loop (lobby → question → result → elimination → finale → game:over) is implemented and validated. Smoke test against live backend is the next gate.
 
 ---
 
@@ -16,13 +16,14 @@ Do not mix these scopes. The Railway question audit belongs to `QuizGame-main\ba
 ## Current Verified State
 
 - Phase 1 smoke reaches `round:question_started`.
-- Android CLI build passes:
+- Android CLI build passes (`android\gradlew.bat -p android :app:assembleDebug`).
+- Backend: 34/34 tests pass. TypeScript exits 0.
+- Webapp: TypeScript exits 0. Production build exits 0.
+- `gameHandlers.ts` has been deleted; its logic lives in `backend/src/socket/handlers/` (submitAnswer, usePowerup, reconnect, playerReady).
+- Android `parseRankings` fixed: display names are now preserved from the current player list across `round:result` transitions.
+- `smoke:phase2` script is present at `load-test/phase2-full-loop-smoke.mjs` but has not yet been run against live backend.
 
-```powershell
-android\gradlew.bat -p android :app:assembleDebug
-```
-
-- The primary backend mounted launch surface is limited to:
+The primary backend mounted launch surface is limited to:
   - `GET /health`
   - `/api/v1/auth/*`
   - `/api/v1/rooms/*`
@@ -52,13 +53,23 @@ Treat those question scripts/admin workflows as separate from the primary repo u
 
 ## What To Do Next
 
-Phase 2: harden the full game loop.
+Run the Phase 2 smoke gate against a live backend with Postgres and Redis:
 
-Priority order:
-1. Backend: verify `GameOrchestrator` from start through `game:over`, including answer submit, answer lock, round result, elimination, finale, XP/result payloads, and cleanup.
-2. Web: complete/verify room -> game -> results against the live backend; guard UI routes that call unmounted backend surfaces.
-3. Android: keep CLI build green and verify the same room -> game -> results path after backend socket changes.
-4. Lead/smoke: run a multiplayer smoke that proves the game advances beyond first question to final results.
+```powershell
+cd c:\Users\plugu\AndroidStudioProjects\QuizGame
+npm run smoke:phase2
+```
+
+The smoke expects:
+- Backend at `http://localhost:4000` (or set `API_BASE_URL` / `WS_BASE_URL`)
+- Postgres with an active question bank
+- Redis for answer scoring and game state
+
+After smoke passes, record the result in `docs/VERIFICATION_MATRIX.md` and the next focus is:
+1. Wire up `smoke:phase2` to CI if running on a dev server.
+2. Fix `CountdownRing` in `GameScreen.kt` — the arc is static and doesn't animate from `timerSeconds` state.
+3. Consider making power-up inventory live-gated (only show owned power-ups) once the `powerup:loot_drop` backend event is emitted.
+4. Profile / leaderboard / cosmetics routes remain future scope.
 
 ## Guardrails
 
