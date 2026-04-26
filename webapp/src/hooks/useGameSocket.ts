@@ -18,6 +18,7 @@ export function useGameSocket(roomId: string | undefined) {
   const applyElimination = useGameStore((state) => state.applyElimination);
   const applyFinaleStarted = useGameStore((state) => state.applyFinaleStarted);
   const applyGameOver = useGameStore((state) => state.applyGameOver);
+  const applyLootDrop = useGameStore((state) => state.applyLootDrop);
 
   useEffect(() => {
     if (roomId && roomCode) {
@@ -101,6 +102,12 @@ export function useGameSocket(roomId: string | undefined) {
     );
 
     unsubs.push(
+      socketService.on('powerup:loot_drop', (payload) => {
+        applyLootDrop(payload);
+      }),
+    );
+
+    unsubs.push(
       socketService.on('error', (payload) => {
         console.error('[socket] Server error:', payload.code, payload.message, payload.details);
       }),
@@ -115,6 +122,7 @@ export function useGameSocket(roomId: string | undefined) {
     applyElimination,
     applyFinaleStarted,
     applyGameOver,
+    applyLootDrop,
     applyPlayerJoined,
     applyPlayerLeft,
     applyQuestion,

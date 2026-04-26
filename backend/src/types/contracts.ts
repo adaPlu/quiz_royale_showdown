@@ -79,6 +79,10 @@ export type ServerEvents =
         finalStandings: Array<{ playerId: string; rank: number; score: number; xpAwarded: number }>;
       }
     >
+  | EventEnvelope<
+      "powerup:loot_drop",
+      { powerupId: string; powerupType: string; quantity: number }
+    >
   | SocketErrorEvent;
 
 export type ClientEvents =

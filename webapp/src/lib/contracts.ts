@@ -103,6 +103,12 @@ export const socketErrorPayloadSchema = z.object({
   details: z.unknown().optional()
 });
 
+export const powerupLootDropPayloadSchema = z.object({
+  powerupId: z.string(),
+  powerupType: z.string(),
+  quantity: z.number()
+});
+
 export const serverEventSchema = z.discriminatedUnion("type", [
   envelope("room:state_sync", roomStateSyncPayloadSchema),
   envelope("room:player_joined", roomPlayerJoinedPayloadSchema),
@@ -114,6 +120,7 @@ export const serverEventSchema = z.discriminatedUnion("type", [
   envelope("round:elimination", roundEliminationPayloadSchema),
   envelope("round:finale_started", roundFinaleStartedPayloadSchema),
   envelope("game:over", gameOverPayloadSchema),
+  envelope("powerup:loot_drop", powerupLootDropPayloadSchema),
   envelope("error", socketErrorPayloadSchema)
 ]);
 

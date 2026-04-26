@@ -1,6 +1,8 @@
 package com.quizroyale.showdown.ui.game
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
@@ -147,7 +149,9 @@ fun GameScreen(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                CountdownRing()
+                val timerSeconds = (state as? GameUiState.ActiveQuestion)?.timerSeconds ?: 0
+                val timeLimitSec = ((state as? GameUiState.ActiveQuestion)?.timeLimitMs ?: 20_000) / 1_000
+                CountdownRing(timerSeconds = timerSeconds, maxSeconds = timeLimitSec)
 
                 when (state) {
                     is GameUiState.ActiveQuestion -> {
@@ -278,9 +282,16 @@ fun GameScreen(
 // ── Countdown ring ────────────────────────────────────────────────────────────
 
 @Composable
-private fun CountdownRing() {
+private fun CountdownRing(timerSeconds: Int = 20, maxSeconds: Int = 20) {
     val trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
     val progressColor = MaterialTheme.colorScheme.primary
+
+    val fraction = if (maxSeconds > 0) timerSeconds.toFloat() / maxSeconds.toFloat() else 0f
+    val animatedSweep by animateFloatAsState(
+        targetValue = 360f * fraction.coerceIn(0f, 1f),
+        animationSpec = tween(durationMillis = 900),
+        label = "countdownSweep",
+    )
 
     Canvas(
         modifier = Modifier
@@ -298,7 +309,7 @@ private fun CountdownRing() {
         drawArc(
             color      = progressColor,
             startAngle = -90f,
-            sweepAngle = 216f,
+            sweepAngle = animatedSweep,
             useCenter  = false,
             topLeft    = Offset(center.x - radius, center.y - radius),
             size       = androidx.compose.ui.geometry.Size(radius * 2, radius * 2),
