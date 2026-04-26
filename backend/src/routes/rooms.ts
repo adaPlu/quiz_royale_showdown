@@ -158,15 +158,20 @@ roomsRouter.post(
         throw error;
       }
 
-      // Fetch player IDs and fire the game loop asynchronously.
-      // Do NOT await — the FSM drives itself over socket events.
+      // Fetch player IDs, optionally wait for a second player (bot fill),
+      // then fire the game loop asynchronously.
+      // Do NOT await the orchestrator — the FSM drives itself over socket events.
       const playerRows = await prisma.roomPlayer.findMany({
         where: { roomId },
         select: { userId: true },
       });
-      const playerIds = playerRows.map((row) => row.userId);
+      const humanPlayerIds = playerRows.map((row) => row.userId);
 
-      void gameOrchestrator.startGame(roomId, playerIds, getIo()).catch((err: unknown) => {
+      // waitForPlayersOrFillBots waits up to 10 s for a second human; injects
+      // a QuizBot if none joins in time. Fire-and-forget the whole block.
+      void roomService.waitForPlayersOrFillBots(roomId, humanPlayerIds).then((playerIds) =>
+        gameOrchestrator.startGame(roomId, playerIds, getIo())
+      ).catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
         // Logger is imported transitively via RoomService; use console as fallback here.
         console.error("[rooms] GameOrchestrator.startGame failed", { roomId, message });
