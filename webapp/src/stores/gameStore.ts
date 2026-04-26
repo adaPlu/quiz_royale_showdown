@@ -69,6 +69,7 @@ interface GameState {
   revealedOptionIndex: number | null;
   timeBoostActive: boolean;
   activePowerupEffect: ActivePowerupEffect | null;
+  powerupInventory: Record<string, number>;
 }
 
 interface GameActions {
@@ -85,6 +86,7 @@ interface GameActions {
   applyPowerupEffect: (payload: PowerupEffectPayload) => void;
   applyGameOver: (payload: GameOverPayload) => void;
   applyLevelUp: (payload: LevelUpPayload) => void;
+  applyLootDrop: (powerupType: string, quantity: number) => void;
   setMyAnswer: (index: number) => void;
   dismissLevelUp: () => void;
   resetRoom: () => void;
@@ -153,6 +155,7 @@ const initialState: GameState = {
   revealedOptionIndex: null,
   timeBoostActive: false,
   activePowerupEffect: null,
+  powerupInventory: {},
 };
 
 const mergePlayers = (currentPlayers: PlayerSummary[], nextPlayers: PlayerSummary[]) => {
@@ -312,6 +315,15 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
 
   applyLevelUp: (payload) => {
     set((state) => ({ levelUpQueue: [...state.levelUpQueue, payload] }));
+  },
+
+  applyLootDrop: (powerupType, quantity) => {
+    set((state) => ({
+      powerupInventory: {
+        ...state.powerupInventory,
+        [powerupType]: (state.powerupInventory[powerupType] ?? 0) + quantity,
+      },
+    }));
   },
 
   setMyAnswer: (index) => set({ myAnswerIndex: index }),

@@ -64,11 +64,13 @@ export const GamePage = () => {
   const leaderboard = useGameStore(selectLeaderboard);
   const players     = useGameStore((s) => s.players);
 
+  const powerupInventory = useGameStore((s) => s.powerupInventory);
+
   const powerupSlots: PowerupSlot[] = [
-    { type: 'fifty_fifty',  owned: true, used: fiftyFiftyEliminated.length > 0 },
-    { type: 'shield',       owned: true, used: false },
-    { type: 'time_boost',   owned: true, used: timeBoostActive },
-    { type: 'reveal_wrong', owned: true, used: revealedOptionIndex !== null },
+    { type: 'fifty_fifty',  owned: (powerupInventory['FIFTY_FIFTY'] ?? 0) > 0, used: fiftyFiftyEliminated.length > 0 },
+    { type: 'shield',       owned: (powerupInventory['SHIELD'] ?? 0) > 0, used: false },
+    { type: 'time_boost',   owned: (powerupInventory['TIME_FREEZE'] ?? 0) > 0, used: timeBoostActive },
+    { type: 'reveal_wrong', owned: (powerupInventory['DOUBLE_DOWN'] ?? 0) > 0, used: revealedOptionIndex !== null },
   ];
 
   const isLocked = myAnswer !== null || phase === 'ANSWER_LOCKED' || phase === 'ROUND_RESULT';

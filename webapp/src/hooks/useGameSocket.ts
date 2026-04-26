@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { powerupLootDropPayloadSchema } from '@/lib/contracts';
 import { socketService } from '@/services/socketService';
 import { useGameStore } from '@/stores/gameStore';
 
@@ -18,6 +19,7 @@ export function useGameSocket(roomId: string | undefined) {
   const applyElimination = useGameStore((state) => state.applyElimination);
   const applyFinaleStarted = useGameStore((state) => state.applyFinaleStarted);
   const applyGameOver = useGameStore((state) => state.applyGameOver);
+  const applyLootDrop = useGameStore((state) => state.applyLootDrop);
 
   useEffect(() => {
     if (roomId && roomCode) {
@@ -106,6 +108,15 @@ export function useGameSocket(roomId: string | undefined) {
       }),
     );
 
+    unsubs.push(
+      socketService.on('powerup:loot_drop', (payload) => {
+        const parsed = powerupLootDropPayloadSchema.safeParse(payload);
+        if (parsed.success) {
+          applyLootDrop(parsed.data.powerupType, parsed.data.quantity);
+        }
+      }),
+    );
+
     return () => {
       unsubs.forEach((unsubscribe) => unsubscribe());
     };
@@ -115,6 +126,7 @@ export function useGameSocket(roomId: string | undefined) {
     applyElimination,
     applyFinaleStarted,
     applyGameOver,
+    applyLootDrop,
     applyPlayerJoined,
     applyPlayerLeft,
     applyQuestion,

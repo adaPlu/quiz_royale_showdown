@@ -485,6 +485,17 @@ export class GameOrchestrator {
       }
     });
 
+    const POWERUP_CODES = ["DOUBLE_DOWN", "FIFTY_FIFTY", "TIME_FREEZE", "SHIELD", "SABOTAGE"] as const;
+
+    for (const playerId of finalistIds) {
+      const randomPowerup = POWERUP_CODES[Math.floor(Math.random() * POWERUP_CODES.length)];
+      io.to(playerId).emit("message", {
+        type: "powerup:loot_drop",
+        version: "v1",
+        payload: { powerupType: randomPowerup, quantity: 1 }
+      });
+    }
+
     if (redisService) {
       await redisService.del(
         `game:${roomId}:state`,

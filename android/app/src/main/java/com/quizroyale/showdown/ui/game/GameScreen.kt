@@ -1,6 +1,8 @@
 package com.quizroyale.showdown.ui.game
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
@@ -147,7 +149,9 @@ fun GameScreen(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                CountdownRing()
+                val timerSeconds = if (state is GameUiState.ActiveQuestion) state.timerSeconds else 0
+                val maxSeconds = if (state is GameUiState.ActiveQuestion) (state.timeLimitMs / 1_000) else 20
+                CountdownRing(timerSeconds = timerSeconds, maxSeconds = maxSeconds)
 
                 when (state) {
                     is GameUiState.ActiveQuestion -> {
@@ -278,9 +282,12 @@ fun GameScreen(
 // ── Countdown ring ────────────────────────────────────────────────────────────
 
 @Composable
-private fun CountdownRing() {
+private fun CountdownRing(timerSeconds: Int, maxSeconds: Int) {
     val trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
     val progressColor = MaterialTheme.colorScheme.primary
+
+    val targetAngle = if (maxSeconds > 0) 360f * (timerSeconds.toFloat() / maxSeconds.toFloat()) else 0f
+    val sweepAngle by animateFloatAsState(targetValue = targetAngle, animationSpec = tween(durationMillis = 900))
 
     Canvas(
         modifier = Modifier
@@ -298,7 +305,7 @@ private fun CountdownRing() {
         drawArc(
             color      = progressColor,
             startAngle = -90f,
-            sweepAngle = 216f,
+            sweepAngle = sweepAngle,
             useCenter  = false,
             topLeft    = Offset(center.x - radius, center.y - radius),
             size       = androidx.compose.ui.geometry.Size(radius * 2, radius * 2),
