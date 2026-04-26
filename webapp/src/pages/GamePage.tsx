@@ -66,14 +66,11 @@ export const GamePage = () => {
 
   const powerupInventory = useGameStore((s) => s.powerupInventory);
 
-  // Map backend power-up codes (e.g. FIFTY_FIFTY) to webapp slot types
-  const hasOwned = (backendCode: string) => (powerupInventory[backendCode] ?? 0) > 0;
-
   const powerupSlots: PowerupSlot[] = [
-    { type: 'fifty_fifty',  owned: hasOwned('FIFTY_FIFTY'),  used: fiftyFiftyEliminated.length > 0 },
-    { type: 'shield',       owned: hasOwned('SHIELD'),       used: false },
-    { type: 'time_boost',   owned: hasOwned('TIME_FREEZE'),  used: timeBoostActive },
-    { type: 'reveal_wrong', owned: hasOwned('DOUBLE_DOWN'),  used: revealedOptionIndex !== null },
+    { type: 'fifty_fifty',  owned: (powerupInventory['FIFTY_FIFTY'] ?? 0) > 0, used: fiftyFiftyEliminated.length > 0 },
+    { type: 'shield',       owned: (powerupInventory['SHIELD'] ?? 0) > 0, used: false },
+    { type: 'time_boost',   owned: (powerupInventory['TIME_FREEZE'] ?? 0) > 0, used: timeBoostActive },
+    { type: 'reveal_wrong', owned: (powerupInventory['DOUBLE_DOWN'] ?? 0) > 0, used: revealedOptionIndex !== null },
   ];
 
   const isLocked = myAnswer !== null || phase === 'ANSWER_LOCKED' || phase === 'ROUND_RESULT';

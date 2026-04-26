@@ -15,7 +15,6 @@ import { eliminateBottomN } from "../game/EliminationEngine";
 import type { PlayerStanding } from "../game/types";
 import { redisService } from "./RedisService";
 import { roomService } from "./RoomService";
-import { POWERUP_CODES } from "./PowerUpService";
 import { generateId } from "../utils/ulid";
 import { BadRequestError } from "../utils/errors";
 import { logger } from "../utils/logger";
@@ -486,17 +485,14 @@ export class GameOrchestrator {
       }
     });
 
-    // Award each player a random loot-drop power-up at game end
+    const POWERUP_CODES = ["DOUBLE_DOWN", "FIFTY_FIFTY", "TIME_FREEZE", "SHIELD", "SABOTAGE"] as const;
+
     for (const playerId of finalistIds) {
-      const randomCode = POWERUP_CODES[Math.floor(Math.random() * POWERUP_CODES.length)];
+      const randomPowerup = POWERUP_CODES[Math.floor(Math.random() * POWERUP_CODES.length)];
       io.to(playerId).emit("message", {
         type: "powerup:loot_drop",
         version: "v1",
-        payload: {
-          powerupId: randomCode,
-          powerupType: randomCode,
-          quantity: 1
-        }
+        payload: { powerupType: randomPowerup, quantity: 1 }
       });
     }
 

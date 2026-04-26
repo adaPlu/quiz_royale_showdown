@@ -69,7 +69,6 @@ interface GameState {
   revealedOptionIndex: number | null;
   timeBoostActive: boolean;
   activePowerupEffect: ActivePowerupEffect | null;
-  /** Power-up inventory keyed by powerupType code — quantity owned */
   powerupInventory: Record<string, number>;
 }
 
@@ -87,7 +86,7 @@ interface GameActions {
   applyPowerupEffect: (payload: PowerupEffectPayload) => void;
   applyGameOver: (payload: GameOverPayload) => void;
   applyLevelUp: (payload: LevelUpPayload) => void;
-  applyLootDrop: (payload: LootDropPayload) => void;
+  applyLootDrop: (powerupType: string, quantity: number) => void;
   setMyAnswer: (index: number) => void;
   dismissLevelUp: () => void;
   resetRoom: () => void;
@@ -127,12 +126,6 @@ interface LevelUpPayload {
   newLevel: number;
   xp: number;
   xpToNextLevel: number;
-}
-
-interface LootDropPayload {
-  powerupId: string;
-  powerupType: string;
-  quantity: number;
 }
 
 type LegacyServerEvent = {
@@ -324,11 +317,11 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
     set((state) => ({ levelUpQueue: [...state.levelUpQueue, payload] }));
   },
 
-  applyLootDrop: (payload) => {
+  applyLootDrop: (powerupType, quantity) => {
     set((state) => ({
       powerupInventory: {
         ...state.powerupInventory,
-        [payload.powerupType]: (state.powerupInventory[payload.powerupType] ?? 0) + payload.quantity,
+        [powerupType]: (state.powerupInventory[powerupType] ?? 0) + quantity,
       },
     }));
   },
