@@ -17,6 +17,12 @@ import javax.inject.Singleton
 
 @Singleton
 class WebSocketManager @Inject constructor() {
+    private companion object {
+        const val RECONNECTION_ATTEMPTS = Int.MAX_VALUE
+        const val RECONNECTION_DELAY_MS = 1_000L
+        const val RECONNECTION_DELAY_MAX_MS = 30_000L
+        const val CONNECTION_TIMEOUT_MS = 20_000L
+    }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -39,11 +45,17 @@ class WebSocketManager @Inject constructor() {
             path = "/ws"
             transports = arrayOf("websocket")
             auth = mapOf("token" to accessToken)
+            reconnection = true
+            reconnectionAttempts = RECONNECTION_ATTEMPTS
+            reconnectionDelay = RECONNECTION_DELAY_MS
+            reconnectionDelayMax = RECONNECTION_DELAY_MAX_MS
+            randomizationFactor = 0.5
+            timeout = CONNECTION_TIMEOUT_MS
         }
 
         // Strip trailing path from url so IO.socket gets just scheme+host+port
         val baseUrl = url
-            .replace(Regex("/ws$"), "")
+            .replace(Regex("/ws/?$"), "")
             .replace(Regex("^ws://"), "http://")
             .replace(Regex("^wss://"), "https://")
 

@@ -2,11 +2,11 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useSocketStatus } from '@/hooks/useSocketStatus';
 
 export function SocketReconnectBanner() {
-  const { isReconnecting } = useSocketStatus();
+  const { reconnecting } = useSocketStatus();
 
   return (
     <AnimatePresence>
-      {isReconnecting && (
+      {reconnecting && (
         <motion.div
           initial={{ y: -48 }}
           animate={{ y: 0 }}

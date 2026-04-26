@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
+import { useCallback, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 
 import { CountdownBar } from '@/components/CountdownBar';
@@ -65,17 +66,17 @@ export const GamePage = () => {
   const players     = useGameStore((s) => s.players);
 
   const powerupSlots: PowerupSlot[] = [
-    { type: 'fifty_fifty',  owned: true, used: fiftyFiftyEliminated.length > 0 },
-    { type: 'shield',       owned: true, used: false },
-    { type: 'time_boost',   owned: true, used: timeBoostActive },
-    { type: 'reveal_wrong', owned: true, used: revealedOptionIndex !== null },
+    { type: 'fifty_fifty',  owned: false, used: fiftyFiftyEliminated.length > 0 },
+    { type: 'shield',       owned: false, used: false },
+    { type: 'time_boost',   owned: false, used: timeBoostActive },
+    { type: 'reveal_wrong', owned: false, used: revealedOptionIndex !== null },
   ];
 
   const isLocked = myAnswer !== null || phase === 'ANSWER_LOCKED' || phase === 'ROUND_RESULT';
   const correctIndex = result?.correctAnswerIndex ?? null;
   const durationSec = question ? question.timeLimitMs / 1000 : 20;
 
-  const handleAnswer = (index: number) => {
+  const handleAnswer = useCallback((index: number) => {
     if (isLocked || !question || !roomId) return;
     setMyAnswer(index);
     socketService.emit('round:submit_answer', {
@@ -84,7 +85,34 @@ export const GamePage = () => {
       answerIndex: index,
       clientSentAt: new Date().toISOString(),
     });
-  };
+  }, [isLocked, question, roomId, setMyAnswer]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+
+      const target = event.target as HTMLElement | null;
+      const tagName = target?.tagName;
+      if (
+        target?.isContentEditable ||
+        tagName === 'INPUT' ||
+        tagName === 'TEXTAREA' ||
+        tagName === 'SELECT'
+      ) {
+        return;
+      }
+
+      const optionIndex = Number(event.key) - 1;
+      if (!Number.isInteger(optionIndex) || optionIndex < 0 || optionIndex > 3) return;
+      if (fiftyFiftyEliminated.includes(optionIndex)) return;
+
+      event.preventDefault();
+      handleAnswer(optionIndex);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [fiftyFiftyEliminated, handleAnswer]);
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(255,215,0,0.12),_transparent_40%),linear-gradient(180deg,#101020,#06060C)] px-4 py-6 text-white md:px-8">

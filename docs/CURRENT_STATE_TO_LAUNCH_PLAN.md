@@ -1,6 +1,6 @@
 # Quiz Royale Showdown - Current State to Launch Plan
 
-**Last Updated:** 2026-04-25  
+**Last Updated:** 2026-04-26
 **Owner:** Technical Lead  
 **Scope:** Ground-to-launch status for the primary repo at `c:\Users\plugu\AndroidStudioProjects\QuizGame`.
 
@@ -8,9 +8,9 @@
 
 ## 1. Current Status
 
-Phase 1 recovery is verified through the first live gameplay event. The smoke flow reaches `round:question_started` against the live backend contract.
+Phase 1 recovery is verified through the first live gameplay event. The Phase 2 full-loop smoke is also verified: `smoke:phase2` completed 10 rounds through finale, `game:over`, XP writes, and scoring on 2026-04-26.
 
-The repo is no longer in scaffold recovery. It is now in Phase 2 full-game hardening: finish and repeatedly verify the full multiplayer loop through answers, round results, eliminations, game over, reconnect/resync, and client result screens.
+The repo is no longer in scaffold recovery or core-loop recovery. It is now in launch hardening: keep the verified core game loop stable while preparing staging/production deployment, rate limiting, client polish, and production smoke checks.
 
 ## 2. Mounted Backend Surface
 
@@ -25,7 +25,7 @@ Admin, meta, profile, leaderboard, cosmetics, shop, friends, push, and related s
 ## 3. Verified Gates
 
 - Backend route surface: health, auth, and rooms only.
-- Socket smoke: Phase 1 reaches `round:question_started`.
+- Socket smoke: Phase 1 reaches `round:question_started`; Phase 2 reaches `game:over`.
 - Android CLI build: passes with `android\gradlew.bat -p android :app:assembleDebug`.
 - Web/backend/Android should continue to use the canonical Socket.IO `/ws` path and `message` envelope contract.
 
@@ -41,7 +41,7 @@ That Railway database currently audits at 4,375 active questions. Do not assume 
 
 ### Phase 1 - Contract Recovery and Launch Foundation
 
-**Status:** Accepted for recovery, not accepted for launch.
+**Status:** Accepted for recovery.
 
 Evidence:
 - Auth and room routes are mounted under `/api/v1`.
@@ -50,11 +50,11 @@ Evidence:
 - Stale backend direct `v1:*` socket handler code has been removed from the active backend source.
 - Contract docs now mark profile, leaderboard, admin, cosmetics, shop, friends, push, and payments as future/unmounted.
 
-Residual work belongs in Phase 2 unless it blocks first-question smoke.
+Residual work belongs in launch hardening unless it regresses first-question smoke.
 
 ### Phase 2 - Full Game Hardening
 
-**Status:** Current focus.
+**Status:** Verified for the core loop.
 
 Goal: Make the full live multiplayer loop reliable on the canonical contract.
 
@@ -72,30 +72,42 @@ Recommended order:
 3. Android: verify room -> game -> results on the same socket envelopes after each backend contract change.
 4. Lead: run the multiplayer smoke gate and reject changes that add unmounted or undocumented route assumptions.
 
-Current Phase 2 work packages:
-- Backend full-loop proof: add/extend smoke coverage from room start through answer submit, `round:result`, elimination/finale when applicable, `game:over`, XP/result writes, and cleanup.
-- Backend reconnect/resync proof: verify `room:state_sync` is deterministic from lobby and active-game states after socket reconnect.
-- Web launch-path guard: keep profile/global leaderboard/power-up inventory out of the required path until endpoints exist, while preserving local in-game standings/results.
-- Android event parity: parse backend payloads exactly, especially `round:elimination.eliminatedPlayerIds`, `room:player_joined`, `room:player_left`, `room:state_sync`, and `error`.
-- Contract cleanup: if power-ups remain visible, either add canonical `powerup:*` server envelopes to backend/web/Android contracts or hide activation from the launch smoke path.
-- Verification: rerun backend tests, web typecheck/build, Android debug build, Phase 1 smoke, Railway question audit, then add the Phase 2 full-loop smoke.
+Verified evidence:
+- `smoke:phase2` completed 10 rounds through `round:finale_started` and `game:over`.
+- Backend tests cover core game mechanics, reconnect, answer submission, room recovery, power-up service behavior, and SeasonScore updates.
+- Web typecheck/build and Android `assembleDebug` are passing.
 
-### Phase 3 - Android Gameplay Parity and Recovery
+Remaining work is no longer Phase 2 recovery; it is launch hardening.
 
-Start after the Phase 2 web/backend loop is stable.
+### Phase 3 - Launch Hardening and Staging
+
+**Status:** Current focus.
 
 Exit criteria:
-- Android completes auth -> home/lobby -> game -> results end to end.
+- Primary repo backend is deployed to Railway with `GET /health` green.
+- Staging/production smoke passes for auth, room create/join/start, `/ws`, first question, and full-loop smoke where practical.
+- Auth/API rate limiting is active and covered by tests.
+- Android debug build remains green with Socket.IO reconnect/backoff.
+- Web launch path avoids calls to unmounted profile/leaderboard/meta endpoints.
+- Railway question audit is current and reports the expected active question bank.
+- Rollback/deploy notes are documented.
+
+### Phase 4 - Android Gameplay Parity and Recovery
+
+Start after staging backend deployment is stable.
+
+Exit criteria:
+- Android completes auth -> home/lobby -> game -> results end to end against staging.
 - Android reconnect/process-death behavior is acceptable for beta.
 - Android event parsing matches the same contract used by web.
 
-### Phase 4 - Meta Systems and Payments
+### Phase 5 - Meta Systems and Payments
 
 Future scope.
 
 Only start after the core loop is stable. Includes profile, leaderboard, cosmetics, progression, shop, purchases, inventory, and related backend endpoints.
 
-### Phase 5 - Friends, Push, PWA, Hardening, Launch
+### Phase 6 - Friends, Push, PWA, Public Launch
 
 Future scope.
 
@@ -103,12 +115,12 @@ Includes friends, push notifications, invite links, web PWA polish, accessibilit
 
 ## 6. High-Risk Gaps
 
-- Full-game smoke beyond `round:question_started` is still the main unknown.
+- Staging/production deployment is now the main unknown.
 - Any UI that calls profile, leaderboard, cosmetics, shop, friends, push, or admin routes must be guarded, mocked locally, or removed from the launch path until those routes are mounted.
 - Railway question operations are split across a separate repo; keep primary-repo launch work distinct from `QuizGame-main\backend` data maintenance.
 - Contract drift risk remains highest around socket event names, payload shape, and direct non-envelope Socket.IO emissions.
-- The claim "all launch blockers are fixed" is too broad until the full-loop staging smoke, reconnect scenario, and production/Railway question audit have current passing results.
+- The claim "all launch blockers are fixed" is too broad until staging deployment, reconnect scenario, and production/Railway question audit have current passing results.
 
 ## 7. Next Action
 
-Begin Phase 2 with a full-game smoke harness/checklist. The next accepted milestone is not another scaffold milestone; it is a verified game that proceeds from room creation through `game:over` and results on the mounted backend contract.
+Begin launch hardening with a primary-repo Railway deployment and staging smoke. The next accepted milestone is not more local core-loop recovery; it is a deployed backend with health/auth/room/socket/full-loop checks passing against the canonical contract.

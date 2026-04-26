@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { PlayerAvatar } from '@components/PlayerAvatar';
 import { useAuthStore } from '@stores/authStore';
 import { selectLeaderboard, useGameStore } from '@stores/gameStore';
@@ -12,17 +12,16 @@ interface GlobalLeaderboardEntry {
 }
 
 const GLOBAL_LEADERBOARD_ENABLED = false;
+const globalEntries: GlobalLeaderboardEntry[] = [];
 
 export default function LeaderboardPage() {
   const user = useAuthStore((s) => s.user);
-  const [tab, setTab] = useState<'global' | 'in-game'>('global');
+  const [tab, setTab] = useState<'global' | 'in-game'>('in-game');
 
   // In-game leaderboard: players sorted by score from the active game session
   const inGamePlayers = useGameStore(selectLeaderboard);
 
-  // Global leaderboard: fetched from REST API
-  // TODO: implement GET /api/v1/leaderboard on the backend (not yet available)
-  const [globalEntries, setGlobalEntries] = useState<GlobalLeaderboardEntry[]>([]);
+  // Global leaderboard is intentionally local-only until the backend mounts the route.
 
   const globalUnavailable = tab === 'global' && !GLOBAL_LEADERBOARD_ENABLED;
 

@@ -46,6 +46,13 @@ type StoredAnswerRecord = {
   submittedAt: string;
 };
 
+type FinalStanding = {
+  playerId: string;
+  rank: number;
+  score: number;
+  xpAwarded: number;
+};
+
 function emitRoomEnvelope(io: Server, roomId: string, envelope: ServerEvents): void {
   io.to(roomId).emit("message", envelope);
 }
@@ -456,6 +463,8 @@ export class GameOrchestrator {
         };
       });
 
+    await this.updateSeasonScores(roomId, finalStandings, winnerIds);
+
     await Promise.all(
       finalStandings.map((standing) =>
         prisma.xpEvent.create({
@@ -493,6 +502,56 @@ export class GameOrchestrator {
         `room:${roomId}:scores`
       );
     }
+  }
+
+  private async updateSeasonScores(
+    roomId: string,
+    finalStandings: FinalStanding[],
+    winnerIds: string[]
+  ): Promise<void> {
+    if (finalStandings.length === 0) {
+      return;
+    }
+
+    const room = await prisma.room.findUnique({
+      where: { id: roomId },
+      select: { seasonId: true }
+    });
+
+    if (!room?.seasonId) {
+      return;
+    }
+
+    const winnerIdSet = new Set(winnerIds);
+
+    await Promise.all(
+      finalStandings.map((standing) => {
+        const isWinner = winnerIdSet.has(standing.playerId);
+        const mmrDelta = isWinner ? 25 : Math.max(-10, 10 - standing.rank * 5);
+
+        return prisma.seasonScore.upsert({
+          where: {
+            seasonId_userId: {
+              seasonId: room.seasonId as string,
+              userId: standing.playerId
+            }
+          },
+          create: {
+            id: generateId(),
+            seasonId: room.seasonId as string,
+            userId: standing.playerId,
+            mmr: 1000 + mmrDelta,
+            wins: isWinner ? 1 : 0,
+            gamesPlayed: 1
+          },
+          update: {
+            mmr: { increment: mmrDelta },
+            wins: { increment: isWinner ? 1 : 0 },
+            gamesPlayed: { increment: 1 }
+          }
+        });
+      })
+    );
   }
 
   private async selectQuestion(usedIds: string[]): Promise<QuestionBank> {

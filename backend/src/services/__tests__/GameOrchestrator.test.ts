@@ -12,7 +12,11 @@ const prismaMock = {
   xpEvent: {
     create: vi.fn()
   },
+  seasonScore: {
+    upsert: vi.fn()
+  },
   room: {
+    findUnique: vi.fn(),
     update: vi.fn()
   }
 };
@@ -50,8 +54,10 @@ describe("GameOrchestrator hardening", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     redisMock.del.mockResolvedValue(1);
+    prismaMock.room.findUnique.mockResolvedValue({ seasonId: null });
     prismaMock.room.update.mockResolvedValue({});
     prismaMock.xpEvent.create.mockResolvedValue({});
+    prismaMock.seasonScore.upsert.mockResolvedValue({});
   });
 
   it("computes winners from finalists only, excluding eliminated high scorers", async () => {
@@ -92,6 +98,7 @@ describe("GameOrchestrator hardening", () => {
     }).runGameOver("room-1", io, ["finalist-b"], ["finalist-a", "finalist-b"]);
 
     expect(prismaMock.xpEvent.create).toHaveBeenCalledTimes(2);
+    expect(prismaMock.seasonScore.upsert).not.toHaveBeenCalled();
     expect(prismaMock.xpEvent.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         userId: "finalist-b",
@@ -130,5 +137,70 @@ describe("GameOrchestrator hardening", () => {
       "room:room-1:players",
       "room:room-1:scores"
     );
+  });
+
+  it("upserts season scores for season games at game over", async () => {
+    const { GameOrchestrator } = await import("../GameOrchestrator");
+    const orchestrator = new GameOrchestrator();
+    const { io } = createIoMock();
+
+    prismaMock.room.findUnique.mockResolvedValue({ seasonId: "season-1" });
+    redisMock.zrevrangeWithScores.mockResolvedValue([
+      { member: "finalist-b", score: 400 },
+      { member: "finalist-a", score: 300 }
+    ]);
+
+    await (orchestrator as unknown as {
+      runGameOver(
+        roomId: string,
+        io: unknown,
+        winnerIds: string[],
+        finalistIds: string[]
+      ): Promise<void>;
+    }).runGameOver("room-1", io, ["finalist-b"], ["finalist-a", "finalist-b"]);
+
+    expect(prismaMock.seasonScore.upsert).toHaveBeenCalledTimes(2);
+    expect(prismaMock.seasonScore.upsert).toHaveBeenCalledWith({
+      where: {
+        seasonId_userId: {
+          seasonId: "season-1",
+          userId: "finalist-b"
+        }
+      },
+      create: {
+        id: "generated-id",
+        seasonId: "season-1",
+        userId: "finalist-b",
+        mmr: 1025,
+        wins: 1,
+        gamesPlayed: 1
+      },
+      update: {
+        mmr: { increment: 25 },
+        wins: { increment: 1 },
+        gamesPlayed: { increment: 1 }
+      }
+    });
+    expect(prismaMock.seasonScore.upsert).toHaveBeenCalledWith({
+      where: {
+        seasonId_userId: {
+          seasonId: "season-1",
+          userId: "finalist-a"
+        }
+      },
+      create: {
+        id: "generated-id",
+        seasonId: "season-1",
+        userId: "finalist-a",
+        mmr: 1000,
+        wins: 0,
+        gamesPlayed: 1
+      },
+      update: {
+        mmr: { increment: 0 },
+        wins: { increment: 0 },
+        gamesPlayed: { increment: 1 }
+      }
+    });
   });
 });

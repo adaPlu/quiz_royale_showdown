@@ -16,7 +16,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import coil.compose.AsyncImage
 
 private val Gold = Color(0xFFFFD700)
 private val Brand = Color(0xFF6C3EF5)
@@ -67,14 +66,20 @@ fun ProfileScreen(
 @Composable
 private fun ProfileContent(state: ProfileUiState.Success) {
     if (state.avatarUrl != null) {
-        AsyncImage(
-            model = state.avatarUrl,
-            contentDescription = "Avatar",
+        Box(
             modifier = Modifier
                 .size(96.dp)
                 .clip(CircleShape)
-                .background(Surface)
-        )
+                .background(Surface),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = state.displayName.take(1).uppercase(),
+                color = Color.White,
+                fontSize = 36.sp,
+                fontWeight = FontWeight.Black
+            )
+        }
     } else {
         Box(
             modifier = Modifier

@@ -31,7 +31,7 @@ class ProfileViewModel @Inject constructor(
 
     init {
         _uiState.value = ProfileUiState.Success(
-            displayName = authRepository.currentUsername() ?: "Player",
+            displayName = authRepository.currentUserId() ?: "Player",
             avatarUrl = null,
             level = 1,
             xp = 0,

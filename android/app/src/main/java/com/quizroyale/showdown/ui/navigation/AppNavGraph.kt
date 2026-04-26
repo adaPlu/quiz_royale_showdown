@@ -15,7 +15,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.navDeepLink
-import com.quizroyale.showdown.domain.model.PowerupType
 import com.quizroyale.showdown.ui.game.GameIntent
 import com.quizroyale.showdown.ui.game.GameScreen
 import com.quizroyale.showdown.ui.game.GameSideEffect
@@ -37,13 +36,7 @@ fun AppNavGraph() {
       HomeScreen(
         onNavigateToLobby = { roomCode ->
           navController.navigate(Screen.Lobby.createRoute(roomCode))
-        },
-        onNavigateToProfile = {
-          navController.navigate(Screen.Profile.route)
-        },
-        onNavigateToLeaderboard = {
-          navController.navigate(Screen.Leaderboard.route)
-        },
+        }
       )
     }
 
@@ -54,8 +47,9 @@ fun AppNavGraph() {
     ) { backStackEntry ->
       val roomCode = backStackEntry.arguments?.getString("roomId").orEmpty()
       LobbyScreen(
-        onJoinRoom = {
-          navController.navigate(Screen.Game.createRoute(roomCode.ifBlank { it }))
+        onNavigateHome = { navController.navigate(Screen.Home.route) },
+        onOpenGameplay = { gameRoomCode ->
+          navController.navigate(Screen.Game.createRoute(gameRoomCode.ifBlank { roomCode }))
         }
       )
     }
@@ -80,7 +74,7 @@ fun AppNavGraph() {
             is GameSideEffect.NavigateToResults ->
               navController.navigate(Screen.Results.createRoute(effect.roomId))
             is GameSideEffect.ShowLootDrop ->
-              snackbarHostState.showSnackbar("You received a ${effect.powerupCode} power-up!")
+              snackbarHostState.showSnackbar("You received a ${effect.powerupType} power-up!")
             else -> Unit
           }
         }
@@ -99,12 +93,12 @@ fun AppNavGraph() {
         GameScreen(
           state = state,
           onAnswerSelected = viewModel::submitAnswer,
-          onPowerupSelected = { code ->
-            runCatching { PowerupType.valueOf(code) }.getOrNull()?.let { type ->
-              viewModel.onIntent(GameIntent.UsePowerup(type))
-            }
-          },
+          sideEffects = viewModel.sideEffects,
+          onIntent = viewModel::onIntent,
           isReconnecting = isReconnecting,
+          onNavigateToResults = { resultRoomId ->
+            navController.navigate(Screen.Results.createRoute(resultRoomId))
+          }
         )
       }
     }
