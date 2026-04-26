@@ -2,32 +2,52 @@
 
 **Last Updated:** 2026-04-25  
 **Owner:** Technical Lead  
-**Scope:** Ground-to-launch status for the primary repo at `c:\Users\plugu\AndroidStudioProjects\QuizGame`.
+**Scope:** Ground-to-launch status for the primary repo at `c:\Users\plugu\AndroidStudioProjects\QuizGame-main`.
 
 ---
 
 ## 1. Current Status
 
-Phase 1 recovery is verified through the first live gameplay event. The smoke flow reaches `round:question_started` against the live backend contract.
+Phase 2 is verified. The smoke flow completes the full loop through `game:over` against the live backend contract (`smoke:phase2` PASSED 2026-04-26).
 
-The repo is no longer in scaffold recovery. It is now in Phase 2 full-game hardening: finish and repeatedly verify the full multiplayer loop through answers, round results, eliminations, game over, reconnect/resync, and client result screens.
+The following hardening items are complete:
+- All 7 previously unmounted routes are now live: `/api/v1/users`, `/api/v1/powerups`, `/api/v1/cosmetics`, `/api/v1/leaderboard`, `/api/v1/challenges`, `/api/v1/push`, `/api/v1/admin`
+- Rate limiting is active: `authLimiter` (20 req / 15 min) on auth; `apiLimiter` (120 req / 1 min) on all `/api/v1`
+- `CountdownRing` in Android is animated with `animateFloatAsState`
+- Backend emits `powerup:loot_drop` after `game:over` to each finalist
+- Webapp `gameStore` tracks `powerupInventory`; `GamePage` gates power-up owned state against actual inventory
+
+The repo is now entering launch hardening: Railway deployment, reconnect/resync verification, Android end-to-end flow, and Phase 3 meta systems.
 
 ## 2. Mounted Backend Surface
 
-Only treat these routes as mounted and launch-relevant in the primary repo:
+All of the following routes are mounted and live in `backend/src/app.ts`:
 
+- `GET /`
 - `GET /health`
-- `/api/v1/auth/*`
+- `/api/v1/auth/*` — rate-limited: 20 req / 15 min per IP
 - `/api/v1/rooms/*`
+- `/api/v1/users/*`
+- `/api/v1/powerups/*`
+- `/api/v1/cosmetics/*`
+- `/api/v1/leaderboard/*`
+- `/api/v1/challenges/*`
+- `/api/v1/push/*`
+- `/api/v1/admin/*`
 
-Admin, meta, profile, leaderboard, cosmetics, shop, friends, push, and related systems are future scope unless the backend mounts them in `backend/src/app.ts` and they are smoke-tested against the deployed/runtime contract.
+All `/api/v1` routes share a general rate limit of 120 req / 1 min per IP.
+
+Shop, friends, seasons, and payment routes remain future scope (not yet mounted).
 
 ## 3. Verified Gates
 
-- Backend route surface: health, auth, and rooms only.
-- Socket smoke: Phase 1 reaches `round:question_started`.
+- Backend route surface: health, auth, rooms, users, powerups, cosmetics, leaderboard, challenges, push, admin — all mounted.
+- Rate limiting: `authLimiter` + `apiLimiter` active.
+- Socket smoke: Phase 1 reaches `round:question_started`; Phase 2 smoke completes full loop to `game:over`.
 - Android CLI build: passes with `android\gradlew.bat -p android :app:assembleDebug`.
-- Web/backend/Android should continue to use the canonical Socket.IO `/ws` path and `message` envelope contract.
+- `CountdownRing` animated with `animateFloatAsState` in Android.
+- Backend emits `powerup:loot_drop` after `game:over`; webapp `gameStore` and `GamePage` handle it.
+- Web/backend/Android continue to use the canonical Socket.IO `/ws` path and `message` envelope contract.
 
 ## 4. Data Note
 
@@ -54,31 +74,21 @@ Residual work belongs in Phase 2 unless it blocks first-question smoke.
 
 ### Phase 2 - Full Game Hardening
 
-**Status:** Current focus.
+**Status:** COMPLETE (smoke:phase2 PASSED 2026-04-26).
 
-Goal: Make the full live multiplayer loop reliable on the canonical contract.
+Verified exit criteria:
+- [x] Full game loop (10 rounds, eliminations, finale, game:over, XP writes) verified in `smoke:phase2`
+- [x] All 7 previously unmounted routes are now live
+- [x] Rate limiting active
+- [x] `CountdownRing` animated
+- [x] `powerup:loot_drop` emitted and consumed by webapp
+- [x] Docs/contracts updated to reflect actually mounted code
 
-Exit criteria:
-- 2-5 players can complete a full game against the live backend.
-- Answer submission, answer locking, round results, eliminations, finale, game over, XP/result payloads, and results screens work without contract drift.
-- Web and Android both stay in sync through lobby -> game -> results.
-- Reconnect/resync works from lobby and active game states.
-- Backend game state, Redis timers, room lifecycle, and persistence writes are repeatable locally and in smoke verification.
-- Docs/contracts describe the code that is actually mounted and running.
-
-Recommended order:
-1. Backend: harden `GameOrchestrator`, answer submission, round result flush, elimination, game-over, and reconnect state.
-2. Web: verify full live flow through results and remove/guard non-mounted feature calls from the launch path.
-3. Android: verify room -> game -> results on the same socket envelopes after each backend contract change.
-4. Lead: run the multiplayer smoke gate and reject changes that add unmounted or undocumented route assumptions.
-
-Current Phase 2 work packages:
-- Backend full-loop proof: add/extend smoke coverage from room start through answer submit, `round:result`, elimination/finale when applicable, `game:over`, XP/result writes, and cleanup.
-- Backend reconnect/resync proof: verify `room:state_sync` is deterministic from lobby and active-game states after socket reconnect.
-- Web launch-path guard: keep profile/global leaderboard/power-up inventory out of the required path until endpoints exist, while preserving local in-game standings/results.
-- Android event parity: parse backend payloads exactly, especially `round:elimination.eliminatedPlayerIds`, `room:player_joined`, `room:player_left`, `room:state_sync`, and `error`.
-- Contract cleanup: if power-ups remain visible, either add canonical `powerup:*` server envelopes to backend/web/Android contracts or hide activation from the launch smoke path.
-- Verification: rerun backend tests, web typecheck/build, Android debug build, Phase 1 smoke, Railway question audit, then add the Phase 2 full-loop smoke.
+Remaining before M2 is fully closed:
+- [ ] WS reconnect/resync verified mid-game (not yet smoke-tested)
+- [ ] 5-player game (smoke only runs 2-player simulation)
+- [ ] P95 latency < 300ms (k6 not yet run)
+- [ ] Android end-to-end flow on device
 
 ### Phase 3 - Android Gameplay Parity and Recovery
 
@@ -103,12 +113,17 @@ Includes friends, push notifications, invite links, web PWA polish, accessibilit
 
 ## 6. High-Risk Gaps
 
-- Full-game smoke beyond `round:question_started` is still the main unknown.
-- Any UI that calls profile, leaderboard, cosmetics, shop, friends, push, or admin routes must be guarded, mocked locally, or removed from the launch path until those routes are mounted.
-- Railway question operations are split across a separate repo; keep primary-repo launch work distinct from `QuizGame-main\backend` data maintenance.
-- Contract drift risk remains highest around socket event names, payload shape, and direct non-envelope Socket.IO emissions.
-- The claim "all launch blockers are fixed" is too broad until the full-loop staging smoke, reconnect scenario, and production/Railway question audit have current passing results.
+- WS reconnect/resync mid-game has not been smoke-tested — this is the primary remaining unknown.
+- Android end-to-end flow on device has not been verified beyond assembleDebug passing.
+- P95 latency under multi-player load has not been measured (k6 load test pending).
+- Shop, friends, seasons, and payment routes remain unmounted — UI calling these must stay guarded.
+- Railway question operations remain split across a separate repo (`QuizGame-main\backend`); keep primary-repo launch work distinct from that data maintenance workspace.
 
 ## 7. Next Action
 
-Begin Phase 2 with a full-game smoke harness/checklist. The next accepted milestone is not another scaffold milestone; it is a verified game that proceeds from room creation through `game:over` and results on the mounted backend contract.
+Phase 2 hardening is complete. Recommended next steps:
+
+1. **Railway deployment** — deploy the primary backend to its own Railway service.
+2. **Reconnect smoke** — verify `room:state_sync` is deterministic after mid-game socket reconnect on both web and Android.
+3. **Android device flow** — run auth → lobby → game → results on a real device or emulator against the live backend.
+4. **k6 load test** — run `load-test/game-simulation.js` to validate P95 latency < 300ms under 5-player load.

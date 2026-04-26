@@ -50,7 +50,9 @@ All events below are emitted on Socket.IO event `message`.
    Transition into the final showdown.
 10. `game:over`
     Winner and final standings.
-11. `error`
+11. `powerup:loot_drop`
+    Sent individually to each finalist immediately after `game:over`. Payload: `{ powerupType: string, quantity: number }`.
+12. `error`
     Contract error envelope.
 
 ## Client to Server

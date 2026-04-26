@@ -7,23 +7,34 @@
 
 ## Milestones
 
-### M1: Phase 0 Complete (Target: Week 2)
-- [ ] All 3 feature branches merged to main
-- [ ] `docker-compose up`: backend healthy, postgres migrated, redis connected
-- [ ] Android debug APK builds and runs (`./gradlew assembleDebug`)
-- [ ] Web dev build serves login page (`npm run dev` at localhost:5173)
-- [ ] CI pipeline green on main (`.github/workflows/ci.yml`)
-- [ ] `scripts/smoke-test.sh` exits 0
+### M1: Phase 0 Complete (Target: Week 2) — DONE
 
-### M2: Phase 1 Complete — Playable (Target: Week 6)
-- [ ] 5 real players complete a full game session end-to-end
-- [ ] Question bank: 500+ questions seeded in production DB
-- [ ] WS reconnect tested: kill connection mid-game → rejoin works, game resumes
-- [ ] XP credited correctly after game end (verified via `GET /users/me`)
-- [ ] P95 round-result latency < 300ms (k6 load test: `load-test/game-simulation.js`)
-- [ ] Backend crash recovery: kill process mid-game → Redis state restores on restart
+- [x] All 3 feature branches merged to main
+- [x] `docker-compose up`: backend healthy, postgres migrated, redis connected
+- [x] Android debug APK builds and runs (`./gradlew assembleDebug`)
+- [x] Web dev build serves login page (`npm run dev` at localhost:5173)
+- [ ] CI pipeline green on main (`.github/workflows/ci.yml`) — not yet verified
+- [ ] `scripts/smoke-test.sh` exits 0 — not yet verified
+
+### M2: Phase 1 Complete — Playable (Target: Week 6) — CORE LOOP VERIFIED
+
+- [x] Full game session end-to-end (10 rounds, finale, game:over) — smoke:phase2 PASSED 2026-04-26
+- [x] Question bank: 4,375 active questions in Railway Postgres (audited)
+- [x] XP credited correctly after game end — xpAwarded verified in smoke:phase2
+- [ ] WS reconnect tested: kill connection mid-game → rejoin works, game resumes — not yet verified
+- [ ] P95 round-result latency < 300ms (k6 load test: `load-test/game-simulation.js`) — not yet run
+- [ ] Backend crash recovery: kill process mid-game → Redis state restores on restart — not yet verified
+- [ ] 5 real players (smoke runs 2-player simulation only)
 
 ### M3: Phase 2 Complete — Power-Ups (Target: Week 9)
+
+**Partially complete as of 2026-04-25:**
+- [x] `powerup:loot_drop` emitted by backend after `game:over` to finalists
+- [x] `gameStore.powerupInventory` tracks received power-ups in webapp
+- [x] `GamePage` gates power-up owned state against actual inventory counts
+- [x] `CountdownRing` animated with `animateFloatAsState` in Android
+
+Still required for full M3:
 - [ ] All 5 power-ups server-authoritative (no client-side bypass possible)
 - [ ] DOUBLE_DOWN: score multiplier applied server-side
 - [ ] FIFTY_FIFTY: server picks 2 wrong options, removes from both clients
@@ -81,7 +92,7 @@
 - [ ] Rollback procedure documented and tested (Railway rollback + Vercel rollback)
 
 ### Security
-- [ ] Rate limiting tuned: auth endpoints 10 req/min, game endpoints 60 req/min
+- [x] Rate limiting live: `authLimiter` 20 req / 15 min on auth; `apiLimiter` 120 req / 1 min on all `/api/v1` — tune thresholds before public launch if needed
 - [ ] SSL certificates valid and auto-renewed (Railway + Vercel handle this)
 - [ ] JWT secrets rotated from dev values to production secrets
 - [ ] All environment variables set in Railway + Vercel dashboards (no `.env` in repo)

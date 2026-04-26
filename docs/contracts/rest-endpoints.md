@@ -6,8 +6,17 @@ Mounted routers:
 
 - `/`
 - `/health`
-- `/api/v1/auth`
+- `/api/v1/auth` — rate-limited: 20 req / 15 min per IP (`authLimiter`)
 - `/api/v1/rooms`
+- `/api/v1/users`
+- `/api/v1/powerups`
+- `/api/v1/cosmetics`
+- `/api/v1/leaderboard`
+- `/api/v1/challenges`
+- `/api/v1/push`
+- `/api/v1/admin`
+
+All `/api/v1` routes share a general rate limit of 120 req / 1 min per IP (`apiLimiter`).
 
 Requests to unmounted routes return the standard 404 error response.
 
@@ -125,16 +134,42 @@ Room responses include:
 
 `wsToken` is only included where the route issues one.
 
+## Users
+
+- `GET /api/v1/users/me` — requires JWT
+- `GET /api/v1/users/:id/profile` — requires JWT
+
+## Power-Ups
+
+- `GET /api/v1/powerups/inventory` — requires JWT
+- `POST /api/v1/powerups/use` — requires JWT
+
+## Cosmetics
+
+- `GET /api/v1/cosmetics` — requires JWT
+- `POST /api/v1/cosmetics/equip` — requires JWT
+
+## Leaderboard
+
+- `GET /api/v1/leaderboard` — requires JWT
+
+## Challenges
+
+- `GET /api/v1/challenges` — requires JWT
+
+## Push
+
+- `POST /api/v1/push/register` — requires JWT
+
+## Admin
+
+Admin routes require elevated privileges. See `backend/src/routes/admin.ts`.
+
 ## Future / Unmounted
 
-These feature areas exist in schema, services, tests, or seed data, but are not mounted as REST routes in the primary backend runtime:
+These feature areas are not yet mounted as REST routes in the primary backend runtime:
 
-- Power-ups REST catalog, inventory, and equip routes
-- Cosmetics catalog, inventory, and equip routes
 - Shop catalog, checkout, and receipt verification routes
-- Leaderboard routes
 - Seasons routes
-- Challenges routes
 - Friends routes
-- Admin routes
-- Profile routes beyond `GET /api/v1/auth/me`
+- Profile routes beyond `GET /api/v1/auth/me` and `GET /api/v1/users/me`

@@ -248,6 +248,23 @@ Final standings.
 }
 ```
 
+### `powerup:loot_drop`
+
+Sent individually to each finalist immediately after `game:over`. Grants one random power-up for the next game.
+
+```json
+{
+  "type": "powerup:loot_drop",
+  "version": "v1",
+  "payload": {
+    "powerupType": "DOUBLE_DOWN",
+    "quantity": 1
+  }
+}
+```
+
+`powerupType` is one of: `DOUBLE_DOWN`, `FIFTY_FIFTY`, `TIME_FREEZE`, `SHIELD`, `SABOTAGE`.
+
 ### `error`
 
 Socket error envelope.
@@ -334,12 +351,21 @@ Client presence and latency heartbeat.
 
 ## 4. Mounted REST Endpoints
 
-The primary backend runtime mounts:
+The primary backend runtime mounts the following routers (see `backend/src/app.ts`):
 
 - `GET /`
 - `GET /health`
-- `/api/v1/auth/*`
+- `/api/v1/auth/*` — rate-limited: 20 req / 15 min per IP
 - `/api/v1/rooms/*`
+- `/api/v1/users/*`
+- `/api/v1/powerups/*`
+- `/api/v1/cosmetics/*`
+- `/api/v1/leaderboard/*`
+- `/api/v1/challenges/*`
+- `/api/v1/push/*`
+- `/api/v1/admin/*`
+
+All `/api/v1` routes share a general rate limit of 120 req / 1 min per IP.
 
 ### Auth
 
@@ -407,19 +433,15 @@ Join room accepts:
 
 ## 5. Future / Unmounted REST Areas
 
-The following areas are future or unmounted in the primary backend runtime. Do not treat these as active REST contract endpoints unless a router is mounted in `backend/src/app.ts`.
+The following areas are not yet mounted in `backend/src/app.ts`:
 
 | Area | Status |
 | --- | --- |
-| Power-ups REST catalog, inventory, equip | Future / unmounted |
-| Cosmetics catalog, inventory, equip | Future / unmounted |
 | Shop catalog, checkout, receipt verification | Future / unmounted |
-| Leaderboard | Future / unmounted |
 | Seasons | Future / unmounted |
-| Challenges | Future / unmounted |
 | Friends | Future / unmounted |
-| Admin | Future / unmounted |
-| Profile routes beyond `GET /api/v1/auth/me` | Future / unmounted |
+
+All other major feature areas (power-ups, cosmetics, leaderboard, challenges, push, admin, and user profiles) are now mounted. See Section 4.
 
 ## 6. Error Format
 

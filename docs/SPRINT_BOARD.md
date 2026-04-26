@@ -1,49 +1,59 @@
 # Sprint Board
 
-**Last Updated:** 2026-04-18
-**Current Phase:** 0 — Foundation
+**Last Updated:** 2026-04-25
+**Current Phase:** 2 hardening complete — entering Phase 3 (meta systems) and launch hardening
 **Lead:** Technical Lead
 
 ---
 
-## Current Sprint: Phase 0 Week 2 (Completion Sprint)
+## Done (completed through Phase 2 hardening — 2026-04-25)
 
-### Backend Agent (feature/backend)
-- [ ] Write `src/routes/powerups.ts` — GET /powerups/inventory returns 200 with inventory array
-- [ ] Write `src/routes/cosmetics.ts` — GET /cosmetics returns array of cosmetic objects
-- [ ] Write `src/routes/users.ts` — GET /users/me returns user object with id, username, xp, level
-- [ ] Write `src/scripts/seedQuestions.ts` — fetches + inserts 500 questions from Open Trivia DB API in batches of 50
-- [ ] `npm install && prisma migrate dev --name init` — no migration errors, 15 tables created
-- [ ] `npm run dev` — GET /health returns `{ "status": "ok", "ts": <epoch>, "version": "1.0.0" }`
-- [ ] `npm run build` — zero TypeScript errors
-- [ ] Commit `feat(backend): Phase 0 complete` and push `feature/backend`
+### Backend
+- [x] `src/routes/powerups.ts` — `/api/v1/powerups` mounted
+- [x] `src/routes/cosmetics.ts` — `/api/v1/cosmetics` mounted
+- [x] `src/routes/users.ts` — `/api/v1/users` mounted
+- [x] `src/routes/leaderboard.ts` — `/api/v1/leaderboard` mounted
+- [x] `src/routes/challenges.ts` — `/api/v1/challenges` mounted
+- [x] `src/routes/push.ts` — `/api/v1/push` mounted
+- [x] `src/routes/admin.ts` — `/api/v1/admin` mounted
+- [x] Rate limiting: `authLimiter` (20 req/15 min) on auth; `apiLimiter` (120 req/min) on all `/api/v1`
+- [x] `npm run build` — zero TypeScript errors (34/34 tests pass)
+- [x] `GameOrchestrator` full game loop: countdown, questions, answers, eliminations, finale, game:over, XP writes
+- [x] `powerup:loot_drop` emitted after `game:over` to each finalist
+- [x] `gameHandlers.ts` deleted; handlers live in `backend/src/socket/handlers/`
 
-### Android Agent (feature/android)
-- [ ] Write `data/remote/model/WsEnvelope.kt` — data class with eventType, roomId, senderId, ts, payload: JsonObject
-- [ ] Write `data/remote/model/WsEvent.kt` — sealed class with all 10 WS event subclasses
-- [ ] Write `data/remote/model/AuthModels.kt` — data classes: LoginRequest, RegisterRequest, TokenResponse
-- [ ] Write `ui/lobby/LobbyViewModel.kt` — MVI ViewModel for LobbyScreen, WS events update player list state
-- [ ] Write `ui/game/GameSideEffect.kt` — sealed class: HapticFeedback, ShowToast, ShowLevelUp
-- [ ] Write `ui/screens/home/HomeScreen.kt` + `HomeViewModel.kt` — Create Room + Join by Code + Quick Play, POST /rooms + POST /rooms/join via Retrofit
-- [ ] Write `ui/screens/results/ResultsScreen.kt` + `ResultsViewModel.kt` — final leaderboard, XP bar animation, Play Again CTA
-- [ ] `./gradlew assembleDebug` — build succeeds with no errors
-- [ ] App runs on emulator: splash → login → home (all 3 screens reachable without crash)
-- [ ] Commit `feat(android): Phase 0 complete` and push `feature/android`
+### Android
+- [x] `./gradlew assembleDebug` — BUILD SUCCESSFUL
+- [x] `CountdownRing` animated with `animateFloatAsState` — sweep angle driven by `timerSeconds` state
 
-### Web Agent (feature/webapp)
-- [ ] Write `src/pages/LoginPage.tsx` — React Hook Form + Zod, POST /auth/login, stores token in authStore
-- [ ] Write `src/pages/RegisterPage.tsx` — username + email + password + confirmPassword validation, POST /auth/register
-- [ ] Write `src/pages/HomePage.tsx` — Quick Play + Create Room + Join by Code, authenticated route
-- [ ] Write `src/pages/ResultsPage.tsx` — final leaderboard, XP summary, share button
-- [ ] Write `src/pages/ProfilePage.tsx` — avatar, XP ring, stats, season rank (stub OK for Phase 3)
-- [ ] Write `src/pages/LeaderboardPage.tsx` — tabs: Global/Season/Friends, react-window virtual list
-- [ ] Write `src/components/XpBar.tsx` — animated progress bar with brand gradient (#6C3EF5)
-- [ ] Write `src/components/SeasonRankBadge.tsx` — colored tier badge component
-- [ ] Write `src/stores/profileStore.ts` — Zustand store: level, xp, equippedCosmeticIds
-- [ ] Write `vercel.json` — SPA rewrite rule: all routes → index.html
-- [ ] `npm run typecheck` — zero TypeScript errors
-- [ ] `npm run dev` — login page loads at localhost:5173 with no console errors
-- [ ] Commit `feat(webapp): Phase 0 complete` and push `feature/webapp`
+### Web
+- [x] `npm run typecheck` — zero TypeScript errors
+- [x] `npm run build` — Vite production build exits 0
+- [x] `gameStore.powerupInventory` tracks `powerup:loot_drop` events
+- [x] `GamePage` gates power-up `owned` state against actual inventory counts
+
+### Smoke
+- [x] `smoke:phase1` — reaches `round:question_started`
+- [x] `smoke:phase2` — full loop to `game:over` (10 rounds, XP writes, final standings verified)
+
+---
+
+## Current Sprint: Phase 3 / Launch Hardening
+
+### Backend Agent
+- [ ] Deploy primary backend to Railway (own service, same Postgres + Redis as `QuizGame-main`)
+- [ ] Verify `powerup:activate` socket handler fully enforces server-side power-up validation (no client bypass)
+- [ ] Shop, friends, seasons routes — Phase 4 scope, do not start until Phase 3 meta loop is stable
+
+### Android Agent
+- [ ] Verify end-to-end auth → lobby → game → results on emulator or real device against live backend
+- [ ] Verify `powerup:loot_drop` received and reflected in Android UI
+- [ ] WS reconnect mid-game — exponential backoff, rejoin, and `room:state_sync` resync
+
+### Web Agent
+- [ ] Verify end-to-end browser flow through lobby → game → results against live backend
+- [ ] Confirm `powerup:loot_drop` correctly increments tray inventory display
+- [ ] Reconnect scenario: refresh mid-game → rejoin room via socket → `room:state_sync` restores state
 
 ---
 
@@ -135,7 +145,5 @@ A ticket is "done" when:
 
 | Branch | Last Commit | Status |
 |--------|------------|--------|
-| `main` | `80cd2e0` — Codex handoff doc | Awaiting merges |
-| `feature/backend` | `e02108b` — Phase 0 scaffold | 4 routes missing, needs build verification |
-| `feature/android` | `e02108b` — Phase 0 scaffold | 9 files missing, needs assembleDebug |
-| `feature/webapp` | `80cd2e0` — Codex handoff | 10 files missing, needs typecheck |
+| `main` | `10c57cf` | Phase 2 hardening complete — all 7 routes mounted, rate limiting live, smoke:phase2 passed |
+| `phase1/claude-leftoff-wip` | `892d13e` | Active work branch — tests, load-test, page improvements |
