@@ -422,19 +422,23 @@ class GameViewModel @Inject constructor(
         }
     }
 
-    /** Parses the `rankings` array from a `round:result` payload. */
+    /** Parses the `rankings` array from a `round:result` payload.
+     *  Merges with current player list to preserve display names (backend omits them). */
     private fun parseRankings(payload: JSONObject): List<PlayerUiModel> {
         val arr = payload.optJSONArray("rankings") ?: return emptyList()
+        val existing = currentPlayers().associateBy { it.id }
         return buildList {
             for (i in 0 until arr.length()) {
                 val o = arr.getJSONObject(i)
+                val id = o.optString("playerId")
+                val prev = existing[id]
                 add(
                     PlayerUiModel(
-                        id = o.optString("playerId"),
-                        displayName = o.optString("displayName", o.optString("playerId")),
-                        score = o.optInt("totalScore", o.optInt("scoreDelta", 0)),
-                        streak = 0,
-                        isEliminated = false,
+                        id = id,
+                        displayName = prev?.displayName ?: o.optString("displayName", id),
+                        score = o.optInt("totalScore", prev?.score ?: 0),
+                        streak = prev?.streak ?: 0,
+                        isEliminated = prev?.isEliminated ?: false,
                     )
                 )
             }
