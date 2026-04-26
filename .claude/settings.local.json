@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git init *)",
+      "Bash(git checkout *)",
+      "Bash(chmod +x \"c:/Users/plugu/AndroidStudioProjects/QuizGame/scripts/smoke-test.sh\")",
+      "Bash(git commit -m ' *)",
+      "Bash(npx prisma *)",
+      "Bash(npx tsc *)",
+      "Bash(git add *)",
+      "Bash(git merge --no-ff feature/backend -m ' *)",
+      "Bash(git merge --no-ff feature/android -m ' *)",
+      "Bash(git merge --no-ff feature/webapp -m ' *)"
+    ]
+  }
+}

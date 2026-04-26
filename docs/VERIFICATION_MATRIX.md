@@ -57,6 +57,30 @@ Observed backend event/error:
 Blockers:
 ```
 
+## Phase 2 Verified Run — 2026-04-26
+
+```text
+Date: 2026-04-26
+Branch: phase1/claude-leftoff-wip
+Backend typecheck: PASS (0 errors)
+Backend tests: PASS (34/34)
+Web typecheck: PASS (0 errors)
+Web build: PASS (Vite build + PWA precache)
+Android assembleDebug: PASS (BUILD SUCCESSFUL in 30s)
+smoke:phase1: PASS (reaches round:question_started)
+smoke:phase2: PASS — full loop to game:over
+  - 10 rounds served, both players answered each round
+  - Scoring: scoreDelta and totalScore updated correctly per round
+  - round:finale_started fired after round 10 with both finalists
+  - game:over delivered with winner, ranks, scores (3999/1000), xpAwarded (400/100)
+  - All 6 checkpoints hit: roomStateSync, countdownStarted, questionStarted,
+    answerLocked, roundResult, gameOver
+Railway question audit: 4,375 active questions (previously audited)
+Observed backend event/error: none — clean run
+Blockers: none
+Services: backend dev server (tsx watch), Railway Postgres, Docker Redis (localhost:6379)
+```
+
 ## Local Service Expectations
 
 `smoke:phase1` expects:

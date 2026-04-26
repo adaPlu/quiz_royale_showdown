@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"C:/Users/plugu/AndroidStudioProjects/QuizGame-android\" log --oneline -3)",
+      "Read(//c/Users/plugu/AndroidStudioProjects/QuizGame-android/android/app/src/main/java/com/quizroyale/showdown/ui/game/**)",
+      "Read(//c/Users/plugu/AndroidStudioProjects/QuizGame-android/android/app/src/main/res/**)",
+      "Bash(git -C \"C:/Users/plugu/AndroidStudioProjects/QuizGame-webapp\" add webapp/src/components/PowerUpActivationFx.tsx webapp/src/components/LootDropToast.tsx webapp/src/hooks/useGameAudio.ts)",
+      "Bash(git -C C:/Users/plugu/AndroidStudioProjects/QuizGame-webapp commit -m ' *)",
+      "Bash(git -C \"C:/Users/plugu/AndroidStudioProjects/QuizGame-backend\" log --oneline -3)",
+      "Bash(git -C /c/Users/plugu/AndroidStudioProjects/QuizGame-main add backend/prisma/migrations)",
+      "Bash(git -C /c/Users/plugu/AndroidStudioProjects/QuizGame-main commit -m \"feat: prisma migrations from main worktree\")",
+      "Bash(git -C /c/Users/plugu/AndroidStudioProjects/QuizGame-main push origin main)",
+      "Bash(xargs grep *)",
+      "Bash(vercel whoami *)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\plugu\\AndroidStudioProjects\\QuizGame-backend\\backend",
+      "C:\\Users\\plugu\\AndroidStudioProjects\\QuizGame-webapp\\webapp",
+      "C:\\Users\\plugu\\AndroidStudioProjects\\QuizGame-main\\webapp\\src\\components"
+    ]
+  }
+}
