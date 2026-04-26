@@ -46,6 +46,15 @@ function createIoMock() {
   };
 }
 
+const CANONICAL_POWERUP_CODES = [
+  "DOUBLE_DOWN",
+  "FIFTY_FIFTY",
+  "TIME_FREEZE",
+  "SHIELD",
+  "SABOTAGE",
+] as const;
+type CanonicalPowerupCode = (typeof CANONICAL_POWERUP_CODES)[number];
+
 describe("GameOrchestrator hardening", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -130,5 +139,123 @@ describe("GameOrchestrator hardening", () => {
       "room:room-1:players",
       "room:room-1:scores"
     );
+  });
+
+  it("emits powerup:loot_drop to each finalist's private room after game:over", async () => {
+    const { GameOrchestrator } = await import("../GameOrchestrator");
+    const orchestrator = new GameOrchestrator();
+
+    // Two finalists with known scores
+    const finalistIds = ["player-alpha", "player-beta"];
+    redisMock.zrevrangeWithScores.mockResolvedValue([
+      { member: "player-alpha", score: 500 },
+      { member: "player-beta", score: 300 },
+    ]);
+
+    // Collect per-player emit calls keyed by the room passed to io.to()
+    const playerEmitCalls: Record<string, Array<unknown[]>> = {};
+    const ioMock = {
+      to: vi.fn((room: string) => ({
+        emit: vi.fn((event: string, ...args: unknown[]) => {
+          // This path is used by emitRoomEnvelope (room-level broadcast)
+          void room;
+          void event;
+          void args;
+        }),
+      })),
+      // Direct io.to(playerId).emit() calls (loot drop)
+      emit: vi.fn(),
+    };
+
+    // Override: track calls to io.to(playerId).emit() separately
+    ioMock.to.mockImplementation((room: string) => {
+      if (!playerEmitCalls[room]) playerEmitCalls[room] = [];
+      return {
+        emit: vi.fn((...args: unknown[]) => {
+          playerEmitCalls[room].push(args);
+        }),
+      };
+    });
+
+    await (orchestrator as unknown as {
+      runGameOver(
+        roomId: string,
+        io: unknown,
+        winnerIds: string[],
+        finalistIds: string[]
+      ): Promise<void>;
+    }).runGameOver("room-2", ioMock, ["player-alpha"], finalistIds);
+
+    // Each finalist should have received exactly one loot_drop message on their
+    // private socket room (io.to(playerId).emit)
+    for (const playerId of finalistIds) {
+      const calls = playerEmitCalls[playerId];
+      expect(calls, `Expected loot_drop emit for ${playerId}`).toBeDefined();
+
+      const lootCall = calls?.find(
+        (args) =>
+          args[0] === "message" &&
+          typeof args[1] === "object" &&
+          args[1] !== null &&
+          (args[1] as { type: string }).type === "powerup:loot_drop"
+      );
+      expect(lootCall, `Expected powerup:loot_drop message for ${playerId}`).toBeDefined();
+
+      const envelope = lootCall![1] as {
+        type: string;
+        version: string;
+        payload: { powerupType: string; quantity: number };
+      };
+      expect(envelope.version).toBe("v1");
+      expect(envelope.payload.quantity).toBe(1);
+      expect(CANONICAL_POWERUP_CODES).toContain(
+        envelope.payload.powerupType as CanonicalPowerupCode
+      );
+    }
+  });
+
+  it("loot drop: each finalist receives a powerupType from the canonical enum", async () => {
+    const { GameOrchestrator } = await import("../GameOrchestrator");
+    const orchestrator = new GameOrchestrator();
+
+    const finalistIds = ["player-1", "player-2", "player-3"];
+    redisMock.zrevrangeWithScores.mockResolvedValue(
+      finalistIds.map((id, i) => ({ member: id, score: (3 - i) * 100 }))
+    );
+
+    const droppedPowerups: string[] = [];
+    const ioMock = {
+      to: vi.fn().mockImplementation(() => ({
+        emit: vi.fn((event: string, payload: unknown) => {
+          if (
+            event === "message" &&
+            typeof payload === "object" &&
+            payload !== null &&
+            (payload as { type: string }).type === "powerup:loot_drop"
+          ) {
+            droppedPowerups.push(
+              (payload as { payload: { powerupType: string } }).payload.powerupType
+            );
+          }
+        }),
+      })),
+    };
+
+    await (orchestrator as unknown as {
+      runGameOver(
+        roomId: string,
+        io: unknown,
+        winnerIds: string[],
+        finalistIds: string[]
+      ): Promise<void>;
+    }).runGameOver("room-3", ioMock, ["player-1"], finalistIds);
+
+    // We should receive one loot_drop per finalist
+    expect(droppedPowerups).toHaveLength(finalistIds.length);
+
+    // Every powerupType must be in the canonical enum
+    for (const code of droppedPowerups) {
+      expect(CANONICAL_POWERUP_CODES).toContain(code as CanonicalPowerupCode);
+    }
   });
 });
