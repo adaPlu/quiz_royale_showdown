@@ -28,6 +28,17 @@ interface PowerUpTrayProps {
 }
 
 // ---------------------------------------------------------------------------
+// UI type → backend enum mapping
+// ---------------------------------------------------------------------------
+const POWERUP_TYPE_TO_BACKEND: Record<PowerupType, string> = {
+  fifty_fifty:   'FIFTY_FIFTY',
+  shield:        'SHIELD',
+  time_boost:    'TIME_FREEZE',
+  reveal_wrong:  'DOUBLE_DOWN',
+  second_chance: 'SHIELD',
+};
+
+// ---------------------------------------------------------------------------
 // Power-up metadata
 // ---------------------------------------------------------------------------
 const POWERUP_META: Record<PowerupType, { label: string; icon: string; color: string }> = {
@@ -43,7 +54,7 @@ const POWERUP_META: Record<PowerupType, { label: string; icon: string; color: st
 // ---------------------------------------------------------------------------
 export const PowerUpTray = ({ slots, roomId, disabled = false }: PowerUpTrayProps) => {
   const handleUse = (type: PowerupType) => {
-    socketService.emit('powerup:activate', { roomId, powerupId: type });
+    socketService.emit('powerup:activate', { roomId, powerUpId: POWERUP_TYPE_TO_BACKEND[type] });
   };
 
   return (
