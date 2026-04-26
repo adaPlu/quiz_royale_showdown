@@ -1,5 +1,6 @@
 import type { Server } from "socket.io";
 import { z } from "zod";
+import { powerUpService } from "../../services/PowerUpService";
 import { redisService } from "../../services/RedisService";
 import type { SocketErrorEvent } from "../../types/contracts";
 import { logger } from "../../utils/logger";
@@ -93,7 +94,9 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
       }
 
       const receivedAtMs = Date.now();
-      const deadline = questionContext.startTs + questionContext.timeLimitMs + ANSWER_GRACE_MS;
+      // TIME_FREEZE: fetch any extra deadline ms granted to this player
+      const timeBoostMs = await powerUpService.getTimeBoostMs(roomId, userId);
+      const deadline = questionContext.startTs + questionContext.timeLimitMs + ANSWER_GRACE_MS + timeBoostMs;
 
       if (receivedAtMs > deadline) {
         emitError(socket, "ANSWER_TOO_LATE", "Answer submitted after the round was locked");
@@ -107,10 +110,20 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
         return;
       }
 
-      const isCorrect = answerIndex === questionContext.correctAnswerIndex;
-      const scoreDelta = isCorrect
+      // Consume time boost now that the answer is accepted
+      if (timeBoostMs > 0) await powerUpService.consumeTimeBoost(roomId, userId);
+
+      // SABOTAGE: server forces answer wrong regardless of what was submitted
+      const isSabotaged = await powerUpService.consumeSabotage(roomId, userId);
+      const isCorrect = !isSabotaged && answerIndex === questionContext.correctAnswerIndex;
+
+      const baseScore = isCorrect
         ? calculateScore(receivedAtMs, questionContext.startTs, questionContext.timeLimitMs)
         : 0;
+
+      // DOUBLE_DOWN: multiply score for correct answers only
+      const multiplier = isCorrect ? await powerUpService.consumeScoreMultiplier(roomId, userId) : 1;
+      const scoreDelta = Math.round(baseScore * multiplier);
 
       await redisService.zincrby(`room:${roomId}:scores`, scoreDelta, userId);
 

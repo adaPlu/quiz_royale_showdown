@@ -7,8 +7,19 @@ const redisMock = {
   hset: vi.fn()
 };
 
+const powerUpMock = {
+  getTimeBoostMs: vi.fn().mockResolvedValue(0),
+  consumeTimeBoost: vi.fn().mockResolvedValue(undefined),
+  consumeSabotage: vi.fn().mockResolvedValue(false),
+  consumeScoreMultiplier: vi.fn().mockResolvedValue(1),
+};
+
 vi.mock("../../../services/RedisService", () => ({
   redisService: redisMock
+}));
+
+vi.mock("../../../services/PowerUpService", () => ({
+  powerUpService: powerUpMock
 }));
 
 function createSocket(roomId?: string) {
@@ -116,6 +127,87 @@ describe("registerSubmitAnswerHandler", () => {
         scoreDelta: 900,
         submittedAt: "2026-04-25T12:00:05.000Z"
       })
+    );
+
+    vi.useRealTimers();
+  });
+
+  it("DOUBLE_DOWN: doubles score when consumeScoreMultiplier returns 2", async () => {
+    vi.setSystemTime(new Date("2026-04-25T12:00:05.000Z"));
+    const { registerSubmitAnswerHandler } = await import("../submitAnswer");
+    const { socket, emit, dispatch } = createSocket("room-1");
+
+    redisMock.getJson.mockResolvedValue({
+      roundId: "round-1",
+      questionId: "question-1",
+      prompt: "Question?",
+      answers: ["A", "B", "C", "D"],
+      correctAnswerIndex: 1,
+      startTs: new Date("2026-04-25T12:00:00.000Z").getTime(),
+      startedAt: "2026-04-25T12:00:00.000Z",
+      timeLimitMs: 20_000,
+    });
+    redisMock.setnx.mockResolvedValue(true);
+    powerUpMock.consumeScoreMultiplier.mockResolvedValueOnce(2);
+
+    registerSubmitAnswerHandler({} as never, socket as never);
+
+    await dispatch({
+      type: "round:submit_answer",
+      version: "v1",
+      payload: {
+        roomId: "room-1",
+        questionId: "question-1",
+        answerIndex: 1,
+        clientSentAt: "2026-04-25T12:00:04.500Z",
+      },
+    });
+
+    expect(emit).not.toHaveBeenCalled();
+    // Base score 900 * multiplier 2 = 1800
+    expect(redisMock.zincrby).toHaveBeenCalledWith("room:room-1:scores", 1800, "user-1");
+
+    vi.useRealTimers();
+  });
+
+  it("SABOTAGE: forces isCorrect=false even for the correct answer index", async () => {
+    vi.setSystemTime(new Date("2026-04-25T12:00:05.000Z"));
+    const { registerSubmitAnswerHandler } = await import("../submitAnswer");
+    const { socket, emit, dispatch } = createSocket("room-1");
+
+    redisMock.getJson.mockResolvedValue({
+      roundId: "round-1",
+      questionId: "question-1",
+      prompt: "Question?",
+      answers: ["A", "B", "C", "D"],
+      correctAnswerIndex: 1,
+      startTs: new Date("2026-04-25T12:00:00.000Z").getTime(),
+      startedAt: "2026-04-25T12:00:00.000Z",
+      timeLimitMs: 20_000,
+    });
+    redisMock.setnx.mockResolvedValue(true);
+    powerUpMock.consumeSabotage.mockResolvedValueOnce(true);
+
+    registerSubmitAnswerHandler({} as never, socket as never);
+
+    await dispatch({
+      type: "round:submit_answer",
+      version: "v1",
+      payload: {
+        roomId: "room-1",
+        questionId: "question-1",
+        answerIndex: 1, // correct index, but player is sabotaged
+        clientSentAt: "2026-04-25T12:00:04.500Z",
+      },
+    });
+
+    expect(emit).not.toHaveBeenCalled();
+    // Sabotaged → isCorrect=false → scoreDelta=0
+    expect(redisMock.zincrby).toHaveBeenCalledWith("room:room-1:scores", 0, "user-1");
+    expect(redisMock.hset).toHaveBeenCalledWith(
+      "room:room-1:round:round-1:answers",
+      "user-1",
+      expect.stringContaining('"isCorrect":false'),
     );
 
     vi.useRealTimers();

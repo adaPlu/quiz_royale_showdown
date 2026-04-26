@@ -14,6 +14,7 @@ import {
 import { eliminateBottomN } from "../game/EliminationEngine";
 import type { PlayerStanding } from "../game/types";
 import { redisService } from "./RedisService";
+import { powerUpService } from "./PowerUpService";
 import { roomService } from "./RoomService";
 import { generateId } from "../utils/ulid";
 import { BadRequestError } from "../utils/errors";
@@ -129,7 +130,19 @@ export class GameOrchestrator {
             eliminateCount,
             minimumSurvivors: 2
           });
-          const eliminatedIds = eliminated.map((entry) => entry.playerId);
+
+          // SHIELD: remove any shielded players from this elimination wave
+          const shieldedPlayers = await powerUpService.getShieldedPlayers(roomId);
+          const shieldedSet = new Set(shieldedPlayers);
+          const unshieldedEliminated = eliminated.filter((e) => !shieldedSet.has(e.playerId));
+          for (const playerId of shieldedPlayers) {
+            if (eliminated.some((e) => e.playerId === playerId)) {
+              await powerUpService.consumeShield(roomId, playerId);
+              logger.info("Shield blocked elimination", { roomId, playerId });
+            }
+          }
+
+          const eliminatedIds = unshieldedEliminated.map((entry) => entry.playerId);
           eliminatedIds.forEach((playerId) => activePlayerIds.delete(playerId));
 
           state = transitionGameState(state, {

@@ -104,22 +104,16 @@ export function useGameSocket(roomId: string | undefined) {
 
     unsubs.push(
       socketService.on('powerup:loot_drop', (payload) => {
-        applyLootDrop(payload);
+        const parsed = powerupLootDropPayloadSchema.safeParse(payload);
+        if (parsed.success) {
+          applyLootDrop(parsed.data.powerupType, parsed.data.quantity);
+        }
       }),
     );
 
     unsubs.push(
       socketService.on('error', (payload) => {
         console.error('[socket] Server error:', payload.code, payload.message, payload.details);
-      }),
-    );
-
-    unsubs.push(
-      socketService.on('powerup:loot_drop', (payload) => {
-        const parsed = powerupLootDropPayloadSchema.safeParse(payload);
-        if (parsed.success) {
-          applyLootDrop(parsed.data.powerupType, parsed.data.quantity);
-        }
       }),
     );
 
