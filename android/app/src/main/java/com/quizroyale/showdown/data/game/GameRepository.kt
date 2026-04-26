@@ -23,6 +23,7 @@ class GameRepository @Inject constructor(
   private val database: AppDatabase
 ) {
   val events: Flow<GameEvent> = webSocketManager.events.mapNotNull(::parseEvent)
+  val isConnected = webSocketManager.isConnected
 
   suspend fun createRoom(isPrivate: Boolean = false, maxPlayers: Int = 8): RoomSnapshot {
     val snapshot = gameApi.createRoom(CreateRoomRequest(isPrivate, maxPlayers)).room.toDomain()
