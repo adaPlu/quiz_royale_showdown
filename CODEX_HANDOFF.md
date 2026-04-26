@@ -2,7 +2,7 @@
 
 **Updated:** 2026-04-26  
 **Primary repo:** `c:\Users\plugu\AndroidStudioProjects\QuizGame`  
-**Status:** Phase 2 code complete. Full game loop (lobby → question → result → elimination → finale → game:over) is implemented and validated. Smoke test against live backend is the next gate.
+**Status:** Phase 2 VERIFIED. Full game loop smoke passed end-to-end on 2026-04-26 (10 rounds, finale, game:over, XP writes, both players scored correctly).
 
 ---
 
@@ -21,7 +21,8 @@ Do not mix these scopes. The Railway question audit belongs to `QuizGame-main\ba
 - Webapp: TypeScript exits 0. Production build exits 0.
 - `gameHandlers.ts` has been deleted; its logic lives in `backend/src/socket/handlers/` (submitAnswer, usePowerup, reconnect, playerReady).
 - Android `parseRankings` fixed: display names are now preserved from the current player list across `round:result` transitions.
-- `smoke:phase2` script is present at `load-test/phase2-full-loop-smoke.mjs` but has not yet been run against live backend.
+- `smoke:phase2` PASSED on 2026-04-26 — 10 rounds, finale, `game:over`, XP writes, scoring all verified.
+  Run: `DATABASE_URL=<railway-postgres> REDIS_URL=redis://localhost:6379 npm run dev:backend` (local Redis via Docker), then `npm run smoke:phase2`.
 
 The primary backend mounted launch surface is limited to:
   - `GET /health`
@@ -53,23 +54,13 @@ Treat those question scripts/admin workflows as separate from the primary repo u
 
 ## What To Do Next
 
-Run the Phase 2 smoke gate against a live backend with Postgres and Redis:
+Phase 2 is verified. The next phase is **launch hardening**:
 
-```powershell
-cd c:\Users\plugu\AndroidStudioProjects\QuizGame
-npm run smoke:phase2
-```
-
-The smoke expects:
-- Backend at `http://localhost:4000` (or set `API_BASE_URL` / `WS_BASE_URL`)
-- Postgres with an active question bank
-- Redis for answer scoring and game state
-
-After smoke passes, record the result in `docs/VERIFICATION_MATRIX.md` and the next focus is:
-1. Wire up `smoke:phase2` to CI if running on a dev server.
-2. Fix `CountdownRing` in `GameScreen.kt` — the arc is static and doesn't animate from `timerSeconds` state.
-3. Consider making power-up inventory live-gated (only show owned power-ups) once the `powerup:loot_drop` backend event is emitted.
-4. Profile / leaderboard / cosmetics routes remain future scope.
+1. **Deploy the primary backend to Railway** — the current Railway deployment (if any) is from the `QuizGame-main` repo; the primary repo (`QuizGame`) needs its own Railway service wired to the same Postgres + Redis.
+2. **Fix `CountdownRing` animation** in `GameScreen.kt` — the arc is static (216° hardcoded), doesn't animate from `timerSeconds` state.
+3. **Power-up inventory gating** — currently all 4 power-ups show as `owned: true` in the webapp. Gate display behind actual `powerup:loot_drop` events once backend emits them.
+4. **Profile / leaderboard / cosmetics** remain unmounted and future scope.
+5. **Rate limiting** — add per-IP rate limiting to auth routes before going public.
 
 ## Guardrails
 
