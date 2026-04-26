@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { PlayerAvatar } from '@components/PlayerAvatar';
+import { useMountedRef } from '@hooks/useMountedRef';
 import { api } from '@services/apiClient';
 import { socketService } from '@services/socketService';
 import { useAuthStore } from '@stores/authStore';
@@ -60,6 +61,7 @@ const getErrorMessage = (error: unknown, fallback: string) =>
 
 export default function HomePage() {
   const navigate = useNavigate();
+  const mountedRef = useMountedRef();
   const user = useAuthStore((state) => state.user);
   const accessToken = useAuthStore((state) => state.accessToken);
   const [code, setCode] = useState('');
@@ -91,11 +93,13 @@ export default function HomePage() {
 
     try {
       const response = await api.post('/rooms/join', { roomCode: null });
+      if (!mountedRef.current) return;
       enterLobby(normalizeRoomSession(response.data));
     } catch (err) {
+      if (!mountedRef.current) return;
       setError(getErrorMessage(err, 'Failed to find a room'));
     } finally {
-      setLoading(null);
+      if (mountedRef.current) setLoading(null);
     }
   };
 
@@ -106,11 +110,13 @@ export default function HomePage() {
 
     try {
       const response = await api.post('/rooms', { isPrivate, maxPlayers: 8 });
+      if (!mountedRef.current) return;
       enterLobby(normalizeRoomSession(response.data));
     } catch (err) {
+      if (!mountedRef.current) return;
       setError(getErrorMessage(err, 'Failed to create room'));
     } finally {
-      setLoading(null);
+      if (mountedRef.current) setLoading(null);
     }
   };
 
@@ -126,11 +132,13 @@ export default function HomePage() {
 
     try {
       const response = await api.post('/rooms/join', { roomCode: normalizedCode });
+      if (!mountedRef.current) return;
       enterLobby(normalizeRoomSession(response.data, normalizedCode));
     } catch (err) {
+      if (!mountedRef.current) return;
       setError(getErrorMessage(err, 'Room not found'));
     } finally {
-      setLoading(null);
+      if (mountedRef.current) setLoading(null);
     }
   };
 

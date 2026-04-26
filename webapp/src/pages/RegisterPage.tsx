@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { api } from '@services/apiClient';
+import { useMountedRef } from '@hooks/useMountedRef';
 import { type AuthResponse, useAuthStore } from '@stores/authStore';
 
 const schema = z.object({
@@ -25,6 +26,7 @@ type FormData = z.infer<typeof schema>;
 
 export default function RegisterPage() {
   const navigate = useNavigate();
+  const mountedRef = useMountedRef();
   const setSession = useAuthStore((state) => state.setSession);
 
   const {
@@ -46,9 +48,11 @@ export default function RegisterPage() {
         password: data.password,
       });
 
+      if (!mountedRef.current) return;
       setSession(response.data);
       navigate('/home', { replace: true });
     } catch (error: unknown) {
+      if (!mountedRef.current) return;
       const message = error instanceof Error ? error.message : 'Registration failed. Please try again.';
       setError('root', { message });
     }

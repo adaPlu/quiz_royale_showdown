@@ -35,7 +35,7 @@ These gates are required before calling Phase 2 ready for broader manual QA.
 | Web typecheck/build | `npm run typecheck -w webapp; npm run build -w webapp` | Both exit 0 | Confirms web can consume current contracts. |
 | Android assembleDebug | `android\gradlew.bat -p android :app:assembleDebug` | Gradle exits 0 | Confirms Android compile integration. |
 | Phase 1 smoke regression | `npm run smoke:phase1` | Still reaches first live question or intentional canonical error | Protects room/start/socket contract. |
-| Phase 2 smoke | If present: `npm run smoke:phase2` | Proves flow beyond first question through answer lock, round result, elimination/finale as applicable, and `game:over` | No `smoke:phase2` script exists in this repo yet. Record as `N/A - script missing` until added. |
+| Phase 2 smoke | `npm run smoke:phase2` | Proves flow beyond first question through answer lock, round result, elimination/finale as applicable, and `game:over` | Requires backend on local defaults or `API_BASE_URL`/`WS_BASE_URL` pointed at staging. |
 | Railway question audit | `cd c:\Users\plugu\AndroidStudioProjects\QuizGame-main\backend; railway run npm run audit:questions` | Audit exits 0 and reports active question count/category/difficulty health | Requires Railway CLI/project access. If using a local `.env` with Railway DB credentials, run `npm run audit:questions` from the same directory. |
 
 ## Result Template
@@ -91,4 +91,3 @@ Services: backend dev server (tsx watch), Railway Postgres, Docker Redis (localh
 - Socket transport event: canonical `message` envelope
 - Postgres reachable through `DATABASE_URL`
 - Redis reachable through `REDIS_URL` for full game-loop fidelity
-

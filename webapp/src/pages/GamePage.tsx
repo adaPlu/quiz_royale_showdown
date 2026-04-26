@@ -104,6 +104,7 @@ export const GamePage = () => {
 
       const optionIndex = Number(event.key) - 1;
       if (!Number.isInteger(optionIndex) || optionIndex < 0 || optionIndex > 3) return;
+      if (isLocked || !question || !roomId) return;
       if (fiftyFiftyEliminated.includes(optionIndex)) return;
 
       event.preventDefault();
@@ -112,7 +113,7 @@ export const GamePage = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [fiftyFiftyEliminated, handleAnswer]);
+  }, [fiftyFiftyEliminated, handleAnswer, isLocked, question, roomId]);
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(255,215,0,0.12),_transparent_40%),linear-gradient(180deg,#101020,#06060C)] px-4 py-6 text-white md:px-8">

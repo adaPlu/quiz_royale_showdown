@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { useGameSocket } from '@/hooks/useGameSocket';
+import { useMountedRef } from '@/hooks/useMountedRef';
 import { ApiError, api } from '@/services/apiClient';
 import { socketService } from '@/services/socketService';
 import { useAuthStore } from '@/stores/authStore';
@@ -21,6 +22,7 @@ const phaseCopy: Record<string, string> = {
 
 export const LobbyPage = () => {
   const navigate = useNavigate();
+  const mountedRef = useMountedRef();
   const { roomId } = useParams<{ roomId: string }>();
   const accessToken = useAuthStore((state) => state.accessToken);
 
@@ -77,6 +79,7 @@ export const LobbyPage = () => {
       await api.post(`/rooms/${roomId}/start`);
       // Navigation happens automatically via the round:countdown_started socket event
     } catch (err: unknown) {
+      if (!mountedRef.current) return;
       const message =
         err instanceof ApiError && err.message
           ? err.message
@@ -85,7 +88,7 @@ export const LobbyPage = () => {
             : 'Failed to start game';
       setStartError(message);
     } finally {
-      setIsStarting(false);
+      if (mountedRef.current) setIsStarting(false);
     }
   };
 
