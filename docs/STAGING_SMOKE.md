@@ -39,6 +39,10 @@ This command does not require secrets and does not run migrations. It checks the
 Railway files, runtime Prisma dependency, migration startup shape, smoke scripts,
 and mounted backend route surface.
 
+Staging smoke commands are guarded separately from local smoke commands. Use
+`smoke:phase1` and `smoke:phase2` for local work; use the guarded
+`smoke:staging:*` commands below for deployed staging validation.
+
 Required Railway variables:
 
 ```text
@@ -83,6 +87,7 @@ $env:STAGING_BASE = "https://<railway-service>.up.railway.app"
 $env:API_BASE_URL = "$env:STAGING_BASE/api/v1"
 $env:WS_BASE_URL = "$env:STAGING_BASE"
 $env:SMOKE_TIMEOUT_MS = "330000"
+$env:STAGING_SMOKE_ACK = "STAGING_BACKEND"
 $RunId = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 ```
 
@@ -178,11 +183,11 @@ is received or no auth/connect error occurs before disconnect.
 ## Phase 1 Smoke
 
 ```powershell
-npm run smoke:phase1
+npm run smoke:staging:phase1
 ```
 
-The command uses `API_BASE_URL`, `WS_BASE_URL`, and `SMOKE_TIMEOUT_MS` from the
-PowerShell setup section above.
+The guarded staging command requires `STAGING_SMOKE_ACK`, `API_BASE_URL`,
+`WS_BASE_URL`, and a non-local target unless `ALLOW_LOCAL_SMOKE=1` is set.
 
 Pass criteria: registers/logs in two users, blocks one-player start, creates and
 joins a room, connects both sockets on `/ws`, starts the room, observes
@@ -192,11 +197,13 @@ canonical `error` only when `EXPECT_START_ERROR=1`.
 ## Phase 2 Smoke
 
 ```powershell
-npm run smoke:phase2
+npm run smoke:staging:phase2
 ```
 
-The command uses `API_BASE_URL`, `WS_BASE_URL`, and `SMOKE_TIMEOUT_MS` from the
-PowerShell setup section above.
+The guarded staging command requires `STAGING_SMOKE_ACK`, `API_BASE_URL`,
+`WS_BASE_URL`, and a non-local target unless `ALLOW_LOCAL_SMOKE=1` is set. Keep
+`SMOKE_TIMEOUT_MS` at `330000` unless a staging run proves a lower timeout is
+safe.
 
 Pass criteria: reaches `game:over` and records all checkpoints:
 `roomStateSync`, `countdownStarted`, `questionStarted`, `answerLocked`,

@@ -56,6 +56,7 @@ class GameViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     private var timerJob: Job? = null
+    private var activeRoomCode: String? = null
 
     /** Persistent inventory that survives across rounds; updated by loot drop events. */
     private val powerupInventory: PowerupInventory = mutableMapOf()
@@ -65,6 +66,7 @@ class GameViewModel @Inject constructor(
 
     init {
         observeWsEvents()
+        observeReconnects()
     }
 
     // ── Public API ─────────────────────────────────────────────────────────────
@@ -80,10 +82,9 @@ class GameViewModel @Inject constructor(
     /** Called from legacy MainActivity wiring — delegates to intent. */
     fun joinRoom(roomCode: String) {
         val accessToken = authRepository.currentAccessToken() ?: return
+        activeRoomCode = roomCode.trim().uppercase().takeIf { it.isNotBlank() }
         webSocketManager.connect(BuildConfig.WS_BASE_URL, accessToken)
-        webSocketManager.send(
-            """{"type":"room:join","version":"v1","payload":{"roomCode":"$roomCode"}}"""
-        )
+        sendJoinRoom()
         _uiState.value = GameUiState.Lobby(roomCode = roomCode)
     }
 
@@ -122,6 +123,24 @@ class GameViewModel @Inject constructor(
                 handleRawEvent(rawEvent)
             }
         }
+    }
+
+    private fun observeReconnects() {
+        viewModelScope.launch {
+            webSocketManager.isConnected
+                .collect { connected ->
+                    if (connected) {
+                        sendJoinRoom()
+                    }
+                }
+        }
+    }
+
+    private fun sendJoinRoom() {
+        val roomCode = activeRoomCode ?: return
+        webSocketManager.send(
+            """{"type":"room:join","version":"v1","payload":{"roomCode":"$roomCode"}}"""
+        )
     }
 
     private fun handleRawEvent(raw: String) {
@@ -346,6 +365,7 @@ class GameViewModel @Inject constructor(
         val players = parsePlayers(room)
         val roomId = room.optString("roomId", payload.optString("roomId", currentRoomId()))
         val roomCode = room.optString("code", room.optString("roomCode", roomId))
+        activeRoomCode = roomCode.takeIf { it.isNotBlank() } ?: activeRoomCode
         val phase = room.optString("phase", "")
         val nextPlayers = players.ifEmpty { currentPlayers() }
 

@@ -32,6 +32,7 @@ function checkFile(relativePath) {
   "backend/package.json",
   "backend/prisma/schema.prisma",
   "docs/STAGING_SMOKE.md",
+  "scripts/guard-staging-smoke.mjs",
   "scripts/guard-staging-load.mjs",
   "load-test/phase1-live-flow-smoke.mjs",
   "load-test/phase2-full-loop-smoke.mjs",
@@ -113,6 +114,18 @@ if (loadGuard.includes("STAGING_LOAD_ACK") && loadGuard.includes("50_PLAYERS_STA
   pass("50-player staging load command requires explicit acknowledgement");
 } else {
   fail("50-player staging load command must require STAGING_LOAD_ACK=50_PLAYERS_STAGING");
+}
+
+const smokeGuard = read("scripts/guard-staging-smoke.mjs");
+if (
+  smokeGuard.includes("STAGING_SMOKE_ACK") &&
+  smokeGuard.includes("STAGING_BACKEND") &&
+  smokeGuard.includes("API_BASE_URL") &&
+  smokeGuard.includes("WS_BASE_URL")
+) {
+  pass("staging smoke commands validate acknowledgement and target URLs");
+} else {
+  fail("staging smoke commands must validate acknowledgement and target URLs");
 }
 
 if (failures.length > 0) {
