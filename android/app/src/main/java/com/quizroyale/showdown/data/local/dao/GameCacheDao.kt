@@ -26,4 +26,7 @@ interface GameCacheDao {
 
     @Query("DELETE FROM game_cache WHERE roomId = :roomId")
     suspend fun deleteByRoomId(roomId: String)
+
+    @Query("UPDATE game_cache SET powerupInventoryJson = :inventoryJson WHERE roomId = :roomId")
+    suspend fun updatePowerupInventory(roomId: String, inventoryJson: String)
 }

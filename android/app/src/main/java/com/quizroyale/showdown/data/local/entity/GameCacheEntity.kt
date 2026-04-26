@@ -11,4 +11,6 @@ data class GameCacheEntity(
     val roundNumber: Int,
     val totalRounds: Int,
     val cachedAt: Long = System.currentTimeMillis(),
+    /** JSON-serialized powerup inventory map, e.g. {"DOUBLE_POINTS":1,"SHIELD":2} */
+    val powerupInventoryJson: String? = null,
 )

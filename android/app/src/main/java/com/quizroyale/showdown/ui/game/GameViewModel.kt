@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.quizroyale.showdown.BuildConfig
 import com.quizroyale.showdown.data.auth.AuthRepository
+import com.quizroyale.showdown.data.local.AppDatabase
+import com.quizroyale.showdown.data.local.entity.GameCacheEntity
 import com.quizroyale.showdown.data.socket.WebSocketManager
 import com.quizroyale.showdown.domain.model.PowerupType
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -39,6 +41,7 @@ sealed class GameIntent {
 class GameViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val webSocketManager: WebSocketManager,
+    private val appDatabase: AppDatabase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<GameUiState>(GameUiState.Idle)
@@ -65,6 +68,7 @@ class GameViewModel @Inject constructor(
 
     init {
         observeWsEvents()
+        loadCachedInventory()
     }
 
     // ── Public API ─────────────────────────────────────────────────────────────
@@ -80,6 +84,10 @@ class GameViewModel @Inject constructor(
     /** Called from legacy MainActivity wiring — delegates to intent. */
     fun joinRoom(roomCode: String) {
         val accessToken = authRepository.currentAccessToken() ?: return
+        // Clear stale inventory from any previous game before joining a new room
+        powerupInventory.clear()
+        usedThisRound.clear()
+        viewModelScope.launch { clearCachedInventory() }
         webSocketManager.connect(BuildConfig.WS_BASE_URL, accessToken)
         webSocketManager.send(
             """{"type":"room:join","version":"v1","payload":{"roomCode":"$roomCode"}}"""
@@ -267,6 +275,8 @@ class GameViewModel @Inject constructor(
                         if (current is GameUiState.ActiveQuestion) {
                             _uiState.value = current.copy(ownedPowerups = buildOwnedPowerupList())
                         }
+                        // Persist updated inventory to local DB so it survives process death
+                        viewModelScope.launch { persistInventory() }
                     }
                 }
 
@@ -300,6 +310,64 @@ class GameViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    // ── Inventory Persistence ─────────────────────────────────────────────────
+
+    /** Loads the most-recently cached powerup inventory from the local DB on init. */
+    private fun loadCachedInventory() {
+        viewModelScope.launch {
+            val cached = appDatabase.gameCacheDao().getLatest() ?: return@launch
+            val json = cached.powerupInventoryJson ?: return@launch
+            runCatching {
+                val obj = JSONObject(json)
+                val keys = obj.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    val type = runCatching { PowerupType.valueOf(key) }.getOrNull() ?: continue
+                    powerupInventory[type] = obj.optInt(key, 0)
+                }
+            }
+        }
+    }
+
+    /**
+     * Serializes [powerupInventory] to JSON and persists it.
+     * Inserts a placeholder cache row if none exists yet (keyed by an empty roomId stub).
+     */
+    private suspend fun persistInventory() {
+        val dao = appDatabase.gameCacheDao()
+        val inventoryJson = inventoryToJson()
+        val roomId = currentRoomId().ifBlank { "_inventory_stub" }
+        val existing = dao.getByRoomId(roomId)
+        if (existing != null) {
+            dao.updatePowerupInventory(roomId, inventoryJson)
+        } else {
+            dao.upsert(
+                GameCacheEntity(
+                    roomId = roomId,
+                    roomCode = roomId,
+                    phase = "",
+                    roundNumber = 0,
+                    totalRounds = 0,
+                    powerupInventoryJson = inventoryJson,
+                )
+            )
+        }
+    }
+
+    /** Clears persisted inventory when joining a new room. */
+    private suspend fun clearCachedInventory() {
+        val dao = appDatabase.gameCacheDao()
+        val roomId = currentRoomId().ifBlank { "_inventory_stub" }
+        dao.updatePowerupInventory(roomId, "{}")
+        dao.updatePowerupInventory("_inventory_stub", "{}")
+    }
+
+    private fun inventoryToJson(): String {
+        val obj = JSONObject()
+        powerupInventory.forEach { (type, qty) -> obj.put(type.name, qty) }
+        return obj.toString()
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
