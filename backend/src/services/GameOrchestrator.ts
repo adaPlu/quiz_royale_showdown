@@ -1,237 +1,270 @@
-import { Difficulty, type QuestionBank } from "@prisma/client";
-import type { Server } from "socket.io";
+/**
+ * GameOrchestrator drives the GameStateMachine through the game loop and emits
+ * contract-aligned socket envelopes on the `message` event.
+ */
 
-import { eliminateBottomN } from "../game/EliminationEngine";
-import { powerUpBalancer } from "../game/PowerUpBalancer";
+import type { QuestionBank } from "@prisma/client";
+import type { Server } from "socket.io";
+import { prisma } from "../models/prismaClient";
 import {
   createInitialGameState,
   transitionGameState,
-  type GameStateSnapshot,
+  type GameStateSnapshot
 } from "../game/GameStateMachine";
-import { selectQuestion } from "../game/QuestionSelector";
-import type { PlayerStanding, QuestionDifficulty } from "../game/types";
-import { prisma } from "../models/prismaClient";
-import type { PlayerSummary, ServerEvents } from "../types/contracts";
-import { generateId } from "../utils/ulid";
-import { logger } from "../utils/logger";
-import { powerUpService } from "./PowerUpService";
+import { eliminateBottomN } from "../game/EliminationEngine";
+import type { PlayerStanding } from "../game/types";
 import { redisService } from "./RedisService";
-import { awardMatchXp } from "./XpService";
-import { pushService } from "./PushNotificationService";
+import { roomService } from "./RoomService";
+import { generateId } from "../utils/ulid";
+import { BadRequestError } from "../utils/errors";
+import { logger } from "../utils/logger";
+import type { PlayerSummary, ServerEvents } from "../types/contracts";
 
-const DEFAULT_COUNTDOWN_MS = 5_000;
-const DEFAULT_QUESTION_TIME_LIMIT_MS = 20_000;
-const DEFAULT_TIMER_GRACE_MS = 500;
-const DEFAULT_ROUND_RESULT_MS = 4_000;
-const DEFAULT_ELIMINATION_MS = 3_000;
-const GAME_STATE_TTL_SECONDS = 2 * 60 * 60;
+const COUNTDOWN_MS = 5_000;
+const ROUND_RESULT_DISPLAY_MS = 4_000;
+const ELIMINATION_DISPLAY_MS = 3_000;
+const DEFAULT_TIME_LIMIT_MS = 20_000;
 const HEARTBEAT_TTL_SECONDS = 60;
+const GAME_STATE_TTL_SECONDS = 7200;
 
-interface CurrentQuestionContext {
+type CurrentQuestionContext = {
   roundId: string;
-  roundNumber: number;
   questionId: string;
   prompt: string;
   answers: string[];
   correctAnswerIndex: number;
-  startedAtMs: number;
+  startTs: number;
+  startedAt: string;
   timeLimitMs: number;
-}
+};
 
-interface StoredAnswer {
-  scoreDelta: number;
-  answerTimeMs: number;
+type StoredAnswerRecord = {
+  answerIndex: number;
+  clientSentAt: string;
   isCorrect: boolean;
+  scoreDelta: number;
+  submittedAt: string;
+};
+
+function emitRoomEnvelope(io: Server, roomId: string, envelope: ServerEvents): void {
+  io.to(roomId).emit("message", envelope);
 }
 
-export interface GameOrchestratorOptions {
-  countdownMs?: number;
-  questionTimeLimitMs?: number;
-  timerGraceMs?: number;
-  roundResultMs?: number;
-  eliminationMs?: number;
-  now?: () => number;
-  delay?: (durationMs: number) => Promise<void>;
-}
+function timedDelay(roomId: string, label: string, durationMs: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const heartbeatKey = `game:${roomId}:heartbeat:${label}`;
+    const resolveWithHeartbeat = async () => {
+      if (redisService) {
+        await redisService.set(heartbeatKey, "1", HEARTBEAT_TTL_SECONDS).catch(() => undefined);
+      }
+      resolve();
+    };
 
-export function computeEliminationCount(playersRemaining: number): number {
-  if (playersRemaining <= 2) {
-    return 0;
-  }
-  return Math.min(playersRemaining - 2, Math.max(1, Math.floor(playersRemaining * 0.2)));
+    setTimeout(() => void resolveWithHeartbeat(), durationMs);
+  });
 }
 
 export class GameOrchestrator {
-  private readonly usedQuestionIdsByRoom = new Map<string, Set<string>>();
-  private readonly options: Required<GameOrchestratorOptions>;
+  private readonly activeRooms = new Set<string>();
 
-  constructor(options: GameOrchestratorOptions = {}) {
-    this.options = {
-      countdownMs: options.countdownMs ?? DEFAULT_COUNTDOWN_MS,
-      questionTimeLimitMs: options.questionTimeLimitMs ?? DEFAULT_QUESTION_TIME_LIMIT_MS,
-      timerGraceMs: options.timerGraceMs ?? DEFAULT_TIMER_GRACE_MS,
-      roundResultMs: options.roundResultMs ?? DEFAULT_ROUND_RESULT_MS,
-      eliminationMs: options.eliminationMs ?? DEFAULT_ELIMINATION_MS,
-      now: options.now ?? Date.now,
-      delay: options.delay ?? ((durationMs) => new Promise((resolve) => setTimeout(resolve, durationMs))),
-    };
+  hasActiveGame(roomId: string): boolean {
+    return this.activeRooms.has(roomId);
+  }
+
+  async assertQuestionBankReady(): Promise<void> {
+    const activeQuestionCount = await prisma.questionBank.count({
+      where: { isActive: true }
+    });
+
+    if (activeQuestionCount === 0) {
+      throw new BadRequestError("No active questions are available. Add questions before starting a game.");
+    }
   }
 
   async startGame(roomId: string, playerIds: string[], io: Server): Promise<void> {
-    const uniquePlayerIds = [...new Set(playerIds)];
-    if (uniquePlayerIds.length < 1) {
-      throw new Error("At least 1 player is required to start a game");
-    }
+    logger.info("GameOrchestrator starting", { roomId, playerCount: playerIds.length });
+    this.activeRooms.add(roomId);
 
-    const room = await prisma.room.findUnique({
-      where: { id: roomId },
-      select: { totalRounds: true },
-    });
-    if (!room) {
-      throw new Error(`Room ${roomId} not found`);
-    }
+    try {
+      await this.assertQuestionBankReady();
 
-    logger.info("Game loop starting", { roomId, playerCount: uniquePlayerIds.length });
+      let state = transitionGameState(
+        { ...createInitialGameState(), playerCount: playerIds.length },
+        { type: "READY_FOR_COUNTDOWN", playerCount: playerIds.length }
+      );
 
-    let activePlayerIds = uniquePlayerIds;
-    let state = transitionGameState(
-      { ...createInitialGameState(), playerCount: activePlayerIds.length },
-      { type: "READY_FOR_COUNTDOWN", playerCount: activePlayerIds.length },
-    );
-    state = { ...state, round: 1 };
-    await this.seedGameState(roomId, activePlayerIds, state);
+      await this.persistState(roomId, state);
 
-    let finaleStarted = false;
+      if (redisService) {
+        const redis = redisService;
+        await Promise.all(playerIds.map((playerId) => redis.zadd(`room:${roomId}:scores`, 0, playerId)));
+        await Promise.all(playerIds.map((playerId) => redis.sadd(`room:${roomId}:players`, playerId)));
+      }
 
-    for (let roundNumber = 1; roundNumber <= room.totalRounds && activePlayerIds.length >= 1; roundNumber += 1) {
-      if (state.phase === "ROUND_RESULT" || state.phase === "ELIMINATION") {
-        state = transitionGameState(state, { type: "START_NEXT_ROUND" });
-        state = { ...state, round: roundNumber, playerCount: activePlayerIds.length };
+      await this.runCountdown(roomId, io);
+
+      const totalRounds = 10;
+      const usedQuestionIds: string[] = [];
+      const activePlayerIds = new Set(playerIds);
+      let round = 0;
+
+      while (round < totalRounds && state.playerCount > 1) {
+        round++;
+
+        state = transitionGameState(state, { type: "BEGIN_QUESTION" });
         await this.persistState(roomId, state);
-      }
+        await this.runQuestion(roomId, io, usedQuestionIds);
 
-      if (state.phase === "COUNTDOWN") {
-        await this.runCountdown(roomId, io);
-      }
+        state = transitionGameState(state, { type: "LOCK_ANSWERS" });
+        await this.persistState(roomId, state);
 
-      state = transitionGameState(state, { type: "BEGIN_QUESTION", question: roundNumber });
-      state = { ...state, round: roundNumber, playerCount: activePlayerIds.length };
-      await this.persistState(roomId, state);
+        state = transitionGameState(state, { type: "SHOW_ROUND_RESULT" });
+        await this.persistState(roomId, state);
+        await this.runRoundEnd(roomId, io);
 
-      const questionContext = await this.runQuestion(roomId, roundNumber, io);
-      await this.delayWithHeartbeat(roomId, "question", questionContext.timeLimitMs + this.options.timerGraceMs);
+        if (round % 2 === 0 && state.playerCount > 2) {
+          const scores = await this.loadScores(roomId, [...activePlayerIds]);
+          const eliminateCount = this.computeEliminationCount(state.playerCount);
+          const { eliminated, survivors } = eliminateBottomN(scores, {
+            eliminateCount,
+            minimumSurvivors: 2
+          });
+          const eliminatedIds = eliminated.map((entry) => entry.playerId);
+          eliminatedIds.forEach((playerId) => activePlayerIds.delete(playerId));
 
-      state = transitionGameState(state, { type: "LOCK_ANSWERS" });
-      await this.persistState(roomId, state);
-      await this.lockRound(roomId, questionContext.roundId, io);
-
-      state = transitionGameState(state, { type: "SHOW_ROUND_RESULT" });
-      await this.persistState(roomId, state);
-      await this.runRoundResult(roomId, questionContext, activePlayerIds, io);
-
-      const eliminationCount = roundNumber % 2 === 0 ? computeEliminationCount(activePlayerIds.length) : 0;
-      if (!finaleStarted && eliminationCount > 0 && roundNumber < room.totalRounds) {
-        const eliminatedPlayerIds = await this.applyElimination(
-          roomId,
-          questionContext.roundId,
-          activePlayerIds,
-          eliminationCount,
-          io,
-        );
-
-        if (eliminatedPlayerIds.length > 0) {
-          activePlayerIds = activePlayerIds.filter((playerId) => !eliminatedPlayerIds.includes(playerId));
-          state = transitionGameState(state, { type: "APPLY_ELIMINATION", eliminatedPlayerIds });
-          state = { ...state, playerCount: activePlayerIds.length };
+          state = transitionGameState(state, {
+            type: "APPLY_ELIMINATION",
+            eliminatedPlayerIds: eliminatedIds
+          });
           await this.persistState(roomId, state);
+
+          await this.runElimination(roomId, io, eliminatedIds, survivors);
+
+          state = transitionGameState(state, { type: "START_NEXT_ROUND" });
+          await this.persistState(roomId, state);
+          await this.runCountdown(roomId, io);
         }
       }
 
-      if (!finaleStarted && activePlayerIds.length <= 2 && activePlayerIds.length > 1 && roundNumber < room.totalRounds) {
-        state = transitionGameState(state, { type: "START_FINALE", finalistIds: activePlayerIds });
-        await this.persistState(roomId, state);
-        finaleStarted = true;
-        emitToRoom(io, roomId, {
-          type: "round:finale_started",
-          version: "v1",
-          payload: { roomId, finalistIds: activePlayerIds },
-        });
-      }
-    }
+      const finalistIds = [...activePlayerIds];
 
-    const winnerId = await this.computeWinner(roomId, activePlayerIds);
-    state = transitionGameState(state, { type: "COMPLETE_GAME", winnerIds: winnerId ? [winnerId] : [] });
-    await this.persistState(roomId, state);
-    await this.completeGame(roomId, winnerId, io);
-    this.usedQuestionIdsByRoom.delete(roomId);
+      if (finalistIds.length > 0) {
+        state = transitionGameState(state, {
+          type: "START_FINALE",
+          finalistIds
+        });
+        await this.persistState(roomId, state);
+        await this.runFinale(roomId, io, state, usedQuestionIds);
+      }
+
+      const winnerIds = await this.computeWinners(roomId, finalistIds);
+      state = transitionGameState(state, { type: "COMPLETE_GAME", winnerIds });
+      await this.persistState(roomId, state);
+      await this.runGameOver(roomId, io, winnerIds, finalistIds);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await roomService.resetStartFailure(roomId, message);
+
+      if (redisService) {
+        await redisService.del(
+          `game:${roomId}:state`,
+          `game:${roomId}:current_question`,
+          `room:${roomId}:players`,
+          `room:${roomId}:scores`
+        ).catch(() => undefined);
+      }
+
+      emitRoomEnvelope(io, roomId, {
+        type: "error",
+        version: "v1",
+        payload: {
+          code: "GAME_START_FAILED",
+          message
+        }
+      });
+
+      throw error;
+    } finally {
+      this.activeRooms.delete(roomId);
+    }
   }
 
   private async runCountdown(roomId: string, io: Server): Promise<void> {
-    const startsAt = new Date(this.options.now() + this.options.countdownMs).toISOString();
-    await prisma.room.update({ where: { id: roomId }, data: { status: "COUNTDOWN" } });
+    const startsAt = new Date(Date.now() + COUNTDOWN_MS).toISOString();
 
-    emitToRoom(io, roomId, {
+    logger.info("Countdown started", { roomId, startsAt });
+
+    emitRoomEnvelope(io, roomId, {
       type: "round:countdown_started",
       version: "v1",
       payload: {
         roomId,
         startsAt,
-        seconds: Math.ceil(this.options.countdownMs / 1000),
-      },
+        seconds: COUNTDOWN_MS / 1000
+      }
     });
 
-    // Push notification to players who may have backgrounded the app
-    const players = await prisma.roomPlayer.findMany({
-      where: { roomId },
-      select: { userId: true },
-    });
-    pushService.sendToUsers(
-      players.map((p) => p.userId),
-      { title: "Game starting!", body: "Your Quiz Royale game is beginning. Get ready!", icon: "/favicon.svg" },
-    ).catch(() => undefined);
-
-    await this.delayWithHeartbeat(roomId, "countdown", this.options.countdownMs);
+    await timedDelay(roomId, "countdown", COUNTDOWN_MS);
   }
 
-  private async runQuestion(roomId: string, roundNumber: number, io: Server): Promise<CurrentQuestionContext> {
-    const question = await this.selectQuestion(roomId, roundNumber);
-    const roundId = generateId();
-    const startedAtMs = this.options.now();
-    const answers = [question.optionA, question.optionB, question.optionC, question.optionD];
+  private async runQuestion(roomId: string, io: Server, usedQuestionIds: string[]): Promise<void> {
+    let question: QuestionBank;
 
-    await prisma.$transaction([
-      prisma.room.update({
-        where: { id: roomId },
-        data: { status: "QUESTION_ACTIVE", currentRound: roundNumber },
-      }),
-      prisma.round.create({
-        data: {
-          id: roundId,
-          roomId,
-          roundNumber,
-          questionId: question.id,
-          difficulty: question.difficulty,
-          startedAt: new Date(startedAtMs),
-        },
-      }),
-    ]);
-
-    const context: CurrentQuestionContext = {
-      roundId,
-      roundNumber,
-      questionId: question.id,
-      prompt: question.prompt,
-      answers,
-      correctAnswerIndex: question.correctIndex,
-      startedAtMs,
-      timeLimitMs: this.options.questionTimeLimitMs,
-    };
-
-    if (redisService) {
-      await redisService.setJson(`game:${roomId}:current_question`, context, GAME_STATE_TTL_SECONDS);
+    try {
+      question = await this.selectQuestion(usedQuestionIds);
+    } catch (error) {
+      logger.error("No questions available", {
+        roomId,
+        message: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
     }
 
-    emitToRoom(io, roomId, {
+    usedQuestionIds.push(question.id);
+
+    const answers = [question.optionA, question.optionB, question.optionC, question.optionD];
+    const startTs = Date.now();
+    const startedAt = new Date(startTs).toISOString();
+
+    const latestRound = await prisma.round.findFirst({
+      where: { roomId },
+      orderBy: { roundNumber: "desc" },
+      select: { roundNumber: true }
+    });
+    const roundNumber = (latestRound?.roundNumber ?? 0) + 1;
+    const roundId = generateId();
+
+    await prisma.round.create({
+      data: {
+        id: roundId,
+        roomId,
+        roundNumber,
+        questionId: question.id,
+        difficulty: question.difficulty,
+        startedAt: new Date(startTs)
+      }
+    });
+
+    if (redisService) {
+      await redisService.setJson<CurrentQuestionContext>(
+        `game:${roomId}:current_question`,
+        {
+          roundId,
+          questionId: question.id,
+          prompt: question.prompt,
+          answers,
+          correctAnswerIndex: question.correctIndex,
+          startTs,
+          startedAt,
+          timeLimitMs: DEFAULT_TIME_LIMIT_MS
+        },
+        GAME_STATE_TTL_SECONDS
+      );
+    }
+
+    logger.info("Question started", { roomId, roundId, questionId: question.id });
+
+    emitRoomEnvelope(io, roomId, {
       type: "round:question_started",
       version: "v1",
       payload: {
@@ -240,393 +273,291 @@ export class GameOrchestrator {
         questionId: question.id,
         prompt: question.prompt,
         answers,
-        timeLimitMs: context.timeLimitMs,
-        startedAt: new Date(startedAtMs).toISOString(),
-      },
+        timeLimitMs: DEFAULT_TIME_LIMIT_MS,
+        startedAt
+      }
     });
 
-    logger.info("Question started", { roomId, roundId, roundNumber, questionId: question.id });
+    await timedDelay(roomId, "question", DEFAULT_TIME_LIMIT_MS + 500);
 
-    return context;
-  }
+    const lockedAt = new Date().toISOString();
 
-  private async lockRound(roomId: string, roundId: string, io: Server): Promise<void> {
-    const lockedAt = new Date();
-    await prisma.$transaction([
-      prisma.room.update({ where: { id: roomId }, data: { status: "ANSWER_LOCKED" } }),
-      prisma.round.update({ where: { id: roundId }, data: { lockedAt } }),
-    ]);
+    await prisma.round.update({
+      where: { id: roundId },
+      data: { lockedAt: new Date(lockedAt) }
+    });
 
-    emitToRoom(io, roomId, {
+    emitRoomEnvelope(io, roomId, {
       type: "round:answer_locked",
       version: "v1",
-      payload: { roomId, roundId, lockedAt: lockedAt.toISOString() },
+      payload: {
+        roomId,
+        roundId,
+        lockedAt
+      }
     });
   }
 
-  private async runRoundResult(
-    roomId: string,
-    questionContext: CurrentQuestionContext,
-    activePlayerIds: string[],
-    io: Server,
-  ): Promise<void> {
-    await prisma.$transaction([
-      prisma.room.update({ where: { id: roomId }, data: { status: "ROUND_RESULT" } }),
-      prisma.round.update({ where: { id: questionContext.roundId }, data: { resolvedAt: new Date() } }),
-    ]);
+  private async runRoundEnd(roomId: string, io: Server): Promise<void> {
+    const questionContext = redisService
+      ? await redisService.getJson<CurrentQuestionContext>(`game:${roomId}:current_question`)
+      : null;
 
-    const answers = await this.loadStoredAnswers(roomId, questionContext.roundId);
-    const totals = await this.loadTotalScores(roomId, activePlayerIds);
-    const rankings = activePlayerIds
-      .map((playerId) => ({
-        playerId,
-        scoreDelta: answers.get(playerId)?.scoreDelta ?? 0,
-        totalScore: totals.get(playerId) ?? 0,
-      }))
-      .sort((left, right) => right.totalScore - left.totalScore || left.playerId.localeCompare(right.playerId));
+    if (!questionContext) {
+      logger.warn("Skipping round result emit without current question context", { roomId });
+      return;
+    }
 
-    emitToRoom(io, roomId, {
+    const answers = redisService
+      ? await redisService.hgetall(`room:${roomId}:round:${questionContext.roundId}:answers`)
+      : {};
+    const answerRecords = Object.fromEntries(
+      Object.entries(answers).map(([playerId, raw]) => [playerId, JSON.parse(raw) as StoredAnswerRecord])
+    );
+
+    const scoreEntries = redisService
+      ? await redisService.zrevrangeWithScores(`room:${roomId}:scores`, 0, -1)
+      : [];
+
+    const rankings = scoreEntries.map(({ member, score }) => ({
+      playerId: member,
+      scoreDelta: answerRecords[member]?.scoreDelta ?? 0,
+      totalScore: score
+    }));
+
+    logger.info("Round ended", { roomId, roundId: questionContext.roundId });
+
+    emitRoomEnvelope(io, roomId, {
       type: "round:result",
       version: "v1",
       payload: {
         roomId,
         roundId: questionContext.roundId,
         correctAnswerIndex: questionContext.correctAnswerIndex,
-        rankings,
-      },
+        rankings
+      }
     });
 
-    // Loot drops — grant power-ups to bottom 40% of players to keep games competitive
-    const avgScore = rankings.reduce((s, r) => s + r.totalScore, 0) / Math.max(1, rankings.length);
-    const roundNumber = questionContext.roundNumber ?? 0;
-    await Promise.allSettled(
-      rankings.map(async ({ playerId, totalScore }) => {
-        if (!powerUpBalancer.shouldGrantLootAfterRound(roundNumber, totalScore, avgScore)) return;
-        const code = powerUpBalancer.rollLoot(rankings.length);
-        if (!code) return;
-        const powerUp = await prisma.powerUp.findFirst({ where: { code, isActive: true } });
-        if (!powerUp) return;
-        await prisma.playerPowerUp.upsert({
-          where: { userId_powerUpId: { userId: playerId, powerUpId: powerUp.id } },
-          update: { quantity: { increment: 1 } },
-          create: { id: generateId(), userId: playerId, powerUpId: powerUp.id, quantity: 1 },
-        });
-        io.to(playerId).emit("v1:powerup:loot_drop", { roomId, powerupCode: code, ts: Date.now() });
-      })
-    );
+    await prisma.round.updateMany({
+      where: { id: questionContext.roundId, resolvedAt: null },
+      data: { resolvedAt: new Date() }
+    });
 
-    await this.delayWithHeartbeat(roomId, "round_result", this.options.roundResultMs);
+    await timedDelay(roomId, "round_result", ROUND_RESULT_DISPLAY_MS);
   }
 
-  private async applyElimination(
+  private async runElimination(
     roomId: string,
-    roundId: string,
-    activePlayerIds: string[],
-    eliminateCount: number,
     io: Server,
-  ): Promise<string[]> {
-    const shieldedPlayerIds = await powerUpService.getShieldedPlayers(roomId);
-    const standings = await this.loadStandings(roomId, roundId, activePlayerIds);
-    const result = eliminateBottomN(standings, {
-      eliminateCount,
-      minimumSurvivors: 2,
-      protectedPlayerIds: shieldedPlayerIds,
-    });
-    const eliminatedPlayerIds = result.eliminated.map((standing) => standing.playerId);
+    eliminatedIds: string[],
+    survivors: PlayerStanding[]
+  ): Promise<void> {
+    logger.info("Elimination phase", { roomId, eliminatedIds });
 
-    if (eliminatedPlayerIds.length === 0) {
-      return [];
-    }
+    const survivorIds = survivors.map((survivor) => survivor.playerId);
+    const survivorRows = survivorIds.length
+      ? await prisma.roomPlayer.findMany({
+          where: {
+            roomId,
+            userId: { in: survivorIds }
+          },
+          include: {
+            user: {
+              select: {
+                id: true,
+                displayName: true,
+                avatarUrl: true
+              }
+            }
+          }
+        })
+      : [];
 
-    await prisma.roomPlayer.updateMany({
-      where: { roomId, userId: { in: eliminatedPlayerIds } },
-      data: { isEliminated: true, eliminatedAt: new Date() },
-    });
+    const survivorScoreMap = new Map(
+      survivors.map((survivor) => [survivor.playerId, survivor.totalScore ?? survivor.roundScore])
+    );
+    const survivorById = new Map(survivorRows.map((row) => [row.userId, row]));
 
-    if (redisService) {
-      await redisService.srem(`room:${roomId}:players`, ...eliminatedPlayerIds);
-      await Promise.all(shieldedPlayerIds.map((playerId) => powerUpService.consumeShield(roomId, playerId)));
-    }
+    const survivorSummaries = survivorIds.reduce<PlayerSummary[]>((result, playerId) => {
+      const row = survivorById.get(playerId);
 
-    await prisma.room.update({ where: { id: roomId }, data: { status: "ELIMINATION" } });
-    const survivors = await this.loadSurvivorSummaries(roomId);
+      if (!row) {
+        return result;
+      }
 
-    emitToRoom(io, roomId, {
+      result.push({
+        id: row.userId,
+        displayName: row.user.displayName,
+        avatarUrl: row.user.avatarUrl ?? undefined,
+        score: survivorScoreMap.get(playerId) ?? row.score,
+        streak: row.streak,
+        isEliminated: false
+      });
+
+      return result;
+    }, []);
+
+    emitRoomEnvelope(io, roomId, {
       type: "round:elimination",
       version: "v1",
       payload: {
         roomId,
-        eliminatedPlayerIds,
-        survivors,
-      },
+        eliminatedPlayerIds: eliminatedIds,
+        survivors: survivorSummaries
+      }
     });
 
-    await this.delayWithHeartbeat(roomId, "elimination", this.options.eliminationMs);
-
-    return eliminatedPlayerIds;
+    await timedDelay(roomId, "elimination", ELIMINATION_DISPLAY_MS);
   }
 
-  private async completeGame(roomId: string, winnerId: string | null, io: Server): Promise<void> {
-    const allPlayers = await prisma.roomPlayer.findMany({
-      where: { roomId },
-      select: { userId: true, score: true },
+  private async runFinale(
+    roomId: string,
+    io: Server,
+    state: GameStateSnapshot,
+    usedQuestionIds: string[]
+  ): Promise<void> {
+    logger.info("Finale started", { roomId, finalists: state.finalists });
+
+    emitRoomEnvelope(io, roomId, {
+      type: "round:finale_started",
+      version: "v1",
+      payload: {
+        roomId,
+        finalistIds: [...state.finalists]
+      }
     });
-    const scoreMap = await this.loadTotalScores(
-      roomId,
-      allPlayers.map((player) => player.userId),
+
+    await this.runQuestion(roomId, io, usedQuestionIds);
+    await this.runRoundEnd(roomId, io);
+  }
+
+  private async runGameOver(
+    roomId: string,
+    io: Server,
+    winnerIds: string[],
+    finalistIds: string[]
+  ): Promise<void> {
+    logger.info("Game over", { roomId, winnerIds });
+
+    const finalScores = await this.loadScores(roomId, finalistIds);
+    const finalStandings = finalScores
+      .sort((left, right) =>
+        (right.totalScore ?? right.roundScore) - (left.totalScore ?? left.roundScore) ||
+        left.playerId.localeCompare(right.playerId)
+      )
+      .map((standing, index) => {
+        const score = standing.totalScore ?? standing.roundScore;
+
+        return {
+          playerId: standing.playerId,
+          rank: index + 1,
+          score,
+          xpAwarded: Math.max(10, Math.round(score / 10))
+        };
+      });
+
+    await Promise.all(
+      finalStandings.map((standing) =>
+        prisma.xpEvent.create({
+          data: {
+            id: generateId(),
+            userId: standing.playerId,
+            reason: "GAME_FINISH",
+            amount: standing.xpAwarded,
+            metadata: { roomId, rank: standing.rank }
+          }
+        })
+      )
     );
 
-    const ranked = allPlayers
-      .map((player) => ({
-        playerId: player.userId,
-        score: scoreMap.get(player.userId) ?? player.score,
-      }))
-      .sort((left, right) => right.score - left.score || left.playerId.localeCompare(right.playerId))
-      .map((standing, index) => ({ ...standing, rank: index + 1 }));
+    await prisma.room.update({
+      where: { id: roomId },
+      data: { status: "GAME_OVER", finishedAt: new Date() }
+    });
 
-    await prisma.room.update({ where: { id: roomId }, data: { status: "GAME_OVER", finishedAt: new Date() } });
-
-    // Award XP and detect level-ups (XpService writes XpEvent rows)
-    const xpResults = await awardMatchXp(
-      roomId,
-      ranked.map((s) => ({ playerId: s.playerId, rank: s.rank, totalPlayers: ranked.length, score: s.score })),
-    );
-    const xpByPlayer = new Map(xpResults.map((r) => [r.playerId, r]));
-
-    const finalStandings = ranked.map((s) => ({
-      ...s,
-      xpAwarded: xpByPlayer.get(s.playerId)?.xpAwarded ?? 0,
-    }));
-
-    // Upsert season standings
-    const room = await prisma.room.findUnique({ where: { id: roomId }, select: { seasonId: true } });
-    if (room?.seasonId) {
-      const MMR_DELTAS = [30, 20, 10];
-      await Promise.allSettled(
-        finalStandings.map((s) =>
-          prisma.seasonScore.upsert({
-            where: { seasonId_userId: { seasonId: room.seasonId!, userId: s.playerId } },
-            update: {
-              mmr: { increment: MMR_DELTAS[s.rank - 1] ?? 0 },
-              wins: s.rank === 1 ? { increment: 1 } : undefined,
-              gamesPlayed: { increment: 1 },
-            },
-            create: {
-              id: generateId(),
-              seasonId: room.seasonId!,
-              userId: s.playerId,
-              mmr: 1000 + (MMR_DELTAS[s.rank - 1] ?? 0),
-              wins: s.rank === 1 ? 1 : 0,
-              gamesPlayed: 1,
-            },
-          }),
-        ),
-      );
-    }
-
-    emitToRoom(io, roomId, {
+    emitRoomEnvelope(io, roomId, {
       type: "game:over",
       version: "v1",
-      payload: { roomId, winnerId: winnerId ?? "", finalStandings },
+      payload: {
+        roomId,
+        winnerId: winnerIds[0] ?? finalStandings[0]?.playerId ?? "",
+        finalStandings
+      }
     });
 
-    // Emit level-up events to individual players
-    for (const xp of xpResults) {
-      if (xp.didLevelUp) {
-        io.to(xp.playerId).emit("message", {
-          type: "player:level_up",
-          version: "v1",
-          payload: {
-            playerId: xp.playerId,
-            newLevel: xp.newLevel,
-            xp: xp.totalXp,
-            xpToNextLevel: xp.xpToNextLevel,
-          },
-        });
-      }
-    }
-
     if (redisService) {
-      await redisService.del(`game:${roomId}:state`, `game:${roomId}:current_question`);
+      await redisService.del(
+        `game:${roomId}:state`,
+        `game:${roomId}:current_question`,
+        `room:${roomId}:players`,
+        `room:${roomId}:scores`
+      );
     }
   }
 
-  private async selectQuestion(roomId: string, roundNumber: number): Promise<QuestionBank> {
-    const usedQuestionIds = this.usedQuestionIdsByRoom.get(roomId) ?? new Set<string>();
-    this.usedQuestionIdsByRoom.set(roomId, usedQuestionIds);
-
-    const questions = await prisma.questionBank.findMany({
+  private async selectQuestion(usedIds: string[]): Promise<QuestionBank> {
+    const question = await prisma.questionBank.findFirst({
       where: {
         isActive: true,
-        id: usedQuestionIds.size > 0 ? { notIn: [...usedQuestionIds] } : undefined,
+        id: { notIn: usedIds.length > 0 ? usedIds : undefined }
       },
-      orderBy: [{ lastUsedAt: "asc" }, { id: "asc" }],
-      take: 100,
+      orderBy: [{ lastUsedAt: "asc" }, { id: "asc" }]
     });
-    let pool = questions.length > 0 ? questions : await prisma.questionBank.findMany({ where: { isActive: true } });
 
-    if (pool.length === 0) {
-      const fallback: QuestionBank[] = [
-        { id: "fallback-1", prompt: "What is the capital of France?", optionA: "Berlin", optionB: "Madrid", optionC: "Paris", optionD: "Rome", correctIndex: 2, category: "Geography", difficulty: Difficulty.EASY, lastUsedAt: null, isActive: true, createdAt: new Date() },
-        { id: "fallback-2", prompt: "Which planet is the Red Planet?", optionA: "Jupiter", optionB: "Venus", optionC: "Saturn", optionD: "Mars", correctIndex: 3, category: "Science", difficulty: Difficulty.EASY, lastUsedAt: null, isActive: true, createdAt: new Date() },
-        { id: "fallback-3", prompt: "What is the chemical symbol for gold?", optionA: "Go", optionB: "Gd", optionC: "Au", optionD: "Ag", correctIndex: 2, category: "Science", difficulty: Difficulty.MEDIUM, lastUsedAt: null, isActive: true, createdAt: new Date() },
-        { id: "fallback-4", prompt: "Who painted the Mona Lisa?", optionA: "Michelangelo", optionB: "Leonardo da Vinci", optionC: "Raphael", optionD: "Botticelli", correctIndex: 1, category: "Art", difficulty: Difficulty.EASY, lastUsedAt: null, isActive: true, createdAt: new Date() },
-        { id: "fallback-5", prompt: "What is the square root of 144?", optionA: "11", optionB: "12", optionC: "13", optionD: "14", correctIndex: 1, category: "Math", difficulty: Difficulty.EASY, lastUsedAt: null, isActive: true, createdAt: new Date() },
-        { id: "fallback-6", prompt: "What is the largest ocean on Earth?", optionA: "Atlantic", optionB: "Indian", optionC: "Arctic", optionD: "Pacific", correctIndex: 3, category: "Geography", difficulty: Difficulty.EASY, lastUsedAt: null, isActive: true, createdAt: new Date() },
-        { id: "fallback-7", prompt: "In which year did the Berlin Wall fall?", optionA: "1985", optionB: "1989", optionC: "1991", optionD: "1993", correctIndex: 1, category: "History", difficulty: Difficulty.MEDIUM, lastUsedAt: null, isActive: true, createdAt: new Date() },
-        { id: "fallback-8", prompt: "Who wrote 'To Kill a Mockingbird'?", optionA: "Harper Lee", optionB: "J.K. Rowling", optionC: "Hemingway", optionD: "Twain", correctIndex: 0, category: "Literature", difficulty: Difficulty.MEDIUM, lastUsedAt: null, isActive: true, createdAt: new Date() },
-        { id: "fallback-9", prompt: "Speed of light in a vacuum (km/s)?", optionA: "150,000", optionB: "200,000", optionC: "299,792", optionD: "340", correctIndex: 2, category: "Science", difficulty: Difficulty.HARD, lastUsedAt: null, isActive: true, createdAt: new Date() },
-        { id: "fallback-10", prompt: "Which element has atomic number 79?", optionA: "Silver", optionB: "Platinum", optionC: "Copper", optionD: "Gold", correctIndex: 3, category: "Science", difficulty: Difficulty.HARD, lastUsedAt: null, isActive: true, createdAt: new Date() },
-      ];
-      const unused = fallback.filter((q) => !usedQuestionIds.has(q.id));
-      pool = unused.length > 0 ? unused : fallback;
-      const pick = pool[Math.floor(Math.random() * pool.length)];
-      usedQuestionIds.add(pick.id);
-      logger.warn("No questions in DB — using hardcoded fallback", { roomId, questionId: pick.id });
-      return pick;
-    }
-
-    const byId = new Map(pool.map((question) => [question.id, question]));
-    const selected = selectQuestion(
-      pool.map((question) => ({
-        id: question.id,
-        difficulty: toGameDifficulty(question.difficulty),
-        lastUsedAtMs: question.lastUsedAt?.getTime() ?? null,
-      })),
-      {
-        round: roundNumber,
-        question: 1,
-        totalRounds: 10,
-        questionsPerRound: 1,
-        nowMs: this.options.now(),
-      },
-    );
-
-    const question = byId.get(selected.question.id);
     if (!question) {
-      throw new Error("Selected question was not found in query result");
+      throw new Error("No available questions in the bank");
     }
 
-    usedQuestionIds.add(question.id);
-    await prisma.questionBank.update({ where: { id: question.id }, data: { lastUsedAt: new Date() } });
+    await prisma.questionBank.update({
+      where: { id: question.id },
+      data: { lastUsedAt: new Date() }
+    });
 
     return question;
   }
 
-  private async loadStoredAnswers(roomId: string, roundId: string): Promise<Map<string, StoredAnswer>> {
+  private async loadScores(roomId: string, playerIds: string[]): Promise<PlayerStanding[]> {
     if (!redisService) {
-      const answers = await prisma.answer.findMany({ where: { roundId } });
-      return new Map(
-        answers.map((answer) => [
-          answer.userId,
-          {
-            scoreDelta: answer.isCorrect ? 0 : 0,
-            answerTimeMs: answer.answerTimeMs,
-            isCorrect: answer.isCorrect,
-          },
-        ]),
-      );
-    }
-
-    const raw = await redisService.hgetall(`room:${roomId}:round:${roundId}:answers`);
-    return new Map(
-      Object.entries(raw).map(([playerId, value]) => [playerId, JSON.parse(value) as StoredAnswer]),
-    );
-  }
-
-  private async loadStandings(roomId: string, roundId: string, playerIds: string[]): Promise<PlayerStanding[]> {
-    const answers = await this.loadStoredAnswers(roomId, roundId);
-    const totals = await this.loadTotalScores(roomId, playerIds);
-
-    return playerIds.map((playerId) => ({
-      playerId,
-      roundScore: answers.get(playerId)?.scoreDelta ?? 0,
-      totalScore: totals.get(playerId) ?? 0,
-      answerTimeMs: answers.get(playerId)?.answerTimeMs ?? null,
-    }));
-  }
-
-  private async loadTotalScores(roomId: string, playerIds: string[]): Promise<Map<string, number>> {
-    if (!redisService) {
-      const players = await prisma.roomPlayer.findMany({
-        where: { roomId, userId: { in: playerIds } },
-        select: { userId: true, score: true },
-      });
-      return new Map(players.map((player) => [player.userId, player.score]));
+      return playerIds.map((playerId) => ({ playerId, roundScore: 0, totalScore: 0 }));
     }
 
     const entries = await redisService.zrevrangeWithScores(`room:${roomId}:scores`, 0, -1);
-    const scores = new Map(entries.map((entry) => [entry.member, entry.score]));
-    for (const playerId of playerIds) {
-      if (!scores.has(playerId)) {
-        scores.set(playerId, 0);
-      }
-    }
-    return scores;
-  }
+    const scoreMap = Object.fromEntries(entries.map(({ member, score }) => [member, score]));
 
-  private async loadSurvivorSummaries(roomId: string): Promise<PlayerSummary[]> {
-    const players = await prisma.roomPlayer.findMany({
-      where: { roomId, isEliminated: false },
-      include: { user: { select: { displayName: true, avatarUrl: true } } },
-      orderBy: [{ score: "desc" }, { seatIndex: "asc" }],
-    });
-
-    return players.map((player) => ({
-      id: player.userId,
-      displayName: player.user.displayName,
-      avatarUrl: player.user.avatarUrl ?? undefined,
-      score: player.score,
-      streak: player.streak,
-      isEliminated: player.isEliminated,
+    return playerIds.map((playerId) => ({
+      playerId,
+      roundScore: scoreMap[playerId] ?? 0,
+      totalScore: scoreMap[playerId] ?? 0
     }));
   }
 
-  private async computeWinner(roomId: string, activePlayerIds: string[]): Promise<string | null> {
-    if (activePlayerIds.length === 0) {
-      return null;
-    }
-
-    const scores = await this.loadTotalScores(roomId, activePlayerIds);
-    return activePlayerIds
-      .slice()
-      .sort((left, right) => (scores.get(right) ?? 0) - (scores.get(left) ?? 0) || left.localeCompare(right))[0];
+  private computeEliminationCount(playersRemaining: number): number {
+    return Math.max(1, Math.floor(playersRemaining * 0.2));
   }
 
-  private async seedGameState(roomId: string, playerIds: string[], state: GameStateSnapshot): Promise<void> {
-    const redis = redisService;
-    if (redis) {
-      await Promise.all([
-        redis.sadd(`room:${roomId}:players`, ...playerIds),
-        ...playerIds.map((playerId) => redis.zadd(`room:${roomId}:scores`, 0, playerId)),
-      ]);
+  private async computeWinners(roomId: string, finalistIds: string[]): Promise<string[]> {
+    if (finalistIds.length === 0) {
+      return finalistIds.slice(0, 1);
     }
-    await this.persistState(roomId, state);
+
+    const finalistScores = await this.loadScores(roomId, finalistIds);
+    const highestScore = Math.max(
+      ...finalistScores.map((standing) => standing.totalScore ?? standing.roundScore)
+    );
+
+    return finalistScores
+      .filter((standing) => (standing.totalScore ?? standing.roundScore) === highestScore)
+      .sort((left, right) => left.playerId.localeCompare(right.playerId))
+      .map((standing) => standing.playerId);
   }
 
   private async persistState(roomId: string, state: GameStateSnapshot): Promise<void> {
-    if (redisService) {
-      await redisService.setJson(`game:${roomId}:state`, state, GAME_STATE_TTL_SECONDS);
+    if (!redisService) {
+      return;
     }
+
+    await redisService.setJson(`game:${roomId}:state`, state, GAME_STATE_TTL_SECONDS);
   }
-
-  private async delayWithHeartbeat(roomId: string, label: string, durationMs: number): Promise<void> {
-    if (redisService) {
-      await redisService.set(`game:${roomId}:heartbeat:${label}`, "1", HEARTBEAT_TTL_SECONDS);
-    }
-    await this.options.delay(durationMs);
-    if (redisService) {
-      await redisService.set(`game:${roomId}:heartbeat:${label}`, "1", HEARTBEAT_TTL_SECONDS);
-    }
-  }
-}
-
-function emitToRoom(io: Server, roomId: string, event: ServerEvents): void {
-  io.to(roomId).emit("message", event);
-}
-
-function toGameDifficulty(difficulty: Difficulty): QuestionDifficulty {
-  return difficulty.toLowerCase() as QuestionDifficulty;
 }
 
 export const gameOrchestrator = new GameOrchestrator();

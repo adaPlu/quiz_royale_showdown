@@ -1,141 +1,202 @@
-import { Router } from "express";
 import bcrypt from "bcrypt";
-import jwt from "jsonwebtoken";
+import { Prisma } from "@prisma/client";
+import { Router } from "express";
 import { z } from "zod";
 
-import { env } from "../config/env";
+import { requireAuth } from "../middleware/auth";
+import { validate } from "../middleware/validate";
 import { prisma } from "../models/prismaClient";
-import { grantStarterPowerUps } from "../services/PowerUpService";
+import {
+  findUserById,
+  issueTokenPair,
+  revokeRefreshToken,
+  rotateRefreshToken
+} from "../services/AuthService";
+import { ConflictError, UnauthorizedError } from "../utils/errors";
 import { generateId } from "../utils/ulid";
+import { logger } from "../utils/logger";
 
-const registerSchema = z.object({
-  email: z.string().email(),
-  displayName: z.string().min(3).max(24),
-  password: z.string().min(8).max(72)
-});
+const BCRYPT_ROUNDS = 12;
+
+const registerSchema = z
+  .object({
+    email: z.string().email(),
+    username: z
+      .string()
+      .trim()
+      .min(3)
+      .max(24)
+      .regex(/^\w+$/, "username must be alphanumeric")
+      .optional(),
+    displayName: z.string().trim().min(1).max(40).optional(),
+    password: z.string().min(8).max(72)
+  })
+  .refine((value) => Boolean(value.displayName ?? value.username), {
+    message: "displayName or username is required",
+    path: ["displayName"]
+  });
 
 const loginSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(8).max(72)
+  password: z.string().min(1)
 });
 
 const refreshSchema = z.object({
   refreshToken: z.string().min(20)
 });
 
-const buildTokens = (user: { id: string; email: string; displayName: string }) => {
-  const claims = {
-    sub: user.id,
-    email: user.email,
-    displayName: user.displayName
-  };
-  const accessTtl = env.jwtAccessTtl as jwt.SignOptions["expiresIn"];
-  const refreshTtl = env.jwtRefreshTtl as jwt.SignOptions["expiresIn"];
-
-  return {
-    accessToken: jwt.sign(claims, env.jwtAccessSecret, { expiresIn: accessTtl }),
-    refreshToken: jwt.sign(claims, env.jwtRefreshSecret, { expiresIn: refreshTtl })
-  };
-};
-
 export const authRouter = Router();
 
-authRouter.post("/register", async (req, res) => {
-  const parsed = registerSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid registration payload", issues: parsed.error.flatten() });
-  }
+function isUniqueConstraintError(error: unknown): error is Prisma.PrismaClientKnownRequestError {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
 
-  try {
-    const normalizedEmail = parsed.data.email.toLowerCase().trim();
-    const existing = await prisma.user.findUnique({
-      where: { email: normalizedEmail },
-      select: { id: true },
-    });
-    if (existing) {
-      return res.status(409).json({ error: "Email already registered" });
-    }
-
-    const passwordHash = await bcrypt.hash(parsed.data.password, 10);
-    const user = await prisma.$transaction(async (tx) => {
-      const createdUser = await tx.user.create({
-        data: {
-          id: generateId(),
-          email: normalizedEmail,
-          displayName: parsed.data.displayName,
-          passwordHash,
-        },
-        select: { id: true, email: true, displayName: true },
-      });
-
-      await grantStarterPowerUps(createdUser.id, tx);
-      return createdUser;
-    });
-
-    return res.status(201).json({
-      user: {
-        id: user.id,
-        email: user.email,
-        displayName: user.displayName
-      },
-      tokens: buildTokens(user)
-    });
-  } catch (error) {
-    return res.status(500).json({ error: "Registration failed" });
-  }
-});
-
-authRouter.post("/login", async (req, res) => {
-  const parsed = loginSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid login payload", issues: parsed.error.flatten() });
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { email: parsed.data.email.toLowerCase().trim() },
-    select: { id: true, email: true, displayName: true, passwordHash: true },
-  });
-  if (!user) {
-    await bcrypt.compare(parsed.data.password, "$2b$10$invalidhashpadding00000000000000000000000000000");
-    return res.status(401).json({ error: "Invalid credentials" });
-  }
-
-  const matches = await bcrypt.compare(parsed.data.password, user.passwordHash);
-  if (!matches) {
-    return res.status(401).json({ error: "Invalid credentials" });
-  }
-
-  return res.json({
+function formatAuthPayload(
+  user: { id: string; email: string; displayName: string },
+  tokens: { accessToken: string; refreshToken: string }
+) {
+  return {
     user: {
       id: user.id,
       email: user.email,
       displayName: user.displayName
     },
-    tokens: buildTokens(user)
-  });
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken
+  };
+}
+
+authRouter.post("/register", validate({ body: registerSchema }), async (req, res, next) => {
+  try {
+    const { email, username, displayName, password } = req.body as z.infer<typeof registerSchema>;
+    const normalizedEmail = email.toLowerCase().trim();
+    const resolvedDisplayName = displayName?.trim() || username?.trim();
+
+    if (!resolvedDisplayName) {
+      throw new ConflictError("displayName or username is required");
+    }
+
+    const existingUser = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      select: { id: true }
+    });
+
+    if (existingUser) {
+      throw new ConflictError("Email is already taken");
+    }
+
+    const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+    const user = await prisma.user.create({
+      data: {
+        id: generateId(),
+        email: normalizedEmail,
+        displayName: resolvedDisplayName,
+        passwordHash
+      },
+      select: {
+        id: true,
+        email: true,
+        displayName: true
+      }
+    });
+
+    const tokens = await issueTokenPair(user);
+
+    logger.info("User registered", { userId: user.id });
+
+    res.status(201).json(formatAuthPayload(user, tokens));
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      next(new ConflictError("Email is already taken"));
+      return;
+    }
+
+    next(error);
+  }
 });
 
-authRouter.post("/refresh", (req, res) => {
-  const parsed = refreshSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid refresh payload", issues: parsed.error.flatten() });
-  }
-
+authRouter.post("/login", validate({ body: loginSchema }), async (req, res, next) => {
   try {
-    const claims = jwt.verify(parsed.data.refreshToken, env.jwtRefreshSecret) as {
-      sub: string;
-      email: string;
-      displayName: string;
-    };
+    const { email, password } = req.body as z.infer<typeof loginSchema>;
+    const normalizedEmail = email.toLowerCase().trim();
 
-    return res.json({
-      tokens: buildTokens({
-        id: claims.sub,
-        email: claims.email,
-        displayName: claims.displayName
-      })
+    const user = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      select: {
+        id: true,
+        email: true,
+        displayName: true,
+        passwordHash: true
+      }
     });
-  } catch {
-    return res.status(401).json({ error: "Refresh token expired or invalid" });
+
+    if (!user) {
+      await bcrypt.hash(password, BCRYPT_ROUNDS);
+      throw new UnauthorizedError("Invalid credentials");
+    }
+
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) {
+      throw new UnauthorizedError("Invalid credentials");
+    }
+
+    const tokens = await issueTokenPair({
+      id: user.id,
+      email: user.email,
+      displayName: user.displayName
+    });
+
+    logger.info("User logged in", { userId: user.id });
+
+    res.json(formatAuthPayload(user, tokens));
+  } catch (error) {
+    next(error);
+  }
+});
+
+authRouter.post("/refresh", validate({ body: refreshSchema }), async (req, res, next) => {
+  try {
+    const { refreshToken } = req.body as z.infer<typeof refreshSchema>;
+    const tokens = await rotateRefreshToken(refreshToken);
+
+    logger.info("Tokens refreshed");
+
+    res.json({
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+authRouter.post("/logout", validate({ body: refreshSchema }), async (req, res, next) => {
+  try {
+    const { refreshToken } = req.body as z.infer<typeof refreshSchema>;
+
+    await revokeRefreshToken(refreshToken);
+
+    res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+});
+
+authRouter.get("/me", requireAuth, async (req, res, next) => {
+  try {
+    const userId = req.jwtClaims?.sub;
+
+    if (!userId) {
+      throw new UnauthorizedError("Missing authenticated user");
+    }
+
+    const user = await findUserById(userId);
+    if (!user) {
+      throw new UnauthorizedError("User not found");
+    }
+
+    res.json({ user });
+  } catch (error) {
+    next(error);
   }
 });

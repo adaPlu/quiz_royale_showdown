@@ -2,363 +2,467 @@ package com.quizroyale.showdown.ui.game
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.quizroyale.showdown.data.game.FinalStanding
-import com.quizroyale.showdown.data.game.GameEvent
-import com.quizroyale.showdown.data.game.GameRepository
-import com.quizroyale.showdown.data.game.RoomSnapshot
-import com.quizroyale.showdown.data.game.ScoreRanking
-import com.quizroyale.showdown.domain.model.GamePlayer
+import com.quizroyale.showdown.BuildConfig
+import com.quizroyale.showdown.data.auth.AuthRepository
+import com.quizroyale.showdown.data.socket.WebSocketManager
 import com.quizroyale.showdown.domain.model.PowerupType
 import dagger.hilt.android.lifecycle.HiltViewModel
-import java.time.Duration
-import java.time.Instant
 import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
+
+// ── Power-up inventory (keyed by PowerupType) ─────────────────────────────────
+private typealias PowerupInventory = MutableMap<PowerupType, Int>
+
+// ── Intent ────────────────────────────────────────────────────────────────────
 
 sealed class GameIntent {
-  data class JoinRoom(val roomCode: String) : GameIntent()
-  data class SubmitAnswer(val answerIndex: Int) : GameIntent()
-  data class UsePowerup(val type: PowerupType, val targetPlayerId: String? = null) : GameIntent()
+    data class JoinRoom(val roomCode: String) : GameIntent()
+    data class SubmitAnswer(val optionIndex: Int) : GameIntent()
+    data class UsePowerup(val type: PowerupType) : GameIntent()
 }
+
+// ── ViewModel ─────────────────────────────────────────────────────────────────
 
 @HiltViewModel
 class GameViewModel @Inject constructor(
-  private val gameRepository: GameRepository
+    private val authRepository: AuthRepository,
+    private val webSocketManager: WebSocketManager,
 ) : ViewModel() {
-  private val _uiState = MutableStateFlow<GameUiState>(GameUiState.Idle)
-  val uiState: GameUiState get() = _uiState.value
-  val uiStateFlow: StateFlow<GameUiState> = _uiState.asStateFlow()
 
-  private val _sideEffects = Channel<GameSideEffect>(Channel.BUFFERED)
-  val sideEffects = _sideEffects.receiveAsFlow()
+    private val _uiState = MutableStateFlow<GameUiState>(GameUiState.Idle)
+    val uiState: GameUiState get() = _uiState.value
+    val uiStateFlow: StateFlow<GameUiState> = _uiState.asStateFlow()
 
-  private var timerJob: Job? = null
-  private var heartbeatJob: Job? = null
+    private val _sideEffects = Channel<GameSideEffect>(Channel.BUFFERED)
+    val sideEffects = _sideEffects.receiveAsFlow()
 
-  init {
-    observeGameEvents()
-  }
-
-  fun onIntent(intent: GameIntent) {
-    when (intent) {
-      is GameIntent.JoinRoom -> joinRoom(intent.roomCode)
-      is GameIntent.SubmitAnswer -> submitAnswer(intent.answerIndex)
-      is GameIntent.UsePowerup -> usePowerup(intent.type, intent.targetPlayerId)
-    }
-  }
-
-  fun joinRoom(roomCode: String) {
-    val joined = gameRepository.joinRoom(roomCode)
-    if (joined) {
-      _uiState.value = GameUiState.Lobby(roomId = roomCode, roomCode = roomCode)
-      startHeartbeat(roomCode)
-    } else {
-      _sideEffects.trySend(GameSideEffect.ShowToast("Sign in required before joining a room."))
-    }
-  }
-
-  fun submitAnswer(answerIndex: Int) {
-    val state = _uiState.value as? GameUiState.ActiveQuestion ?: return
-    if (state.isAnswerLocked) return
-
-    _uiState.value = state.copy(selectedAnswerIndex = answerIndex)
-    gameRepository.submitAnswer(
-      roomId = state.roomId,
-      questionId = state.questionId,
-      answerIndex = answerIndex
-    )
-  }
-
-  fun usePowerup(type: PowerupType, targetPlayerId: String? = null) {
-    val state = _uiState.value as? GameUiState.ActiveQuestion ?: return
-    gameRepository.activatePowerup(
-      roomId = state.roomId,
-      powerUpId = type.name,
-      targetPlayerId = targetPlayerId
-    )
-  }
-
-  private fun observeGameEvents() {
-    viewModelScope.launch {
-      gameRepository.events.collect { event ->
-        when (event) {
-          is GameEvent.RoomState -> handleRoomState(event.room)
-          is GameEvent.PlayerJoined -> updatePlayers(event.roomId) { players ->
-            (players.filterNot { it.id == event.player.id } + event.player.toUiModel())
-              .sortedByDescending { it.score }
-          }
-          is GameEvent.PlayerLeft -> updatePlayers(event.roomId) { players ->
-            players.filterNot { it.id == event.playerId }
-          }
-          is GameEvent.CountdownStarted -> handleCountdown(event)
-          is GameEvent.QuestionStarted -> handleQuestion(event)
-          is GameEvent.AnswerLocked -> handleAnswerLocked(event)
-          is GameEvent.RoundResult -> handleRoundResult(event)
-          is GameEvent.RoundElimination -> handleElimination(event)
-          is GameEvent.FinaleStarted -> handleFinale(event)
-          is GameEvent.GameOver -> handleGameOver(event)
-          is GameEvent.PowerupActivated -> {
-            _sideEffects.trySend(GameSideEffect.PlayPowerup)
-            _sideEffects.trySend(GameSideEffect.ShowToast("Power-up: ${event.powerupId}"))
-          }
-          is GameEvent.LootDrop -> {
-            _sideEffects.trySend(GameSideEffect.ShowLootDrop(event.powerupCode))
-          }
-          is GameEvent.LevelUp -> {
-            _sideEffects.trySend(GameSideEffect.ShowLevelUp(event.newLevel))
-          }
-          is GameEvent.ServerError -> _sideEffects.trySend(GameSideEffect.ShowToast(event.message))
+    val isReconnecting: StateFlow<Boolean> = webSocketManager.isConnected
+        .map { connected ->
+            val state = _uiState.value
+            !connected && state !is GameUiState.Idle && state !is GameUiState.GameOver
         }
-      }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    private var timerJob: Job? = null
+
+    /** Persistent inventory that survives across rounds; updated by loot drop events. */
+    private val powerupInventory: PowerupInventory = mutableMapOf()
+
+    /** Set of powerup types used in the current round — cleared on each new question. */
+    private val usedThisRound: MutableSet<PowerupType> = mutableSetOf()
+
+    init {
+        observeWsEvents()
     }
-  }
 
-  private fun handleRoomState(room: RoomSnapshot) {
-    val players = room.players.map { it.toUiModel() }
-    _uiState.value = GameUiState.Lobby(
-      roomId = room.roomId,
-      roomCode = room.code,
-      players = players,
-      phaseLabel = room.phase
-    )
-    if (room.roomId.isNotBlank()) {
-      startHeartbeat(room.roomId)
+    // ── Public API ─────────────────────────────────────────────────────────────
+
+    fun onIntent(intent: GameIntent) {
+        when (intent) {
+            is GameIntent.JoinRoom -> joinRoom(intent.roomCode)
+            is GameIntent.SubmitAnswer -> submitAnswer(intent.optionIndex)
+            is GameIntent.UsePowerup -> usePowerup(intent.type)
+        }
     }
-  }
 
-  private fun handleCountdown(event: GameEvent.CountdownStarted) {
-    timerJob?.cancel()
-    _uiState.value = GameUiState.Countdown(
-      roomId = event.roomId,
-      seconds = event.seconds,
-      players = currentPlayers()
-    )
-    startCountdown(event.seconds) { remaining ->
-      val current = _uiState.value
-      if (current is GameUiState.Countdown) {
-        _uiState.value = current.copy(seconds = remaining)
-      }
-    }
-  }
-
-  private fun handleQuestion(event: GameEvent.QuestionStarted) {
-    val remainingSeconds = remainingSeconds(event.startedAt, event.timeLimitMs)
-    _uiState.value = GameUiState.ActiveQuestion(
-      roomId = event.roomId,
-      roundId = event.roundId,
-      questionId = event.questionId,
-      prompt = event.prompt,
-      answers = event.answers,
-      timeLimitMs = event.timeLimitMs,
-      timerSeconds = remainingSeconds,
-      players = currentPlayers(),
-      phaseLabel = "QUESTION_ACTIVE"
-    )
-    startCountdown(remainingSeconds) { remaining ->
-      val current = _uiState.value
-      if (current is GameUiState.ActiveQuestion) {
-        _uiState.value = current.copy(timerSeconds = remaining)
-      }
-    }
-  }
-
-  private fun handleAnswerLocked(event: GameEvent.AnswerLocked) {
-    timerJob?.cancel()
-    val current = _uiState.value
-    if (current is GameUiState.ActiveQuestion && matchesRoom(current.roomId, event.roomId)) {
-      _uiState.value = current.copy(isAnswerLocked = true, phaseLabel = "ANSWER_LOCKED")
-      _sideEffects.trySend(GameSideEffect.HapticFeedback)
-    }
-  }
-
-  private fun handleRoundResult(event: GameEvent.RoundResult) {
-    timerJob?.cancel()
-    val players = applyRankings(currentPlayers(), event.rankings)
-    _uiState.value = GameUiState.RoundResult(
-      roomId = event.roomId,
-      summary = if (event.correctAnswerIndex >= 0) {
-        "Correct answer: ${event.correctAnswerIndex + 1}"
-      } else {
-        "Round complete."
-      },
-      players = players,
-      correctAnswerIndex = event.correctAnswerIndex.takeIf { it >= 0 }
-    )
-  }
-
-  private fun handleElimination(event: GameEvent.RoundElimination) {
-    val survivorsById = event.survivors.associateBy { it.id }
-    val players = currentPlayers().map { player ->
-      val survivor = survivorsById[player.id]?.toUiModel()
-      survivor ?: player.copy(isEliminated = player.id in event.eliminatedPlayerIds)
-    }
-    _uiState.value = GameUiState.Elimination(
-      roomId = event.roomId,
-      eliminatedPlayerIds = event.eliminatedPlayerIds,
-      players = players
-    )
-  }
-
-  private fun handleFinale(event: GameEvent.FinaleStarted) {
-    _uiState.value = GameUiState.Finale(
-      roomId = event.roomId,
-      finalistIds = event.finalistIds,
-      players = currentPlayers()
-    )
-  }
-
-  private fun handleGameOver(event: GameEvent.GameOver) {
-    timerJob?.cancel()
-    heartbeatJob?.cancel()
-    val players = applyFinalStandings(currentPlayers(), event.finalStandings)
-    _uiState.value = GameUiState.GameOver(
-      roomId = event.roomId,
-      winnerId = event.winnerId,
-      players = players,
-      xpAwarded = event.finalStandings.sumOf { it.xpAwarded }
-    )
-    _sideEffects.trySend(GameSideEffect.NavigateToResults(event.roomId))
-  }
-
-  private fun startCountdown(initialSeconds: Int, onTick: (Int) -> Unit) {
-    timerJob?.cancel()
-    timerJob = viewModelScope.launch {
-      var remaining = initialSeconds
-      while (remaining > 0) {
-        delay(1_000L)
-        remaining -= 1
-        onTick(remaining)
-      }
-    }
-  }
-
-  private fun startHeartbeat(roomId: String) {
-    if (heartbeatJob?.isActive == true) return
-    heartbeatJob = viewModelScope.launch {
-      while (true) {
-        delay(30_000L)
-        gameRepository.sendHeartbeat(roomId)
-      }
-    }
-  }
-
-  private fun updatePlayers(roomId: String, transform: (List<PlayerUiModel>) -> List<PlayerUiModel>) {
-    val current = _uiState.value
-    if (!matchesRoom(current.roomIdOrBlank(), roomId)) return
-
-    _uiState.value = when (current) {
-      is GameUiState.Lobby -> current.copy(players = transform(current.players))
-      is GameUiState.Countdown -> current.copy(players = transform(current.players))
-      is GameUiState.ActiveQuestion -> current.copy(players = transform(current.players))
-      is GameUiState.RoundResult -> current.copy(players = transform(current.players))
-      is GameUiState.Elimination -> current.copy(players = transform(current.players))
-      is GameUiState.Finale -> current.copy(players = transform(current.players))
-      is GameUiState.GameOver -> current.copy(players = transform(current.players))
-      GameUiState.Idle -> current
-    }
-  }
-
-  private fun currentPlayers(): List<PlayerUiModel> {
-    return when (val state = _uiState.value) {
-      is GameUiState.Lobby -> state.players
-      is GameUiState.Countdown -> state.players
-      is GameUiState.ActiveQuestion -> state.players
-      is GameUiState.RoundResult -> state.players
-      is GameUiState.Elimination -> state.players
-      is GameUiState.Finale -> state.players
-      is GameUiState.GameOver -> state.players
-      GameUiState.Idle -> emptyList()
-    }
-  }
-
-  private fun remainingSeconds(startedAt: String, timeLimitMs: Int): Int {
-    val remainingMs = runCatching {
-      val elapsedMs = Duration.between(Instant.parse(startedAt), Instant.now()).toMillis()
-      timeLimitMs - elapsedMs
-    }.getOrDefault(timeLimitMs.toLong())
-    return ((remainingMs.coerceAtLeast(0L) + 999L) / 1_000L).toInt()
-  }
-
-  private fun applyRankings(
-    players: List<PlayerUiModel>,
-    rankings: List<ScoreRanking>
-  ): List<PlayerUiModel> {
-    val rankingsById = rankings.associateBy { it.playerId }
-    val updated = players.map { player ->
-      rankingsById[player.id]?.let { ranking -> player.copy(score = ranking.totalScore) } ?: player
-    }
-    val missing = rankings.filterNot { ranking -> updated.any { it.id == ranking.playerId } }
-      .map { ranking ->
-        PlayerUiModel(
-          id = ranking.playerId,
-          displayName = ranking.playerId.ifBlank { "Player" },
-          score = ranking.totalScore,
-          streak = 0,
-          isEliminated = false
+    /** Called from legacy MainActivity wiring — delegates to intent. */
+    fun joinRoom(roomCode: String) {
+        val accessToken = authRepository.currentAccessToken() ?: return
+        webSocketManager.connect(BuildConfig.WS_BASE_URL, accessToken)
+        webSocketManager.send(
+            """{"type":"room:join","version":"v1","payload":{"roomCode":"$roomCode"}}"""
         )
-      }
-    return (updated + missing).sortedByDescending { it.score }
-  }
-
-  private fun applyFinalStandings(
-    players: List<PlayerUiModel>,
-    standings: List<FinalStanding>
-  ): List<PlayerUiModel> {
-    val standingById = standings.associateBy { it.playerId }
-    val updated = players.map { player ->
-      standingById[player.id]?.let { standing -> player.copy(score = standing.score) } ?: player
+        _uiState.value = GameUiState.Lobby(roomCode = roomCode)
     }
-    val missing = standings.filterNot { standing -> updated.any { it.id == standing.playerId } }
-      .map { standing ->
-        PlayerUiModel(
-          id = standing.playerId,
-          displayName = standing.playerId.ifBlank { "Player" },
-          score = standing.score,
-          streak = 0,
-          isEliminated = false
+
+    /** Send a player answer over WebSocket. */
+    fun submitAnswer(optionIndex: Int) {
+        val state = _uiState.value as? GameUiState.ActiveQuestion ?: return
+        // Mark locally so UI can reflect selection immediately
+        _uiState.value = state.copy(selectedOptionIndex = optionIndex)
+        webSocketManager.send(
+            """{"type":"round:submit_answer","version":"v1","payload":{"roomId":"${state.roomId}","questionId":"${state.questionId}","answerIndex":$optionIndex,"clientSentAt":"${java.time.Instant.now()}"}}"""
         )
-      }
-    return (updated + missing).sortedByDescending { it.score }
-  }
-
-  private fun GamePlayer.toUiModel(): PlayerUiModel {
-    return PlayerUiModel(
-      id = id,
-      displayName = displayName,
-      score = score,
-      streak = streak,
-      isEliminated = isEliminated,
-      avatarUrl = avatarUrl
-    )
-  }
-
-  private fun GameUiState.roomIdOrBlank(): String {
-    return when (this) {
-      is GameUiState.Lobby -> roomId
-      is GameUiState.Countdown -> roomId
-      is GameUiState.ActiveQuestion -> roomId
-      is GameUiState.RoundResult -> roomId
-      is GameUiState.Elimination -> roomId
-      is GameUiState.Finale -> roomId
-      is GameUiState.GameOver -> roomId
-      GameUiState.Idle -> ""
+        _sideEffects.trySend(GameSideEffect.AnswerSubmitted)
     }
-  }
 
-  private fun matchesRoom(currentRoomId: String, eventRoomId: String): Boolean {
-    return currentRoomId.isBlank() || eventRoomId.isBlank() || currentRoomId == eventRoomId
-  }
+    /** Activate a powerup for the current user. */
+    fun usePowerup(type: PowerupType) {
+        val state = _uiState.value as? GameUiState.ActiveQuestion ?: return
+        // Don't send if already used this round or no charges remain
+        if (usedThisRound.contains(type)) return
+        val qty = powerupInventory[type] ?: 0
+        if (qty <= 0) return
 
-  override fun onCleared() {
-    timerJob?.cancel()
-    heartbeatJob?.cancel()
-    super.onCleared()
-  }
+        usedThisRound.add(type)
+        powerupInventory[type] = (qty - 1).coerceAtLeast(0)
+        _uiState.value = state.copy(ownedPowerups = buildOwnedPowerupList())
+        webSocketManager.send(
+            """{"type":"powerup:activate","version":"v1","payload":{"roomId":"${state.roomId}","powerUpId":"${type.name}"}}"""
+        )
+    }
+
+    // ── WS Event Handling ─────────────────────────────────────────────────────
+
+    private fun observeWsEvents() {
+        viewModelScope.launch {
+            webSocketManager.events.collect { rawEvent ->
+                handleRawEvent(rawEvent)
+            }
+        }
+    }
+
+    private fun handleRawEvent(raw: String) {
+        runCatching {
+            val envelope = JSONObject(raw)
+            val type = envelope.optString("type")
+            val payload = envelope.optJSONObject("payload") ?: JSONObject()
+
+            when (type) {
+                // round:question_started — server pushes a new question
+                "round:question_started" -> {
+                    val questionId = payload.optString("questionId")
+                    val roundId = payload.optString("roundId")
+                    val prompt = payload.optString("prompt")
+                    val timeLimitMs = payload.optInt("timeLimitMs", 20_000)
+                    val answersArray = payload.optJSONArray("answers")
+                    val answers = buildList {
+                        if (answersArray != null) {
+                            for (i in 0 until answersArray.length()) {
+                                add(answersArray.getString(i))
+                            }
+                        }
+                    }
+                    val players = parsePlayers(payload).ifEmpty { currentPlayers() }
+
+                    // Reset per-round used set for the new question
+                    usedThisRound.clear()
+
+                    _uiState.value = GameUiState.ActiveQuestion(
+                        roomId = payload.optString("roomId", currentRoomId()),
+                        roundId = roundId,
+                        questionId = questionId,
+                        prompt = prompt,
+                        answers = answers,
+                        timeLimitMs = timeLimitMs,
+                        timerSeconds = timeLimitMs / 1_000,
+                        players = players,
+                        phaseLabel = "QUESTION_ACTIVE",
+                        ownedPowerups = buildOwnedPowerupList(),
+                    )
+                    startCountdown(timeLimitMs / 1_000)
+                }
+
+                // round:countdown_started — pre-question countdown; show lobby/waiting state
+                "round:countdown_started" -> {
+                    val currentRoomId = payload.optString("roomId", currentRoomId())
+                    _uiState.value = GameUiState.Lobby(
+                        roomCode = currentRoomId,
+                        players = currentPlayers(),
+                    )
+                }
+
+                // round:result — round finished, show leaderboard / eliminated markers
+                "round:result" -> {
+                    timerJob?.cancel()
+                    val correctAnswerIndex = payload.optInt("correctAnswerIndex", -1)
+                    val summary = if (correctAnswerIndex >= 0)
+                        "Correct answer: option ${correctAnswerIndex + 1}"
+                    else
+                        "Round complete."
+                    val players = parseRankings(payload)
+                    val roomIdFinal = payload.optString("roomId", currentRoomId())
+                    // Check if local player was eliminated
+                    val localId = authRepository.currentUserId() ?: ""
+                    val wasEliminated = players.any { it.id == localId && it.isEliminated }
+                    if (wasEliminated) _sideEffects.trySend(GameSideEffect.PlayerEliminated)
+
+                    _uiState.value = GameUiState.RoundResult(
+                        roomId = roomIdFinal,
+                        summary = summary,
+                        players = players,
+                    )
+                }
+
+                // game:over — game over, navigate to Results
+                "game:over" -> {
+                    timerJob?.cancel()
+                    val players = parseFinalStandings(payload)
+                    val roomIdFinal = payload.optString("roomId", currentRoomId())
+                    _uiState.value = GameUiState.GameOver(roomId = roomIdFinal, players = players)
+                    _sideEffects.trySend(GameSideEffect.NavigateToResults(roomIdFinal))
+                }
+
+                // round:answer_locked — server confirmed answer was received
+                "round:answer_locked" -> {
+                    // no-op: local state already updated on submit
+                }
+
+                // room:state_sync — full room state snapshot
+                "room:state_sync" -> {
+                    applyRoomStateSync(payload)
+                }
+
+                "room:player_joined" -> {
+                    val player = payload.optJSONObject("player")?.toPlayerUiModel()
+                    if (player != null) {
+                        updatePlayers { players -> mergePlayers(players, listOf(player)) }
+                    }
+                }
+
+                "room:player_left" -> {
+                    val playerId = payload.optString("playerId", "")
+                    if (playerId.isNotBlank()) {
+                        updatePlayers { players -> players.filterNot { it.id == playerId } }
+                    }
+                }
+
+                // round:finale_started — last round announcement
+                "round:finale_started" -> {
+                    _sideEffects.trySend(GameSideEffect.CorrectAnswerRevealed)
+                }
+
+                // round:elimination — a player was eliminated mid-round
+                "round:elimination" -> {
+                    val eliminatedIds = payload.optStringArray("eliminatedPlayerIds").toSet()
+                    val survivors = parsePlayersFromArray(payload.optJSONArray("survivors"))
+                    val survivorIds = survivors.map { it.id }.toSet()
+
+                    updatePlayers { players ->
+                        val merged = mergePlayers(players, survivors)
+                        merged.map { player ->
+                            when {
+                                player.id in survivorIds -> player.copy(isEliminated = false)
+                                player.id in eliminatedIds -> player.copy(isEliminated = true)
+                                else -> player
+                            }
+                        }
+                    }
+
+                    val localId = authRepository.currentUserId() ?: ""
+                    if (localId in eliminatedIds) {
+                        _sideEffects.trySend(GameSideEffect.PlayerEliminated)
+                    }
+                }
+
+                "powerup:loot_drop" -> {
+                    val powerupName = payload.optString("powerup", "")
+                    val parsedType = runCatching { PowerupType.valueOf(powerupName) }.getOrNull()
+                    if (parsedType != null) {
+                        powerupInventory[parsedType] = (powerupInventory[parsedType] ?: 0) + 1
+                        _sideEffects.trySend(GameSideEffect.ShowLootDrop(parsedType))
+                        val current = _uiState.value
+                        if (current is GameUiState.ActiveQuestion) {
+                            _uiState.value = current.copy(ownedPowerups = buildOwnedPowerupList())
+                        }
+                    }
+                }
+
+                "error" -> {
+                    val message = payload.optString("message", "Socket error")
+                    val code = payload.optString("code", "")
+                    _sideEffects.trySend(
+                        GameSideEffect.ShowToast(
+                            if (code.isBlank()) message else "$message ($code)"
+                        )
+                    )
+                }
+            }
+        }.onFailure { /* swallow parse errors — bad envelope shouldn't crash the game */ }
+    }
+
+    // ── Countdown Timer ───────────────────────────────────────────────────────
+
+    private fun startCountdown(initialSeconds: Int) {
+        timerJob?.cancel()
+        timerJob = viewModelScope.launch {
+            var remaining = initialSeconds
+            while (remaining > 0) {
+                delay(1_000L)
+                remaining--
+                val current = _uiState.value
+                if (current is GameUiState.ActiveQuestion) {
+                    _uiState.value = current.copy(timerSeconds = remaining)
+                } else {
+                    break // state changed (e.g. round ended), stop ticking
+                }
+            }
+        }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * Builds the [OwnedPowerup] list from the current inventory + used-this-round state.
+     * Shows ALL known [PowerupType] values so the tray always has the full set of slots.
+     */
+    private fun buildOwnedPowerupList(): List<OwnedPowerup> =
+        PowerupType.entries.map { type ->
+            OwnedPowerup(
+                type = type,
+                quantity = powerupInventory[type] ?: 0,
+                usedThisRound = usedThisRound.contains(type),
+            )
+        }
+
+    private fun parsePlayers(payload: JSONObject): List<PlayerUiModel> {
+        val arr = payload.optJSONArray("players") ?: return emptyList()
+        return parsePlayersFromArray(arr)
+    }
+
+    private fun parsePlayersFromArray(arr: JSONArray?): List<PlayerUiModel> {
+        if (arr == null) return emptyList()
+        return buildList {
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                add(o.toPlayerUiModel())
+            }
+        }
+    }
+
+    private fun JSONObject.toPlayerUiModel(): PlayerUiModel =
+        PlayerUiModel(
+            id = optString("id", optString("playerId")),
+            displayName = optString("displayName", optString("username", optString("playerId"))),
+            score = optInt("score", optInt("totalScore", 0)),
+            streak = optInt("streak", 0),
+            isEliminated = optBoolean("isEliminated", false),
+        )
+
+    private fun applyRoomStateSync(payload: JSONObject) {
+        val room = payload.optJSONObject("room") ?: payload
+        val players = parsePlayers(room)
+        val roomId = room.optString("roomId", payload.optString("roomId", currentRoomId()))
+        val roomCode = room.optString("code", room.optString("roomCode", roomId))
+        val phase = room.optString("phase", "")
+        val nextPlayers = players.ifEmpty { currentPlayers() }
+
+        _uiState.value = when (val current = _uiState.value) {
+            is GameUiState.ActiveQuestion -> current.copy(
+                roomId = roomId,
+                players = nextPlayers,
+                phaseLabel = phase.ifBlank { current.phaseLabel },
+            )
+            is GameUiState.RoundResult -> current.copy(
+                roomId = roomId,
+                players = nextPlayers,
+            )
+            is GameUiState.GameOver -> current.copy(
+                roomId = roomId,
+                players = nextPlayers,
+            )
+            is GameUiState.Lobby -> current.copy(
+                roomCode = roomCode,
+                players = nextPlayers,
+            )
+            GameUiState.Idle -> GameUiState.Lobby(
+                roomCode = roomCode,
+                players = nextPlayers,
+            )
+        }
+    }
+
+    private fun updatePlayers(transform: (List<PlayerUiModel>) -> List<PlayerUiModel>) {
+        _uiState.value = when (val current = _uiState.value) {
+            is GameUiState.ActiveQuestion -> current.copy(players = transform(current.players))
+            is GameUiState.RoundResult -> current.copy(players = transform(current.players))
+            is GameUiState.GameOver -> current.copy(players = transform(current.players))
+            is GameUiState.Lobby -> current.copy(players = transform(current.players))
+            GameUiState.Idle -> GameUiState.Lobby(players = transform(emptyList()))
+        }
+    }
+
+    private fun mergePlayers(
+        currentPlayers: List<PlayerUiModel>,
+        nextPlayers: List<PlayerUiModel>,
+    ): List<PlayerUiModel> {
+        val playersById = linkedMapOf<String, PlayerUiModel>()
+        currentPlayers.forEach { playersById[it.id] = it }
+        nextPlayers.forEach { playersById[it.id] = it }
+        return playersById.values.toList()
+    }
+
+    private fun currentPlayers(): List<PlayerUiModel> =
+        when (val current = _uiState.value) {
+            is GameUiState.ActiveQuestion -> current.players
+            is GameUiState.RoundResult -> current.players
+            is GameUiState.GameOver -> current.players
+            is GameUiState.Lobby -> current.players
+            GameUiState.Idle -> emptyList()
+        }
+
+    private fun currentRoomId(): String =
+        when (val current = _uiState.value) {
+            is GameUiState.ActiveQuestion -> current.roomId
+            is GameUiState.RoundResult -> current.roomId
+            is GameUiState.GameOver -> current.roomId
+            is GameUiState.Lobby -> current.roomCode
+            GameUiState.Idle -> ""
+        }
+
+    private fun JSONObject.optStringArray(name: String): List<String> {
+        val arr = optJSONArray(name) ?: return emptyList()
+        return buildList {
+            for (i in 0 until arr.length()) {
+                val value = arr.optString(i)
+                if (value.isNotBlank()) add(value)
+            }
+        }
+    }
+
+    /** Parses the `rankings` array from a `round:result` payload. */
+    private fun parseRankings(payload: JSONObject): List<PlayerUiModel> {
+        val arr = payload.optJSONArray("rankings") ?: return emptyList()
+        return buildList {
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                add(
+                    PlayerUiModel(
+                        id = o.optString("playerId"),
+                        displayName = o.optString("displayName", o.optString("playerId")),
+                        score = o.optInt("totalScore", o.optInt("scoreDelta", 0)),
+                        streak = 0,
+                        isEliminated = false,
+                    )
+                )
+            }
+        }
+    }
+
+    /** Parses the `finalStandings` array from a `game:over` payload. */
+    private fun parseFinalStandings(payload: JSONObject): List<PlayerUiModel> {
+        val arr = payload.optJSONArray("finalStandings") ?: return emptyList()
+        return buildList {
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                add(
+                    PlayerUiModel(
+                        id = o.optString("playerId"),
+                        displayName = o.optString("displayName", o.optString("playerId")),
+                        score = o.optInt("score", 0),
+                        streak = 0,
+                        isEliminated = false,
+                        xpAwarded = o.optInt("xpAwarded", 0),
+                    )
+                )
+            }
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        timerJob?.cancel()
+    }
 }

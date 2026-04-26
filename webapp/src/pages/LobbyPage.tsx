@@ -1,198 +1,171 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { useGameSocket } from '@/hooks/useGameSocket';
-import { api } from '@/services/apiClient';
+import { ApiError, api } from '@/services/apiClient';
 import { socketService } from '@/services/socketService';
 import { useAuthStore } from '@/stores/authStore';
-import { useGameStore } from '@/stores/gameStore';
+import { selectLeaderboard, useGameStore } from '@/stores/gameStore';
 
-type RoomResponse = { room: { roomId: string; code: string } };
-
-const STUCK_ROOM_PHRASES = ['already started', '2 player', 'in progress', 'no longer accepting', 'ROOM_IN_PROGRESS'];
+const phaseCopy: Record<string, string> = {
+  WAITING: 'Waiting for players',
+  COUNTDOWN: 'Countdown started',
+  QUESTION_ACTIVE: 'Round in progress',
+  ANSWER_LOCKED: 'Answers locked',
+  ROUND_RESULT: 'Round result',
+  ELIMINATION: 'Elimination round',
+  FINALE: 'Finale',
+  GAME_OVER: 'Game over',
+};
 
 export const LobbyPage = () => {
   const navigate = useNavigate();
   const { roomId } = useParams<{ roomId: string }>();
-  const user = useAuthStore((state) => state.user);
-  const players = useGameStore((state) => state.players);
+  const accessToken = useAuthStore((state) => state.accessToken);
+
+  useGameSocket(roomId);
+
+  const code = useGameStore((state) => state.code);
   const phase = useGameStore((state) => state.phase);
-  const storedRoomId = useGameStore((state) => state.roomId);
-  const hostUserId = useGameStore((state) => state.hostUserId);
-  const resetRoom = useGameStore((state) => state.resetRoom);
-  const [roomCode, setRoomCode] = useState((roomId ?? '').toUpperCase());
-  const [startError, setStartError] = useState<string | null>(null);
-  const [isRecovering, setIsRecovering] = useState(false);
-  const recovering = useRef(false);
+  const players = useGameStore(selectLeaderboard);
+  const totalRounds = useGameStore((state) => state.totalRounds);
+  const roundNumber = useGameStore((state) => state.roundNumber);
 
-  useEffect(() => { resetRoom(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const isHost = !hostUserId || (!!user && user.id === hostUserId);
-
-  useGameSocket(roomId ?? roomCode);
-
-  const activeRoomId = useMemo(
-    () => storedRoomId ?? roomId ?? roomCode,
-    [roomCode, roomId, storedRoomId],
-  );
-
-  const goToFreshRoom = async () => {
-    if (recovering.current) return;
-    recovering.current = true;
-    setIsRecovering(true);
-    try {
-      const res = await api.post<RoomResponse>('/rooms/join', {});
-      resetRoom();
-      navigate(`/lobby/${res.data.room.code}`, { replace: true });
-    } catch {
-      setStartError('Could not create a new room — please go back to Home.');
-      setIsRecovering(false);
-      recovering.current = false;
-    }
-  };
-
-  // Listen for backend socket errors; auto-recover from stuck rooms
   useEffect(() => {
-    const socket = (socketService as unknown as { socket: { on: (e: string, cb: (msg: unknown) => void) => void; off: (e: string) => void } | null }).socket;
-    if (!socket) return;
-    const handler = (msg: unknown) => {
-      const m = msg as { type?: string; payload?: { message?: string; code?: string } };
-      if (m?.type !== 'error') return;
-      const text = m.payload?.message ?? m.payload?.code ?? 'Unknown error';
-      setStartError(text);
-      if (STUCK_ROOM_PHRASES.some((phrase) => text.toLowerCase().includes(phrase.toLowerCase()))) {
-        void goToFreshRoom();
-      }
-    };
-    socket.on('message', handler);
-    return () => socket.off('message');
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const startGame = () => {
-    setStartError(null);
-    const roomUuid = storedRoomId;
-    if (!roomUuid) {
-      setStartError('Room not synced yet — wait a moment and try again');
+    if (!roomId) {
       return;
     }
-    socketService.emit('room:start', { roomId: roomUuid });
+
+    const activeRoom = socketService.getActiveRoom();
+    const token = activeRoom?.token ?? accessToken;
+    const roomCode = activeRoom?.roomCode ?? code;
+
+    if (!token || !roomCode) {
+      return;
+    }
+
+    socketService.connect(token);
+    socketService.setActiveRoom({ roomId, roomCode, token });
+    socketService.joinRoom(roomCode, roomId);
+  }, [accessToken, code, roomId]);
+
+  const [isStarting, setIsStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+  const hasMinimumPlayers = players.length >= 2;
+
+  useEffect(() => {
+    return socketService.on('error', (payload) => {
+      if (payload.code === 'GAME_START_FAILED') {
+        setIsStarting(false);
+        setStartError(payload.message);
+      }
+    });
+  }, []);
+
+  const handleStartGame = async () => {
+    if (!roomId) return;
+
+    if (!hasMinimumPlayers) {
+      setStartError('At least 2 players are required to start.');
+      return;
+    }
+
+    setIsStarting(true);
+    setStartError(null);
+    try {
+      await api.post(`/rooms/${roomId}/start`);
+      // Navigation happens automatically via the round:countdown_started socket event
+    } catch (err: unknown) {
+      const message =
+        err instanceof ApiError && err.message
+          ? err.message
+          : err instanceof Error && err.message
+            ? err.message
+            : 'Failed to start game';
+      setStartError(message);
+    } finally {
+      setIsStarting(false);
+    }
   };
 
-  const joinRoom = () => {
-    const normalizedCode = roomCode.trim().toUpperCase();
-    if (!normalizedCode) return;
-    socketService.setActiveRoom(normalizedCode);
-    socketService.emit('room:join', { roomCode: normalizedCode });
-  };
-
-  if (isRecovering) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-game-gradient text-white">
-        <div className="text-center">
-          <p className="text-lg font-semibold">Room was stuck — creating a fresh one...</p>
-          <p className="mt-2 text-sm text-white/50">Redirecting you now</p>
-        </div>
-      </main>
-    );
-  }
+  const displayCode = code ?? socketService.getActiveRoom()?.roomCode ?? '----';
+  const canRecoverSession = !!displayCode && displayCode !== '----';
 
   return (
-    <main className="min-h-screen bg-game-gradient px-6 py-12 text-white">
-      <div className="mx-auto max-w-6xl">
-        <button
-          type="button"
-          onClick={() => navigate('/home')}
-          className="mb-6 flex items-center gap-2 text-sm text-white/50 hover:text-white transition-colors"
-        >
-          ← Back to Home
-        </button>
-      </div>
-      <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[1.2fr_0.8fr]">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(108,62,245,0.35),_transparent_45%),linear-gradient(180deg,_#111122,_#090910)] px-6 py-12 text-white">
+      <div className="mx-auto flex max-w-5xl flex-col gap-8">
         <section className="rounded-[32px] border border-white/10 bg-white/5 p-8 shadow-royale backdrop-blur">
-          <p className="mb-3 text-sm uppercase tracking-[0.3em] text-gold">Live Lobby</p>
-          <h1 className="max-w-2xl text-4xl font-extrabold leading-tight md:text-5xl">
-            Gather the room, sync the socket, then launch into the live quiz.
-          </h1>
-          <p className="mt-4 max-w-2xl text-white/70">
-            Signed in as {user?.displayName ?? user?.username ?? 'player'}. Share the room code with
-            challengers, then wait for the host to start the round loop.
-          </p>
-
-          <div className="mt-8 grid gap-4 rounded-[28px] border border-white/10 bg-black/20 p-5 md:grid-cols-[1fr_auto]">
-            <label className="flex flex-col gap-3">
-              <span className="text-sm font-semibold uppercase tracking-[0.2em] text-white/60">
-                Room Code
-              </span>
-              <input
-                value={roomCode}
-                onChange={(event) => setRoomCode(event.target.value.toUpperCase().slice(0, 12))}
-                className="rounded-2xl border border-white/10 bg-black/30 px-5 py-4 text-2xl font-bold tracking-[0.3em] outline-none transition focus:border-gold"
-                maxLength={12}
-              />
-            </label>
+          <p className="mb-3 text-sm uppercase tracking-[0.3em] text-brand-gold">Room Lobby</p>
+          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h1 className="text-4xl font-extrabold leading-tight">Code {displayCode}</h1>
+              <p className="mt-3 max-w-2xl text-white/70">
+                {phaseCopy[phase] ?? 'Syncing room state'}.
+                {' '}
+                Round {roundNumber} of {totalRounds}.
+              </p>
+            </div>
             <button
               type="button"
-              onClick={joinRoom}
-              className="self-end rounded-2xl bg-brand px-7 py-4 text-lg font-semibold text-white shadow-brand transition hover:bg-brand/80"
+              onClick={() => navigate('/home')}
+              className="rounded-2xl border border-white/10 px-5 py-3 text-sm font-semibold text-white/80 transition hover:border-white/30 hover:text-white"
             >
-              Join Room
-            </button>
-          </div>
-
-          <div className="mt-5 flex flex-wrap items-center gap-3 text-sm text-white/60">
-            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">
-              Phase: {phase}
-            </span>
-            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">
-              Room: {activeRoomId}
-            </span>
-            <button
-              type="button"
-              onClick={goToFreshRoom}
-              className="rounded-full border border-white/20 bg-white/5 px-3 py-1 hover:bg-white/10 transition-colors"
-            >
-              New Room
+              Back to Home
             </button>
           </div>
         </section>
 
-        <aside className="rounded-[32px] border border-white/10 bg-game-surface/85 p-6 backdrop-blur">
-          <div className="mb-5 flex items-center justify-between">
+        {!canRecoverSession && (
+          <section className="rounded-[28px] border border-amber-400/30 bg-amber-500/10 p-6 text-sm text-amber-100">
+            This lobby needs a room code from the create/join flow. Reload recovery by room id alone still depends on backend exposing room lookup by id or returning room code on every room entry response.
+          </section>
+        )}
+
+        <section className="rounded-[32px] border border-white/10 bg-brand-panel/80 p-8">
+          <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm uppercase tracking-[0.3em] text-white/50">Players</p>
-              <h2 className="text-2xl font-black">{players.length} queued</h2>
+              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/60">Players</p>
+              <p className="mt-2 text-white/70">{players.length} connected</p>
             </div>
-            {isHost ? (
-              <div className="flex flex-col items-end gap-1">
-                <button
-                  type="button"
-                  onClick={startGame}
-                  disabled={players.length === 0 || !storedRoomId}
-                  className="rounded-xl bg-brand px-4 py-2 text-sm font-bold text-white shadow-brand transition hover:bg-brand/80 disabled:opacity-40"
-                >
-                  Start Game
-                </button>
-                {startError && (
-                  <p className="text-xs text-answer-wrong">{startError}</p>
-                )}
-              </div>
-            ) : (
-              <p className="text-xs text-white/40">Waiting for host...</p>
-            )}
+            <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-right">
+              <p className="text-xs uppercase tracking-[0.2em] text-white/50">Status</p>
+              <p className="mt-1 text-lg font-bold">{phaseCopy[phase] ?? phase}</p>
+            </div>
           </div>
 
-          <div className="space-y-3">
+          <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {players.map((player) => (
               <PlayerAvatar key={player.id} player={player} />
             ))}
             {players.length === 0 && (
-              <div className="rounded-2xl border border-dashed border-white/10 p-6 text-center text-sm text-white/40">
-                No players synced yet. Join the room to populate the lobby.
+              <div className="rounded-3xl border border-dashed border-white/10 p-6 text-white/50">
+                Waiting for room state...
               </div>
             )}
           </div>
-        </aside>
+
+          {phase === 'WAITING' && (
+            <div className="mt-6 flex flex-col gap-3">
+              <button
+                type="button"
+                disabled={isStarting || !hasMinimumPlayers}
+                onClick={() => void handleStartGame()}
+                className="w-full rounded-2xl bg-brand py-4 text-base font-black uppercase tracking-widest text-white shadow-royale transition hover:opacity-90 disabled:opacity-40"
+              >
+                {isStarting ? 'Starting...' : 'Start Game'}
+              </button>
+              {startError && (
+                <p className="text-center text-sm text-answer-wrong">{startError}</p>
+              )}
+              {!hasMinimumPlayers && (
+                <p className="text-center text-xs text-white/40">
+                  At least 2 players are required to start.
+                </p>
+              )}
+            </div>
+          )}
+        </section>
       </div>
     </main>
   );

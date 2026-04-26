@@ -1,20 +1,8 @@
-import axios, {
-  type AxiosError,
-  type AxiosInstance,
-  type AxiosRequestConfig,
-  type AxiosResponse,
-} from 'axios';
+import axios, { type AxiosInstance, type AxiosRequestConfig, type AxiosResponse } from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000/api/v1';
-
-type ErrorBody = {
-  error?: string;
-  code?: string;
-  message?: string;
-  details?: unknown;
-  issues?: unknown;
-};
-
+// ---------------------------------------------------------------------------
+// ApiError
+// ---------------------------------------------------------------------------
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -27,108 +15,201 @@ export class ApiError extends Error {
   }
 }
 
-const getStoredAccessToken = () => localStorage.getItem('qrs.accessToken');
-const getStoredRefreshToken = () => localStorage.getItem('qrs.refreshToken');
+// ---------------------------------------------------------------------------
+// Token-store interface (provided by authStore at startup)
+// ---------------------------------------------------------------------------
+interface TokenStore {
+  getAccessToken: () => string | null;
+  getRefreshToken: () => string | null;
+  setTokens: (tokens: { accessToken: string; refreshToken?: string | null }) => void;
+  clearAuth: () => void;
+}
 
-const storeTokens = (tokens: { accessToken: string; refreshToken?: string }) => {
-  localStorage.setItem('qrs.accessToken', tokens.accessToken);
-  if (tokens.refreshToken) {
-    localStorage.setItem('qrs.refreshToken', tokens.refreshToken);
-  }
+let tokenStore: TokenStore = {
+  getAccessToken: () => null,
+  getRefreshToken: () => null,
+  setTokens: () => undefined,
+  clearAuth: () => undefined,
 };
 
-export const clearStoredTokens = () => {
-  localStorage.removeItem('qrs.accessToken');
-  localStorage.removeItem('qrs.refreshToken');
-};
+export function configureApiClient(store: TokenStore): void {
+  tokenStore = store;
+}
 
-const toApiError = (error: AxiosError<ErrorBody>) => {
-  const status = error.response?.status ?? 0;
-  const data = error.response?.data;
-  return new ApiError(
-    status,
-    data?.code ?? 'REQUEST_FAILED',
-    data?.message ?? data?.error ?? error.message,
-    data?.details ?? data?.issues,
-  );
-};
+// ---------------------------------------------------------------------------
+// Axios instance
+// ---------------------------------------------------------------------------
+const BASE_URL =
+  (import.meta as unknown as { env: Record<string, string> }).env?.VITE_API_BASE_URL ??
+  'http://localhost:4000/api/v1';
 
-export const apiClient: AxiosInstance = axios.create({
-  baseURL: API_BASE_URL,
+const axiosInstance: AxiosInstance = axios.create({
+  baseURL: BASE_URL,
   withCredentials: false,
   headers: { 'Content-Type': 'application/json' },
 });
 
-apiClient.interceptors.request.use((config) => {
-  const accessToken = getStoredAccessToken();
-  if (accessToken) {
-    config.headers.Authorization = `Bearer ${accessToken}`;
+type RefreshResponse = {
+  accessToken: string;
+  refreshToken: string;
+};
+
+function toApiError(error: unknown): ApiError {
+  if (!axios.isAxiosError(error)) {
+    return new ApiError(0, 'UNKNOWN', error instanceof Error ? error.message : 'Request failed');
+  }
+
+  const status = error.response?.status ?? 0;
+  const data = error.response?.data as Record<string, unknown> | undefined;
+
+  return new ApiError(
+    status,
+    (data?.code as string) ?? 'UNKNOWN',
+    (data?.message as string) ?? (data?.error as string) ?? error.message,
+    data?.details,
+  );
+}
+
+function shouldAttemptRefresh(url?: string): boolean {
+  if (!url) return true;
+
+  const normalizedUrl = url.toLowerCase();
+  return (
+    !normalizedUrl.includes('/auth/login') &&
+    !normalizedUrl.includes('/auth/register') &&
+    !normalizedUrl.includes('/auth/refresh')
+  );
+}
+
+export async function refreshAuthSession(): Promise<RefreshResponse> {
+  const refreshToken = tokenStore.getRefreshToken();
+
+  if (!refreshToken) {
+    throw new ApiError(401, 'AUTH_REFRESH_MISSING', 'No refresh token available');
+  }
+
+  try {
+    const response = await axios.post<RefreshResponse>(
+      `${BASE_URL}/auth/refresh`,
+      { refreshToken },
+      {
+        headers: { 'Content-Type': 'application/json' },
+      },
+    );
+
+    const tokens = {
+      accessToken: response.data.accessToken,
+      refreshToken: response.data.refreshToken ?? refreshToken,
+    };
+
+    tokenStore.setTokens(tokens);
+    return tokens;
+  } catch (error) {
+    throw toApiError(error);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Request interceptor - attach Bearer token
+// ---------------------------------------------------------------------------
+axiosInstance.interceptors.request.use((config) => {
+  const token = tokenStore.getAccessToken();
+  if (token) {
+    config.headers = config.headers ?? {};
+    config.headers['Authorization'] = `Bearer ${token}`;
   }
   return config;
 });
 
-let refreshPromise: Promise<string> | null = null;
+// ---------------------------------------------------------------------------
+// 401 -> refresh -> retry (single in-flight refresh, queue concurrent retries)
+// ---------------------------------------------------------------------------
+let isRefreshing = false;
+let failedQueue: Array<{
+  resolve: (token: string) => void;
+  reject: (err: unknown) => void;
+}> = [];
 
-apiClient.interceptors.response.use(
+function processQueue(error: unknown, token: string | null): void {
+  failedQueue.forEach(({ resolve, reject }) => {
+    if (error) {
+      reject(error);
+    } else if (token) {
+      resolve(token);
+    }
+  });
+  failedQueue = [];
+}
+
+axiosInstance.interceptors.response.use(
   (response) => response,
-  async (error: AxiosError<ErrorBody>) => {
-    const originalRequest = error.config as (AxiosRequestConfig & { _retry?: boolean }) | undefined;
+  async (error: unknown) => {
+    if (!axios.isAxiosError(error)) throw error;
 
-    if (error.response?.status !== 401 || !originalRequest || originalRequest._retry) {
+    const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean };
+
+    if (
+      error.response?.status !== 401 ||
+      originalRequest._retry ||
+      !shouldAttemptRefresh(originalRequest.url)
+    ) {
       throw toApiError(error);
     }
 
-    const refreshToken = getStoredRefreshToken();
-    if (!refreshToken) {
-      clearStoredTokens();
-      throw toApiError(error);
+    if (isRefreshing) {
+      return new Promise<string>((resolve, reject) => {
+        failedQueue.push({ resolve, reject });
+      })
+        .then((token) => {
+          if (originalRequest.headers) {
+            (originalRequest.headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+          }
+          return axiosInstance(originalRequest);
+        })
+        .catch((err: unknown) => {
+          throw err;
+        });
     }
 
     originalRequest._retry = true;
-
-    refreshPromise ??= axios
-      .post<{ tokens: { accessToken: string; refreshToken: string } }>(
-        `${API_BASE_URL}/auth/refresh`,
-        { refreshToken },
-      )
-      .then((response) => {
-        storeTokens(response.data.tokens);
-        return response.data.tokens.accessToken;
-      })
-      .finally(() => {
-        refreshPromise = null;
-      });
+    isRefreshing = true;
 
     try {
-      const accessToken = await refreshPromise;
-      originalRequest.headers = {
-        ...originalRequest.headers,
-        Authorization: `Bearer ${accessToken}`,
-      };
-      return apiClient.request(originalRequest);
+      const { accessToken: newToken } = await refreshAuthSession();
+      processQueue(null, newToken);
+      if (originalRequest.headers) {
+        (originalRequest.headers as Record<string, string>)['Authorization'] = `Bearer ${newToken}`;
+      }
+      return axiosInstance(originalRequest);
     } catch (refreshError) {
-      clearStoredTokens();
-      throw refreshError;
+      processQueue(refreshError, null);
+      tokenStore.clearAuth();
+      throw refreshError instanceof ApiError ? refreshError : toApiError(refreshError);
+    } finally {
+      isRefreshing = false;
     }
   },
 );
 
+// ---------------------------------------------------------------------------
+// Typed convenience wrappers
+// ---------------------------------------------------------------------------
 export const api = {
   get<T = unknown>(url: string, config?: AxiosRequestConfig): Promise<AxiosResponse<T>> {
-    return apiClient.get<T>(url, config);
+    return axiosInstance.get<T>(url, config);
   },
   post<T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<AxiosResponse<T>> {
-    return apiClient.post<T>(url, data, config);
+    return axiosInstance.post<T>(url, data, config);
   },
   put<T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<AxiosResponse<T>> {
-    return apiClient.put<T>(url, data, config);
+    return axiosInstance.put<T>(url, data, config);
   },
   patch<T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<AxiosResponse<T>> {
-    return apiClient.patch<T>(url, data, config);
+    return axiosInstance.patch<T>(url, data, config);
   },
   delete<T = unknown>(url: string, config?: AxiosRequestConfig): Promise<AxiosResponse<T>> {
-    return apiClient.delete<T>(url, config);
+    return axiosInstance.delete<T>(url, config);
   },
 };
 
-export const persistTokens = storeTokens;
+export default axiosInstance;

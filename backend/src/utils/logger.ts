@@ -59,10 +59,7 @@ function write(level: LogLevel, msg: string, data?: Record<string, unknown>): vo
 }
 
 type LogFn = (msg: string, data?: Record<string, unknown>) => void;
-interface Logger {
-  trace: LogFn; debug: LogFn; info: LogFn; warn: LogFn; error: LogFn; fatal: LogFn;
-  child(bindings: Record<string, unknown>): Logger;
-}
+interface Logger { trace: LogFn; debug: LogFn; info: LogFn; warn: LogFn; error: LogFn; fatal: LogFn; child(b: Record<string, unknown>): Logger; }
 
 export const logger: Logger = {
   trace: (msg, data) => write("trace", msg, data),
@@ -73,7 +70,7 @@ export const logger: Logger = {
   fatal: (msg, data) => write("fatal", msg, data),
 
   child(bindings: Record<string, unknown>): Logger {
-    const child: Logger = {} as Logger;
+    const child = {} as Logger;
     const levels: LogLevel[] = ["trace", "debug", "info", "warn", "error", "fatal"];
     for (const level of levels) {
       child[level] = (msg: string, data?: Record<string, unknown>) =>

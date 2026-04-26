@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react';
 import { socketService } from '@/services/socketService';
 
 export function useSocketStatus() {
-  const [isReconnecting, setIsReconnecting] = useState(false);
+  const [connected, setConnected] = useState(() => socketService.isConnected());
 
   useEffect(() => {
-    return socketService.onStatusChange((status) => {
-      setIsReconnecting(status === 'reconnecting' || status === 'disconnected');
-    });
+    // Sync with current state on mount
+    setConnected(socketService.isConnected());
+    return socketService.onConnectionChange(setConnected);
   }, []);
 
-  return { isReconnecting };
+  return { connected, reconnecting: !connected };
 }

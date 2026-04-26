@@ -1,14 +1,21 @@
-import { motion, useAnimationControls } from 'framer-motion';
+import { motion, useAnimation } from 'framer-motion';
 import { useEffect, useRef } from 'react';
 
-type CountdownBarProps = {
+interface CountdownBarProps {
+  /** Total duration in seconds (e.g. 20) */
   duration: number;
-  animationKey?: string | number;
+  /** Called when the bar reaches zero */
   onExpire?: () => void;
-};
+  /** Key — change to reset the animation (e.g. pass questionId) */
+  animationKey?: string | number;
+}
 
-export const CountdownBar = ({ duration, animationKey, onExpire }: CountdownBarProps) => {
-  const controls = useAnimationControls();
+/**
+ * Animated horizontal progress bar that drains from 100 % → 0 % over
+ * `duration` seconds. Color shifts green → yellow → red as time runs out.
+ */
+export const CountdownBar = ({ duration, onExpire, animationKey }: CountdownBarProps) => {
+  const controls = useAnimation();
   const onExpireRef = useRef(onExpire);
   onExpireRef.current = onExpire;
 
@@ -16,31 +23,51 @@ export const CountdownBar = ({ duration, animationKey, onExpire }: CountdownBarP
     let cancelled = false;
 
     controls.set({ scaleX: 1 });
+
     controls
       .start({
         scaleX: 0,
-        transition: { duration, ease: 'linear' },
+        transition: {
+          duration,
+          ease: 'linear',
+        },
       })
       .then(() => {
-        if (!cancelled) onExpireRef.current?.();
+        if (!cancelled) {
+          onExpireRef.current?.();
+        }
       });
 
     return () => {
       cancelled = true;
       controls.stop();
     };
-  }, [animationKey, controls, duration]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [animationKey, duration]);
 
   return (
     <div className="relative h-3 w-full overflow-hidden rounded-full bg-white/10">
-      <div className="absolute inset-0 rounded-full bg-gradient-to-r from-answer-correct via-gold to-answer-wrong opacity-20" />
+      {/* Color gradient track — always visible behind the bar */}
+      <div className="absolute inset-0 rounded-full bg-gradient-to-r from-answer-correct via-yellow-400 to-answer-wrong opacity-20" />
+
+      {/* Animated fill */}
       <motion.div
+        className="absolute inset-y-0 left-0 w-full origin-left rounded-full"
         animate={controls}
-        className="absolute inset-y-0 left-0 w-full origin-left rounded-full bg-gradient-to-r from-answer-correct via-gold to-answer-wrong"
+        style={{
+          background:
+            'linear-gradient(90deg, #22C55E 0%, #EAB308 55%, #EF4444 100%)',
+        }}
       />
+
+      {/* Glow pulse overlay */}
       <motion.div
+        className="absolute inset-y-0 left-0 w-full origin-left rounded-full opacity-40 blur-sm"
         animate={controls}
-        className="absolute inset-y-0 left-0 w-full origin-left rounded-full bg-gradient-to-r from-answer-correct via-gold to-answer-wrong opacity-40 blur-sm"
+        style={{
+          background:
+            'linear-gradient(90deg, #22C55E 0%, #EAB308 55%, #EF4444 100%)',
+        }}
       />
     </div>
   );

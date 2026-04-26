@@ -1,77 +1,84 @@
-import { motion, useReducedMotion } from 'framer-motion';
+import { motion } from 'framer-motion';
 
 import { socketService } from '@/services/socketService';
-import type { PowerUpCode } from '@/stores/profileStore';
-import { POWER_UP_META } from '@/utils/powerUps';
 
-export type PowerUpType = PowerUpCode;
+// ---------------------------------------------------------------------------
+// Power-up type definitions
+// ---------------------------------------------------------------------------
+export type PowerupType =
+  | 'fifty_fifty'
+  | 'shield'
+  | 'time_boost'
+  | 'reveal_wrong'
+  | 'second_chance';
 
-export type PowerUpSlot = {
-  code: PowerUpCode;
-  powerUpId?: string;
+export interface PowerupSlot {
+  type: PowerupType;
+  /** Whether the player currently owns this power-up */
   owned: boolean;
+  /** Whether it has already been used this game */
   used: boolean;
-  count?: number;
-  targetPlayerId?: string;
-  targetLabel?: string;
-  unavailableReason?: string;
-};
+}
 
-type PowerUpTrayProps = {
-  slots: PowerUpSlot[];
+interface PowerUpTrayProps {
+  slots: PowerupSlot[];
   roomId: string;
+  /** Disable the whole tray (e.g. while answer is locked) */
   disabled?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Power-up metadata
+// ---------------------------------------------------------------------------
+const POWERUP_META: Record<PowerupType, { label: string; icon: string; color: string }> = {
+  fifty_fifty:   { label: '50 / 50',       icon: '½',  color: 'from-purple-500 to-purple-700' },
+  shield:        { label: 'Shield',         icon: '🛡',  color: 'from-blue-500   to-blue-700'   },
+  time_boost:    { label: 'Time Boost',     icon: '⚡',  color: 'from-yellow-400 to-yellow-600' },
+  reveal_wrong:  { label: 'Reveal Wrong',   icon: '👁',  color: 'from-rose-500   to-rose-700'   },
+  second_chance: { label: 'Second Chance',  icon: '↩',  color: 'from-green-500  to-green-700'  },
 };
 
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 export const PowerUpTray = ({ slots, roomId, disabled = false }: PowerUpTrayProps) => {
-  const shouldReduceMotion = useReducedMotion();
-
-  const activatePowerUp = (slot: PowerUpSlot) => {
-    socketService.emit('powerup:activate', {
-      roomId,
-      powerUpId: slot.powerUpId ?? slot.code,
-      ...(slot.targetPlayerId ? { targetPlayerId: slot.targetPlayerId } : {}),
-    });
+  const handleUse = (type: PowerupType) => {
+    socketService.emit('powerup:activate', { roomId, powerupId: type });
   };
 
   return (
-    <div className="grid w-full grid-cols-5 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:gap-3">
+    <div className="flex items-center gap-3">
       {slots.map((slot) => {
-        const meta = POWER_UP_META[slot.code];
-        const reason = slot.unavailableReason ?? (!slot.owned ? 'Not in inventory' : undefined);
-        const isActive = slot.owned && !slot.used && !disabled && !reason;
-        const title = reason ?? (slot.targetLabel
-          ? `${meta.label}: ${slot.targetLabel}`
-          : meta.label);
+        const meta = POWERUP_META[slot.type];
+        const isActive = slot.owned && !slot.used && !disabled;
 
         return (
           <motion.button
-            key={slot.code}
+            key={slot.type}
             type="button"
             disabled={!isActive}
-            onClick={() => activatePowerUp(slot)}
-            title={title}
-            whileHover={isActive && !shouldReduceMotion ? { scale: 1.08, y: -3 } : undefined}
-            whileTap={isActive && !shouldReduceMotion ? { scale: 0.96 } : undefined}
+            onClick={() => isActive && handleUse(slot.type)}
+            title={meta.label}
+            whileHover={isActive ? { scale: 1.12, y: -4 } : {}}
+            whileTap={isActive ? { scale: 0.94 } : {}}
             className={[
-              'relative flex h-16 min-w-0 flex-col items-center justify-center rounded-2xl border text-sm font-black transition-all sm:w-16',
+              'relative flex h-14 w-14 flex-col items-center justify-center rounded-2xl border text-xl transition-all',
               isActive
-                ? `border-white/20 bg-gradient-to-br ${meta.trayGradient} text-white shadow-brand`
-                : 'cursor-not-allowed border-white/5 bg-white/5 text-white/40 opacity-60',
+                ? `cursor-pointer border-white/20 bg-gradient-to-br ${meta.color} shadow-brand`
+                : 'cursor-not-allowed border-white/5 bg-white/5 opacity-40',
             ].join(' ')}
           >
-            <span className="text-base leading-none">{meta.icon}</span>
-            {typeof slot.count === 'number' && slot.count > 0 && (
-              <span className="absolute -right-1 -top-1 rounded-full bg-gold px-1.5 py-0.5 text-[10px] text-black">
-                {slot.count}
-              </span>
-            )}
+            <span className="leading-none select-none">{meta.icon}</span>
+
+            {/* "Used" overlay */}
             {slot.used && (
-              <span className="absolute inset-0 flex items-center justify-center rounded-2xl bg-black/60 text-[10px] tracking-wide">
+              <span className="absolute inset-0 flex items-center justify-center rounded-2xl bg-black/50 text-xs font-bold text-white">
                 USED
               </span>
             )}
-            <span className="absolute -bottom-5 left-1/2 w-16 -translate-x-1/2 truncate text-center text-[9px] font-semibold uppercase tracking-wider text-white/45">
+
+            {/* Tooltip label */}
+            <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] font-semibold uppercase tracking-wider text-white/50">
               {meta.label}
             </span>
           </motion.button>

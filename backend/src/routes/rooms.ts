@@ -4,77 +4,194 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { prisma } from "../models/prismaClient";
-import { roomService } from "../services/RoomService";
+import { gameOrchestrator } from "../services/GameOrchestrator";
+import {
+  LeaveRoomResult,
+  RoomLifecycleState,
+  roomService,
+} from "../services/RoomService";
+import { getIo } from "../socket";
+import { UnauthorizedError } from "../utils/errors";
+import { isValidId } from "../utils/ulid";
 
 export const roomsRouter = Router();
 
 const createRoomSchema = z.object({
-  isPrivate: z.boolean().optional(),
-  maxPlayers: z.number().int().min(2).max(100).optional(),
+  isPrivate: z.boolean().optional().default(true),
+  maxPlayers: z.number().int().min(2).max(100).optional().default(8),
 });
 
 const joinRoomSchema = z.object({
-  roomCode: z.string().trim().min(1).max(8).optional(),
+  roomCode: z
+    .string()
+    .trim()
+    .min(4)
+    .max(8)
+    .nullable()
+    .optional()
+    .transform((value) => {
+      const normalized = value?.trim().toUpperCase();
+      return normalized ? normalized : undefined;
+    }),
 });
 
-roomsRouter.post("/", requireAuth, validate({ body: createRoomSchema }), async (req, res, next) => {
-  try {
-    const room = await roomService.createRoom(req.jwtClaims!.sub, req.body as z.infer<typeof createRoomSchema>);
-    res.status(201).json({ room: roomService.toSnapshot(room) });
-  } catch (error) {
-    next(error);
-  }
+const roomCodeParamsSchema = z.object({
+  roomCode: z
+    .string()
+    .trim()
+    .length(6, "roomCode must be exactly 6 characters")
+    .transform((value) => value.toUpperCase()),
 });
 
-roomsRouter.post("/join", requireAuth, validate({ body: joinRoomSchema }), async (req, res, next) => {
-  try {
-    const result = await roomService.joinRoom(req.jwtClaims!.sub, (req.body as z.infer<typeof joinRoomSchema>).roomCode);
-    res.json({ room: result.snapshot });
-  } catch (error) {
-    next(error);
-  }
+const roomIdParamsSchema = z.object({
+  roomId: z.string().trim().refine(isValidId, "roomId must be a valid ULID"),
 });
 
-roomsRouter.get("/:roomCode", async (req, res, next) => {
-  try {
-    const room = await roomService.getRoomByCode(String(req.params.roomCode));
-    res.json({ room: roomService.toSnapshot(room) });
-  } catch (error) {
-    next(error);
+function getAuthenticatedUserId(jwtSub?: string): string {
+  if (!jwtSub) {
+    throw new UnauthorizedError("Missing authenticated user");
   }
-});
 
-roomsRouter.post("/:roomId/start", requireAuth, async (req, res, next) => {
-  try {
-    const room = await roomService.startGame(String(req.params.roomId), req.jwtClaims!.sub);
-    res.json({ room: roomService.toSnapshot(room) });
-  } catch (error) {
-    next(error);
-  }
-});
+  return jwtSub;
+}
 
-roomsRouter.post("/:roomId/leave", requireAuth, async (req, res, next) => {
-  try {
-    await roomService.leaveRoom(String(req.params.roomId), req.jwtClaims!.sub);
-    res.status(204).send();
-  } catch (error) {
-    next(error);
-  }
-});
+function formatRoomResponse(payload: RoomLifecycleState, wsToken?: string) {
+  return {
+    roomId: payload.room.roomId,
+    roomCode: payload.room.code,
+    room: payload.room,
+    hostUserId: payload.hostUserId,
+    config: payload.config,
+    createdAt: payload.createdAt,
+    startedAt: payload.startedAt,
+    ...(wsToken ? { wsToken } : {}),
+  };
+}
 
-// POST /rooms/:roomId/rejoin — reconnect a player who lost WS connection
-roomsRouter.post("/:roomId/rejoin", requireAuth, async (req, res, next) => {
-  try {
-    const userId = req.jwtClaims!.sub;
-    const roomId = String(req.params.roomId);
-    const [room, membership] = await Promise.all([
-      prisma.room.findUnique({ where: { id: roomId } }),
-      prisma.roomPlayer.findUnique({ where: { roomId_userId: { roomId, userId } } }),
-    ]);
-    if (!room) return res.status(404).json({ error: "Room not found", code: "NOT_FOUND" });
-    if (!membership) return res.status(403).json({ error: "Not a member of this room", code: "FORBIDDEN" });
-    res.json({ roomId: room.id, code: room.code, phase: room.status });
-  } catch (error) {
-    next(error);
+function formatLeaveResponse(payload: LeaveRoomResult) {
+  return {
+    left: payload.left,
+    roomId: payload.roomId,
+    roomCode: payload.room?.code ?? null,
+    roomClosed: payload.roomClosed,
+    room: payload.room,
+    hostUserId: payload.hostUserId,
+    config: payload.config,
+    createdAt: payload.createdAt,
+    startedAt: payload.startedAt,
+  };
+}
+
+roomsRouter.post(
+  "/",
+  requireAuth,
+  validate({ body: createRoomSchema }),
+  async (req, res, next) => {
+    try {
+      const hostUserId = getAuthenticatedUserId(req.jwtClaims?.sub);
+      const input = req.body as z.infer<typeof createRoomSchema>;
+      const room = await roomService.createRoom(hostUserId, input);
+
+      res.status(201).json(formatRoomResponse(room));
+    } catch (error) {
+      next(error);
+    }
   }
-});
+);
+
+roomsRouter.post(
+  "/join",
+  requireAuth,
+  validate({ body: joinRoomSchema }),
+  async (req, res, next) => {
+    try {
+      const userId = getAuthenticatedUserId(req.jwtClaims?.sub);
+      const { roomCode } = req.body as z.infer<typeof joinRoomSchema>;
+      const { room, wsToken } = await roomService.joinRoom(userId, roomCode);
+      const lifecycleState = await roomService.getRoomById(room.id);
+
+      res.json(formatRoomResponse(lifecycleState, wsToken));
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+roomsRouter.get(
+  "/:roomCode",
+  validate({ params: roomCodeParamsSchema }),
+  async (req, res, next) => {
+    try {
+      const { roomCode } = req.params as z.infer<typeof roomCodeParamsSchema>;
+      const room = await roomService.getRoomByCode(roomCode);
+
+      res.json(formatRoomResponse(room));
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+roomsRouter.post(
+  "/:roomId/start",
+  requireAuth,
+  validate({ params: roomIdParamsSchema }),
+  async (req, res, next) => {
+    try {
+      const requesterId = getAuthenticatedUserId(req.jwtClaims?.sub);
+      const { roomId } = req.params as z.infer<typeof roomIdParamsSchema>;
+
+      await roomService.recoverStaleCountdown(
+        roomId,
+        gameOrchestrator.hasActiveGame(roomId)
+      );
+
+      const room = await roomService.startGame(roomId, requesterId);
+
+      try {
+        await gameOrchestrator.assertQuestionBankReady();
+      } catch (error) {
+        await roomService.resetStartFailure(
+          roomId,
+          error instanceof Error ? error.message : String(error)
+        );
+        throw error;
+      }
+
+      // Fetch player IDs and fire the game loop asynchronously.
+      // Do NOT await — the FSM drives itself over socket events.
+      const playerRows = await prisma.roomPlayer.findMany({
+        where: { roomId },
+        select: { userId: true },
+      });
+      const playerIds = playerRows.map((row) => row.userId);
+
+      void gameOrchestrator.startGame(roomId, playerIds, getIo()).catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        // Logger is imported transitively via RoomService; use console as fallback here.
+        console.error("[rooms] GameOrchestrator.startGame failed", { roomId, message });
+      });
+
+      res.json(formatRoomResponse(room));
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+roomsRouter.post(
+  "/:roomId/leave",
+  requireAuth,
+  validate({ params: roomIdParamsSchema }),
+  async (req, res, next) => {
+    try {
+      const userId = getAuthenticatedUserId(req.jwtClaims?.sub);
+      const { roomId } = req.params as z.infer<typeof roomIdParamsSchema>;
+      const result = await roomService.leaveRoom(roomId, userId);
+
+      res.json(formatLeaveResponse(result));
+    } catch (error) {
+      next(error);
+    }
+  }
+);

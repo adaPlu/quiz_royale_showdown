@@ -3,133 +3,205 @@ import { useNavigate } from 'react-router-dom';
 
 import { PlayerAvatar } from '@components/PlayerAvatar';
 import { api } from '@services/apiClient';
+import { socketService } from '@services/socketService';
 import { useAuthStore } from '@stores/authStore';
 
-type RoomResponse = {
-  room: {
-    roomId: string;
-    code: string;
+type RoomApiRecord = {
+  id?: unknown;
+  roomId?: unknown;
+  code?: unknown;
+  roomCode?: unknown;
+};
+
+type RoomFlowResponse = {
+  room?: RoomApiRecord;
+  roomId?: unknown;
+  code?: unknown;
+  roomCode?: unknown;
+  wsToken?: unknown;
+};
+
+type RoomSession = {
+  roomId: string;
+  roomCode: string;
+  wsToken?: string;
+};
+
+const normalizeRoomSession = (data: unknown, fallbackRoomCode?: string): RoomSession => {
+  const payload = (data ?? {}) as RoomFlowResponse;
+  const room = payload.room ?? {};
+
+  const roomIdCandidate = room.id ?? room.roomId ?? payload.roomId;
+  if (typeof roomIdCandidate !== 'string' || !roomIdCandidate.trim()) {
+    throw new Error('Room response is missing roomId');
+  }
+
+  const roomCodeCandidate =
+    room.code ??
+    room.roomCode ??
+    payload.code ??
+    payload.roomCode ??
+    fallbackRoomCode ??
+    roomIdCandidate;
+
+  if (typeof roomCodeCandidate !== 'string' || !roomCodeCandidate.trim()) {
+    throw new Error('Room response is missing roomCode');
+  }
+
+  return {
+    roomId: roomIdCandidate,
+    roomCode: roomCodeCandidate.trim().toUpperCase(),
+    wsToken: typeof payload.wsToken === 'string' && payload.wsToken.trim() ? payload.wsToken : undefined,
   };
 };
+
+const getErrorMessage = (error: unknown, fallback: string) =>
+  error instanceof Error && error.message ? error.message : fallback;
 
 export default function HomePage() {
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
+  const accessToken = useAuthStore((state) => state.accessToken);
   const [code, setCode] = useState('');
+  const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [launchNotice, setLaunchNotice] = useState<string | null>(null);
 
-  const [isJoining, setIsJoining] = useState(false);
-
-  const goToLobby = async (roomCode: string) => {
-    const normalizedCode = roomCode.trim().toUpperCase();
-    if (normalizedCode.length < 4) {
-      setError('Enter at least 4 characters for a room code.');
-      return;
+  const enterLobby = (session: RoomSession) => {
+    const socketToken = session.wsToken ?? accessToken;
+    if (!socketToken) {
+      throw new Error('Missing websocket auth token');
     }
 
-    setIsJoining(true);
-    try {
-      const response = await api.post<RoomResponse>('/rooms/join', { roomCode: normalizedCode });
-      navigate(`/lobby/${response.data.room.code}`);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Unable to join that room.');
-    } finally {
-      setIsJoining(false);
-    }
+    socketService.connect(socketToken);
+    socketService.setActiveRoom({
+      roomId: session.roomId,
+      roomCode: session.roomCode,
+      token: socketToken,
+    });
+    socketService.joinRoom(session.roomCode, session.roomId);
+
+    navigate(`/lobby/${session.roomId}`);
   };
 
   const quickPlay = async () => {
+    setLoading('quick');
     setError(null);
-    setIsJoining(true);
+    setLaunchNotice(null);
+
     try {
-      const response = await api.post<RoomResponse>('/rooms/join', {});
-      navigate(`/lobby/${response.data.room.code}`);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Unable to find a match.');
+      const response = await api.post('/rooms/join', { roomCode: null });
+      enterLobby(normalizeRoomSession(response.data));
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to find a room'));
     } finally {
-      setIsJoining(false);
+      setLoading(null);
     }
   };
 
-  const createPrivateRoom = async () => {
+  const createRoom = async (isPrivate: boolean) => {
+    setLoading(isPrivate ? 'private' : 'create');
     setError(null);
-    setIsJoining(true);
+    setLaunchNotice(null);
+
     try {
-      const response = await api.post<RoomResponse>('/rooms', { isPrivate: true });
-      navigate(`/lobby/${response.data.room.code}`);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Unable to create a private room.');
+      const response = await api.post('/rooms', { isPrivate, maxPlayers: 8 });
+      enterLobby(normalizeRoomSession(response.data));
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to create room'));
     } finally {
-      setIsJoining(false);
+      setLoading(null);
+    }
+  };
+
+  const joinByCode = async () => {
+    const normalizedCode = code.trim().toUpperCase();
+    if (normalizedCode.length < 4) {
+      return;
+    }
+
+    setLoading('join');
+    setError(null);
+    setLaunchNotice(null);
+
+    try {
+      const response = await api.post('/rooms/join', { roomCode: normalizedCode });
+      enterLobby(normalizeRoomSession(response.data, normalizedCode));
+    } catch (err) {
+      setError(getErrorMessage(err, 'Room not found'));
+    } finally {
+      setLoading(null);
     }
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-game-bg">
-      <header className="flex items-center justify-between border-b border-game-border px-4 py-4">
+    <div className="min-h-screen bg-game-bg flex flex-col">
+      <header className="px-4 py-4 flex items-center justify-between border-b border-game-border">
         <div className="flex items-center gap-3">
-          <PlayerAvatar username={user?.username ?? user?.displayName ?? '?'} size="sm" />
+          <PlayerAvatar username={user?.username ?? '?'} size="sm" />
           <div>
-            <p className="text-sm font-semibold text-white">{user?.displayName ?? user?.username}</p>
-            <p className="text-xs text-game-muted">Level {user?.level ?? 1}</p>
+            <p className="text-white font-semibold text-sm">{user?.username}</p>
+            <p className="text-game-muted text-xs">Level {user?.level ?? 1}</p>
           </div>
         </div>
         <button
-          onClick={() => navigate(`/profile/${user?.username ?? user?.displayName ?? 'me'}`)}
-          className="text-sm text-game-muted hover:text-white"
+          type="button"
+          onClick={() => setLaunchNotice('Profiles are local-only during launch and do not call the backend yet.')}
+          className="text-game-muted hover:text-white text-sm"
         >
           Profile
         </button>
       </header>
 
-      <main className="mx-auto flex w-full max-w-sm flex-1 flex-col items-center justify-center gap-4 px-4">
-        <h1 className="text-center text-3xl font-black text-white">Ready to Play?</h1>
+      <main className="flex-1 flex flex-col items-center justify-center gap-4 px-4 max-w-sm mx-auto w-full">
+        <h1 className="text-white text-3xl font-black text-center">Ready to Play?</h1>
 
         <button
           onClick={quickPlay}
-          disabled={isJoining}
-          className="w-full rounded-2xl bg-brand py-4 text-lg font-bold text-white shadow-royale hover:opacity-90"
+          disabled={!!loading}
+          className="w-full py-4 rounded-2xl bg-brand text-white font-bold text-lg shadow-royale hover:opacity-90 disabled:opacity-60"
         >
-          Quick Play
+          {loading === 'quick' ? 'Finding game...' : 'Quick Play'}
         </button>
 
         <button
-          onClick={createPrivateRoom}
-          disabled={isJoining}
-          className="w-full rounded-2xl border border-game-border bg-game-surface py-3 font-semibold text-white hover:border-brand/50"
+          onClick={() => createRoom(true)}
+          disabled={!!loading}
+          className="w-full py-3 rounded-2xl bg-game-surface border border-game-border text-white font-semibold hover:border-brand/50 disabled:opacity-60"
         >
-          Create Private Room
+          {loading === 'private' ? 'Creating...' : 'Create Private Room'}
         </button>
 
         <div className="w-full border-t border-game-border pt-4">
           <div className="flex gap-2">
             <input
               value={code}
-              onChange={(event) => {
-                setError(null);
-                setCode(event.target.value.toUpperCase().slice(0, 12));
-              }}
+              onChange={(event) => setCode(event.target.value.toUpperCase().slice(0, 8))}
               placeholder="Room Code"
-              className="flex-1 rounded-xl border border-game-border bg-game-card px-4 py-3 font-mono uppercase tracking-widest text-white placeholder-game-muted focus:border-brand focus:outline-none"
+              className="flex-1 bg-game-card border border-game-border rounded-xl px-4 py-3 text-white placeholder-game-muted focus:outline-none focus:border-brand uppercase tracking-widest font-mono"
             />
             <button
-              onClick={() => goToLobby(code)}
-              disabled={code.length < 4 || isJoining}
-              className="rounded-xl border border-brand/40 bg-brand/20 px-4 py-3 font-semibold text-brand hover:bg-brand/30 disabled:opacity-40"
+              onClick={joinByCode}
+              disabled={code.trim().length < 4 || !!loading}
+              className="px-4 py-3 rounded-xl bg-brand/20 border border-brand/40 text-brand font-semibold hover:bg-brand/30 disabled:opacity-40"
             >
               Join
             </button>
           </div>
         </div>
 
-        {error && <p className="text-center text-sm text-answer-wrong">{error}</p>}
+        {error && <p className="text-answer-wrong text-sm text-center">{error}</p>}
+        {launchNotice && <p className="text-game-muted text-sm text-center">{launchNotice}</p>}
 
-        <button
-          onClick={() => navigate('/leaderboard')}
-          className="w-full rounded-xl border border-game-border py-2 text-sm text-game-muted hover:border-white/30 hover:text-white"
-        >
-          Leaderboard
-        </button>
+        <div className="flex gap-3 w-full pt-2">
+          <button
+            type="button"
+            onClick={() => setLaunchNotice('Global leaderboard is disabled for launch; in-game standings appear once a room starts.')}
+            className="flex-1 py-2 rounded-xl border border-game-border text-game-muted text-sm hover:text-white hover:border-white/30"
+          >
+            Leaderboard
+          </button>
+        </div>
       </main>
     </div>
   );

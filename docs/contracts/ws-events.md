@@ -1,45 +1,67 @@
-# WebSocket Events
+# WebSocket Contract
 
-Socket.IO uses `/ws` and a single canonical `message` event carrying a versioned envelope:
+The primary backend mounts Socket.IO at path `/ws`.
+
+All active client and server messages use the Socket.IO event name `message` with this envelope:
 
 ```json
 {
-  "type": "round:submit_answer",
+  "type": "room:state_sync",
   "version": "v1",
   "payload": {}
 }
 ```
 
-Authentication is passed during the Socket.IO handshake as `{ "token": "<accessToken>" }` or an `Authorization: Bearer <accessToken>` header.
+The previous direct Socket.IO event naming style, such as `v1:*`, is retired from the active contract. Clients must not emit or listen for direct `v1:*` event names.
 
-## Client To Server
+Authentication is passed in the Socket.IO handshake:
 
-- `room:create` payload: `{ "isPrivate": true, "maxPlayers": 8 }`
-- `room:join` payload: `{ "roomCode": "ABC123" }`
-- `room:ready` payload: `{ "roomId": "01..." }`
-- `room:start` payload: `{ "roomId": "01..." }`
-- `room:leave` payload: `{ "roomId": "01..." }`
-- `room:reconnect` payload: `{ "roomId": "01..." }`
-- `round:submit_answer` payload: `{ "roomId": "01...", "questionId": "01...", "answerIndex": 2, "clientSentAt": "2026-04-18T12:00:22.741Z" }`
-- `powerup:activate` payload: `{ "roomId": "01...", "powerUpId": "01...", "targetPlayerId": "01..." }`
-- `client:heartbeat` payload: `{ "roomId": "01...", "sentAt": "2026-04-18T12:01:00.000Z" }`
+```json
+{
+  "auth": {
+    "token": "<accessToken>"
+  }
+}
+```
 
-## Server To Client
+An `Authorization: Bearer <accessToken>` handshake header is also accepted by the backend middleware.
 
-- `room:state_sync` payload: `{ "room": RoomSnapshot }`
-- `room:player_joined` payload: `{ "roomId": "01...", "player": PlayerSummary }`
-- `room:player_left` payload: `{ "roomId": "01...", "playerId": "01..." }`
-- `room:ready_state` payload: `{ "roomId": "01...", "readyPlayerIds": ["01..."], "allReady": false }`
-- `round:countdown_started` payload: `{ "roomId": "01...", "startsAt": "2026-04-18T12:00:05.000Z", "seconds": 5 }`
-- `round:question_started` payload: `{ "roomId": "01...", "roundId": "01...", "questionId": "01...", "prompt": "...", "answers": ["A", "B", "C", "D"], "timeLimitMs": 20000, "startedAt": "2026-04-18T12:00:10.000Z" }`
-- `round:answer_submitted` payload: `{ "roomId": "01...", "roundId": "01...", "playerId": "01...", "accepted": true }`
-- `round:answer_locked` payload: `{ "roomId": "01...", "roundId": "01...", "lockedAt": "2026-04-18T12:00:30.000Z" }`
-- `round:result` payload: `{ "roomId": "01...", "roundId": "01...", "correctAnswerIndex": 2, "rankings": [{ "playerId": "01...", "scoreDelta": 950, "totalScore": 4200 }] }`
-- `round:elimination` payload: `{ "roomId": "01...", "eliminatedPlayerIds": ["01..."], "survivors": [PlayerSummary] }`
-- `round:finale_started` payload: `{ "roomId": "01...", "finalistIds": ["01...", "01..."] }`
-- `powerup:activated` payload: `{ "roomId": "01...", "powerUpId": "01...", "userId": "01...", "effect": {} }`
-- `powerup:effect` payload: `{ "roomId": "01...", "powerUpId": "01...", "userId": "01...", "effect": {} }`
-- `game:over` payload: `{ "roomId": "01...", "winnerId": "01...", "finalStandings": [{ "playerId": "01...", "rank": 1, "score": 8400, "xpAwarded": 840 }] }`
-- `error` payload: `{ "code": "VALIDATION_ERROR", "message": "Invalid payload", "roomId": "01..." }`
+## Server to Client
 
-`RoomSnapshot.phase` is one of `WAITING`, `COUNTDOWN`, `QUESTION_ACTIVE`, `ANSWER_LOCKED`, `ROUND_RESULT`, `ELIMINATION`, `FINALE`, or `GAME_OVER`.
+All events below are emitted on Socket.IO event `message`.
+
+1. `room:state_sync`
+   Full room snapshot after join or resync.
+2. `room:player_joined`
+   Announces a newly joined player.
+3. `room:player_left`
+   Announces a disconnected player.
+4. `round:countdown_started`
+   Countdown before the next question starts.
+5. `round:question_started`
+   Question prompt, answers, and server start time.
+6. `round:answer_locked`
+   Server lock signal when submissions close.
+7. `round:result`
+   Correct answer and score deltas.
+8. `round:elimination`
+   Eliminated player ids and survivor list.
+9. `round:finale_started`
+   Transition into the final showdown.
+10. `game:over`
+    Winner and final standings.
+11. `error`
+    Contract error envelope.
+
+## Client to Server
+
+All events below are sent on Socket.IO event `message`.
+
+1. `room:join`
+   Join a room by short code.
+2. `round:submit_answer`
+   Submit the selected answer index with client timestamp.
+3. `powerup:activate`
+   Activate an in-game power-up, optionally against a target.
+4. `client:heartbeat`
+   Presence and latency heartbeat.

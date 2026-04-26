@@ -1,138 +1,59 @@
 import { create } from 'zustand';
 
-import type { ServerEvent } from '@/lib/contracts';
-import type { PowerUpCode } from '@/stores/profileStore';
-import type { PlayerSummary } from '@/types/game';
+import type { ServerEvent, ServerEventPayload } from '@/lib/contracts';
 
-export type PowerupFeedbackEvent = {
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+export type GamePhase = ServerEventPayload<'room:state_sync'>['room']['phase'];
+
+export interface PlayerSummary {
   id: string;
-  kind: 'activated' | 'effect';
-  powerUpCode: PowerUpCode;
-  effectType?: string;
-};
+  displayName: string;
+  avatarUrl?: string;
+  score: number;
+  streak: number;
+  isEliminated: boolean;
+}
 
-export type GamePhase =
-  | 'WAITING'
-  | 'COUNTDOWN'
-  | 'QUESTION_ACTIVE'
-  | 'ANSWER_LOCKED'
-  | 'ROUND_RESULT'
-  | 'ELIMINATION'
-  | 'FINALE'
-  | 'GAME_OVER';
-
-export type QuestionState = {
+export interface QuestionState {
   roundId: string;
   questionId: string;
   prompt: string;
   answers: string[];
   timeLimitMs: number;
   startedAt: string;
-};
+}
 
-export type RoundResult = {
+export interface RoundResult {
   correctAnswerIndex: number;
   rankings: Array<{ playerId: string; scoreDelta: number; totalScore: number }>;
-};
+}
 
-export type FinalStanding = {
+export interface FinalStanding {
   playerId: string;
   rank: number;
   score: number;
   xpAwarded: number;
-};
+}
 
-export type LevelUpEntry = {
+export interface LevelUpEntry {
   playerId: string;
   newLevel: number;
   xp: number;
   xpToNextLevel: number;
-};
+}
 
-type RoomStatePayload = {
-  room: {
-    roomId: string;
-    code: string;
-    hostUserId?: string;
-    phase: GamePhase;
-    roundNumber: number;
-    totalRounds: number;
-    players: PlayerSummary[];
-  };
-};
-
-type CountdownPayload = {
-  roomId: string;
-  startsAt: string;
-  seconds: number;
-};
-
-type QuestionPayload = {
-  roomId: string;
-  roundId: string;
-  questionId: string;
-  prompt: string;
-  answers: string[];
-  timeLimitMs: number;
-  startedAt: string;
-};
-
-type AnswerLockedPayload = {
-  roomId: string;
-  roundId: string;
-  lockedAt: string;
-};
-
-type RoundResultPayload = {
-  roomId: string;
-  roundId: string;
-  correctAnswerIndex: number;
-  rankings: Array<{ playerId: string; scoreDelta: number; totalScore: number }>;
-};
-
-type EliminationPayload = {
-  roomId: string;
-  eliminatedPlayerIds: string[];
-  survivors: PlayerSummary[];
-};
-
-type FinaleStartedPayload = {
-  roomId: string;
-  finalistIds: string[];
-};
-
-type PowerupActivatedPayload = {
-  roomId: string;
-  userId: string;
-  powerUpId: string;
-  effect: Record<string, unknown>;
-};
-
-type PowerupEffectPayload = {
-  roomId: string;
-  userId: string;
-  powerUpId: string;
-  effect: Record<string, unknown>;
-};
-
-type GameOverPayload = {
-  roomId: string;
-  winnerId: string;
-  finalStandings: FinalStanding[];
-};
-
-type LevelUpPayload = LevelUpEntry;
-
-type ActivePowerupEffect = {
+export interface ActivePowerupEffect {
   effectType: string;
   affectedPlayerIds: string[];
   data?: unknown;
-};
+  expiresAt?: number;
+}
 
-type GameState = {
+interface GameState {
   roomId: string | null;
   code: string | null;
-  hostUserId: string | null;
   phase: GamePhase;
   roundNumber: number;
   totalRounds: number;
@@ -144,42 +65,81 @@ type GameState = {
   winnerId: string | null;
   finalScores: FinalStanding[];
   levelUpQueue: LevelUpEntry[];
-  usedPowerUps: string[];
   fiftyFiftyEliminated: number[];
   revealedOptionIndex: number | null;
   timeBoostActive: boolean;
   activePowerupEffect: ActivePowerupEffect | null;
-  lootDrop: { powerupCode: string; ts: number } | null;
-};
+}
 
-type GameActions = {
+interface GameActions {
   applyRoomState: (payload: RoomStatePayload) => void;
-  applyPlayerJoined: (payload: { roomId: string; player: PlayerSummary }) => void;
-  applyPlayerLeft: (payload: { roomId: string; playerId: string }) => void;
+  applyPlayerJoined: (payload: RoomPlayerJoinedPayload) => void;
+  applyPlayerLeft: (payload: RoomPlayerLeftPayload) => void;
   applyCountdown: (payload: CountdownPayload) => void;
   applyQuestion: (payload: QuestionPayload) => void;
   applyAnswerLocked: (payload: AnswerLockedPayload) => void;
   applyRoundResult: (payload: RoundResultPayload) => void;
-  applyElimination: (payload: EliminationPayload) => void;
-  applyFinaleStarted: (payload: FinaleStartedPayload) => void;
-  applyPowerupUsed: (payload: PowerupActivatedPayload) => void;
+  applyElimination: (payload: RoundEliminationPayload) => void;
+  applyFinaleStarted: (payload: RoundFinaleStartedPayload) => void;
+  applyPowerupUsed: (payload: PowerupUsedPayload) => void;
   applyPowerupEffect: (payload: PowerupEffectPayload) => void;
   applyGameOver: (payload: GameOverPayload) => void;
   applyLevelUp: (payload: LevelUpPayload) => void;
   setMyAnswer: (index: number) => void;
   dismissLevelUp: () => void;
   resetRoom: () => void;
-  applyServerEvent: (event: ServerEvent) => void;
-  setLootDrop: (code: string) => void;
-  clearLootDrop: () => void;
+  applyServerEvent: (event: LegacyServerEvent) => void;
+}
+
+// ---------------------------------------------------------------------------
+// Payload types
+// ---------------------------------------------------------------------------
+type RoomStatePayload = ServerEventPayload<'room:state_sync'>;
+type RoomPlayerJoinedPayload = ServerEventPayload<'room:player_joined'>;
+type RoomPlayerLeftPayload = ServerEventPayload<'room:player_left'>;
+type CountdownPayload = ServerEventPayload<'round:countdown_started'>;
+type QuestionPayload = ServerEventPayload<'round:question_started'>;
+type AnswerLockedPayload = ServerEventPayload<'round:answer_locked'>;
+type RoundResultPayload = ServerEventPayload<'round:result'>;
+type RoundEliminationPayload = ServerEventPayload<'round:elimination'>;
+type RoundFinaleStartedPayload = ServerEventPayload<'round:finale_started'>;
+
+interface PowerupUsedPayload {
+  roomId: string;
+  playerId: string;
+  powerupId: string;
+}
+
+interface PowerupEffectPayload {
+  roomId: string;
+  effectType: string;
+  affectedPlayerIds: string[];
+  data?: unknown;
+}
+
+type GameOverPayload = ServerEventPayload<'game:over'>;
+
+interface LevelUpPayload {
+  playerId: string;
+  newLevel: number;
+  xp: number;
+  xpToNextLevel: number;
+}
+
+type LegacyServerEvent = {
+  type: ServerEvent['type'];
+  version: string;
+  payload: Record<string, unknown>;
 };
 
+// ---------------------------------------------------------------------------
+// Initial state
+// ---------------------------------------------------------------------------
 const initialState: GameState = {
   roomId: null,
   code: null,
-  hostUserId: null,
   phase: 'WAITING',
-  roundNumber: 0,
+  roundNumber: 1,
   totalRounds: 10,
   players: [],
   question: null,
@@ -189,56 +149,47 @@ const initialState: GameState = {
   winnerId: null,
   finalScores: [],
   levelUpQueue: [],
-  usedPowerUps: [],
-  fiftyFiftyEliminated: [],
-  revealedOptionIndex: null,
-  timeBoostActive: false,
-  activePowerupEffect: null,
-  lootDrop: null,
-};
-
-const resetRoundInteraction: Pick<
-  GameState,
-  | 'result'
-  | 'myAnswerIndex'
-  | 'fiftyFiftyEliminated'
-  | 'revealedOptionIndex'
-  | 'timeBoostActive'
-  | 'activePowerupEffect'
-> = {
-  result: null,
-  myAnswerIndex: null,
   fiftyFiftyEliminated: [],
   revealedOptionIndex: null,
   timeBoostActive: false,
   activePowerupEffect: null,
 };
 
+const mergePlayers = (currentPlayers: PlayerSummary[], nextPlayers: PlayerSummary[]) => {
+  const playersById = new Map<string, PlayerSummary>();
+
+  currentPlayers.forEach((player) => {
+    playersById.set(player.id, player);
+  });
+
+  nextPlayers.forEach((player) => {
+    playersById.set(player.id, player);
+  });
+
+  return Array.from(playersById.values());
+};
+
+// ---------------------------------------------------------------------------
+// Store
+// ---------------------------------------------------------------------------
 export const useGameStore = create<GameState & GameActions>((set, get) => ({
   ...initialState,
 
   applyRoomState: (payload) => {
-    set((state) => ({
+    set({
       roomId: payload.room.roomId,
       code: payload.room.code,
-      hostUserId: payload.room.hostUserId ?? state.hostUserId,
       phase: payload.room.phase,
       roundNumber: payload.room.roundNumber,
       totalRounds: payload.room.totalRounds,
       players: payload.room.players,
-    }));
+    });
   },
 
   applyPlayerJoined: (payload) => {
-    set((state) => {
-      const exists = state.players.some((player) => player.id === payload.player.id);
-      return {
-        roomId: state.roomId ?? payload.roomId,
-        players: exists
-          ? state.players.map((player) => (player.id === payload.player.id ? payload.player : player))
-          : [...state.players, payload.player],
-      };
-    });
+    set((state) => ({
+      players: mergePlayers(state.players, [payload.player]),
+    }));
   },
 
   applyPlayerLeft: (payload) => {
@@ -249,18 +200,20 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
 
   applyCountdown: (payload) => {
     set({
-      roomId: payload.roomId,
       phase: 'COUNTDOWN',
-      question: null,
-      ...resetRoundInteraction,
+      result: null,
       countdownEndsAt: new Date(payload.startsAt).getTime() + payload.seconds * 1000,
     });
   },
 
   applyQuestion: (payload) => {
     set({
-      roomId: payload.roomId,
       phase: 'QUESTION_ACTIVE',
+      myAnswerIndex: null,
+      fiftyFiftyEliminated: [],
+      revealedOptionIndex: null,
+      timeBoostActive: false,
+      activePowerupEffect: null,
       question: {
         roundId: payload.roundId,
         questionId: payload.questionId,
@@ -269,7 +222,6 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
         timeLimitMs: payload.timeLimitMs,
         startedAt: payload.startedAt,
       },
-      ...resetRoundInteraction,
     });
   },
 
@@ -278,90 +230,71 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
   },
 
   applyRoundResult: (payload) => {
-    set((state) => {
-      const playersById = new Map(state.players.map((player) => [player.id, player]));
-      const rankedPlayers = payload.rankings.map((ranking) => {
-        const existing = playersById.get(ranking.playerId);
-        return {
-          id: ranking.playerId,
-          displayName: existing?.displayName ?? ranking.playerId,
-          avatarUrl: existing?.avatarUrl,
-          score: ranking.totalScore,
-          streak: existing?.streak ?? 0,
-          isEliminated: existing?.isEliminated ?? false,
-        };
-      });
-      const unrankedPlayers = state.players.filter(
-        (player) => !payload.rankings.some((ranking) => ranking.playerId === player.id),
-      );
-
-      return {
-        roomId: payload.roomId,
-        phase: 'ROUND_RESULT',
-        result: {
-          correctAnswerIndex: payload.correctAnswerIndex,
-          rankings: payload.rankings,
-        },
-        players: [...rankedPlayers, ...unrankedPlayers],
-      };
+    set({
+      phase: 'ROUND_RESULT',
+      result: {
+        correctAnswerIndex: payload.correctAnswerIndex,
+        rankings: payload.rankings,
+      },
+      players: get().players.map((player) => {
+        const ranking = payload.rankings.find((entry) => entry.playerId === player.id);
+        return ranking ? { ...player, score: ranking.totalScore } : player;
+      }),
     });
   },
 
   applyElimination: (payload) => {
-    set({
-      roomId: payload.roomId,
+    set((state) => ({
       phase: 'ELIMINATION',
-      players: payload.survivors,
-    });
-  },
+      players: state.players.map((player) => {
+        const survivor = payload.survivors.find((nextPlayer) => nextPlayer.id === player.id);
+        if (survivor) {
+          return survivor;
+        }
 
-  applyFinaleStarted: (payload) => {
-    set((state) => ({
-      roomId: payload.roomId,
-      phase: 'FINALE',
-      players: state.players.map((player) => ({
-        ...player,
-        isEliminated: !payload.finalistIds.includes(player.id),
-      })),
+        if (payload.eliminatedPlayerIds.includes(player.id)) {
+          return { ...player, isEliminated: true };
+        }
+
+        return player;
+      }),
     }));
   },
 
-  applyPowerupUsed: (payload) => {
-    set((state) => ({
-      usedPowerUps: state.usedPowerUps.includes(payload.powerUpId)
-        ? state.usedPowerUps
-        : [...state.usedPowerUps, payload.powerUpId],
-    }));
+  applyFinaleStarted: () => {
+    set({ phase: 'FINALE' });
+  },
+
+  applyPowerupUsed: () => {
+    // Reserved for a later wave.
   },
 
   applyPowerupEffect: (payload) => {
-    const effectType = String(payload.effect.type ?? '');
-    const affectedPlayerIds = [payload.userId].filter(Boolean);
-    const effect = {
-      effectType,
-      affectedPlayerIds,
-      data: payload.effect,
+    const effect: ActivePowerupEffect = {
+      effectType: payload.effectType,
+      affectedPlayerIds: payload.affectedPlayerIds,
+      data: payload.data,
     };
 
-    if (effectType === 'FIFTY_FIFTY') {
-      const data = payload.effect as { maskedAnswerIndices?: number[] };
+    if (payload.effectType === 'fifty_fifty') {
+      const data = payload.data as { eliminatedIndices?: number[] } | undefined;
       set({
         activePowerupEffect: effect,
-        fiftyFiftyEliminated: data.maskedAnswerIndices ?? [],
+        fiftyFiftyEliminated: data?.eliminatedIndices ?? [],
       });
       return;
     }
 
-    if (effectType === 'REVEAL' || effectType === 'REVEAL_WRONG') {
-      const data = payload.effect as { revealedAnswerIndex?: number };
+    if (payload.effectType === 'reveal_answer') {
+      const data = payload.data as { revealedIndex?: number } | undefined;
       set({
         activePowerupEffect: effect,
-        revealedOptionIndex: data.revealedAnswerIndex ?? null,
+        revealedOptionIndex: data?.revealedIndex ?? null,
       });
       return;
     }
 
-    if (effectType === 'TIME_BOOST' || effectType === 'TIME_FREEZE') {
+    if (payload.effectType === 'time_boost') {
       set({ activePowerupEffect: effect, timeBoostActive: true });
       return;
     }
@@ -371,7 +304,6 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
 
   applyGameOver: (payload) => {
     set({
-      roomId: payload.roomId,
       phase: 'GAME_OVER',
       winnerId: payload.winnerId,
       finalScores: payload.finalStandings,
@@ -388,61 +320,62 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
     set((state) => ({ levelUpQueue: state.levelUpQueue.slice(1) }));
   },
 
-  resetRoom: () => set({ ...initialState }),
+  resetRoom: () => set(initialState),
 
   applyServerEvent: (event) => {
+    const payload = event.payload as Record<string, unknown>;
+
     switch (event.type) {
       case 'room:state_sync':
-        get().applyRoomState(event.payload);
+        get().applyRoomState(payload as RoomStatePayload);
         break;
       case 'room:player_joined':
-        get().applyPlayerJoined(event.payload);
+        get().applyPlayerJoined(payload as RoomPlayerJoinedPayload);
         break;
       case 'room:player_left':
-        get().applyPlayerLeft(event.payload);
+        get().applyPlayerLeft(payload as RoomPlayerLeftPayload);
         break;
       case 'round:countdown_started':
-        get().applyCountdown(event.payload);
+        get().applyCountdown(payload as CountdownPayload);
         break;
       case 'round:question_started':
-        get().applyQuestion(event.payload);
+        get().applyQuestion(payload as QuestionPayload);
         break;
       case 'round:answer_locked':
-        get().applyAnswerLocked(event.payload);
+        get().applyAnswerLocked(payload as AnswerLockedPayload);
         break;
       case 'round:result':
-        get().applyRoundResult(event.payload);
+        get().applyRoundResult(payload as RoundResultPayload);
         break;
       case 'round:elimination':
-        get().applyElimination(event.payload);
+        get().applyElimination(payload as RoundEliminationPayload);
         break;
       case 'round:finale_started':
-        get().applyFinaleStarted(event.payload);
+        get().applyFinaleStarted(payload as RoundFinaleStartedPayload);
         break;
       case 'game:over':
-        get().applyGameOver(event.payload);
-        break;
-      case 'powerup:activated':
-        get().applyPowerupUsed(event.payload);
-        break;
-      case 'powerup:effect':
-        get().applyPowerupEffect(event.payload);
-        break;
-      case 'powerup:loot_drop':
-        get().setLootDrop((event.payload as { powerupCode: string }).powerupCode);
+        get().applyGameOver(payload as GameOverPayload);
         break;
     }
   },
-
-  setLootDrop: (code) => set({ lootDrop: { powerupCode: code, ts: Date.now() } }),
-  clearLootDrop: () => set({ lootDrop: null }),
 }));
 
-export const selectLeaderboard = (state: GameState): PlayerSummary[] =>
-  [...state.players].sort((a, b) => b.score - a.score);
+// ---------------------------------------------------------------------------
+// Derived selectors
+// ---------------------------------------------------------------------------
+export const selectMyPlayer =
+  (myId: string) =>
+  (state: GameState): PlayerSummary | undefined =>
+    state.players.find((player) => player.id === myId);
 
 export const selectAlivePlayers = (state: GameState): PlayerSummary[] =>
   state.players.filter((player) => !player.isEliminated);
+
+export const selectLeaderboard = (state: GameState): PlayerSummary[] =>
+  [...state.players].sort((left, right) => right.score - left.score);
+
+export const selectFiftyFiftyOptions = (state: GameState): boolean[] =>
+  (state.question?.answers ?? []).map((_, index) => !state.fiftyFiftyEliminated.includes(index));
 
 export const selectRevealOptionId = (state: GameState): number | null => state.revealedOptionIndex;
 

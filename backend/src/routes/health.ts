@@ -1,41 +1,101 @@
 import { Router } from "express";
+import type { PrismaClient } from "@prisma/client";
+
 import { prisma } from "../models/prismaClient";
-import { redisService } from "../services/RedisService";
-import { logger } from "../utils/logger";
+import { redisService, type RedisService } from "../services/RedisService";
 
 export const healthRouter = Router();
 
-healthRouter.get("/", async (_req, res) => {
-  const checks: Record<string, "ok" | "error"> = {};
+type ComponentStatus = "ok" | "unhealthy";
+type HealthStatus = "ok" | "unhealthy";
 
-  // DB ping
+export interface ComponentHealth {
+  status: ComponentStatus;
+  latencyMs?: number;
+  error?: string;
+}
+
+export interface HealthResponse {
+  status: HealthStatus;
+  ts: number;
+  version: string;
+  service: string;
+  timestamp: string;
+  components: {
+    postgres: ComponentHealth;
+    redis: ComponentHealth;
+  };
+}
+
+interface HealthDependencies {
+  prisma: Pick<PrismaClient, "$queryRawUnsafe">;
+  redis: Pick<RedisService, "ping"> | null;
+  now?: () => Date;
+}
+
+const VERSION = process.env.npm_package_version ?? "1.0.0";
+
+async function checkComponent(check: () => Promise<void>): Promise<ComponentHealth> {
+  const startedAt = Date.now();
+
   try {
-    await prisma.$queryRaw`SELECT 1`;
-    checks.database = "ok";
-  } catch (err) {
-    logger.warn("Health check: DB unreachable", { err });
-    checks.database = "error";
+    await check();
+    return {
+      status: "ok",
+      latencyMs: Date.now() - startedAt
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown health check failure";
+    return {
+      status: "unhealthy",
+      latencyMs: Date.now() - startedAt,
+      error: message
+    };
   }
+}
 
-  // Redis ping
-  try {
-    if (redisService) {
-      await redisService.set("health:ping", "1", 10);
-      checks.redis = "ok";
-    } else {
-      checks.redis = "error";
-    }
-  } catch (err) {
-    logger.warn("Health check: Redis unreachable", { err });
-    checks.redis = "error";
-  }
+export async function getHealth({
+  prisma: prismaClient,
+  redis,
+  now = () => new Date()
+}: HealthDependencies): Promise<HealthResponse> {
+  const [postgres, redisHealth] = await Promise.all([
+    checkComponent(async () => {
+      await prismaClient.$queryRawUnsafe("SELECT 1");
+    }),
+    checkComponent(async () => {
+      if (!redis) {
+        throw new Error("Redis service is not initialized");
+      }
+      const pong = await redis.ping();
+      if (pong !== "PONG") {
+        throw new Error(`Unexpected Redis PING response: ${pong}`);
+      }
+    })
+  ]);
 
-  const allOk = Object.values(checks).every((v) => v === "ok");
-  res.status(allOk ? 200 : 503).json({
-    status: allOk ? "ok" : "degraded",
-    checks,
-    version: "1.0.0",
+  const status: HealthStatus =
+    postgres.status === "ok" && redisHealth.status === "ok" ? "ok" : "unhealthy";
+  const timestamp = now();
+
+  return {
+    status,
+    ts: timestamp.getTime(),
+    version: VERSION,
     service: "quiz-royale-backend",
-    ts: Date.now(),
+    timestamp: timestamp.toISOString(),
+    components: {
+      postgres,
+      redis: redisHealth
+    }
+  };
+}
+
+healthRouter.get("/", async (_req, res) => {
+  const health = await getHealth({
+    prisma,
+    redis: redisService
   });
+
+  res.status(health.status === "ok" ? 200 : 503).json(health);
 });

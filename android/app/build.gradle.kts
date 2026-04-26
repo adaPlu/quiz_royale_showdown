@@ -1,12 +1,10 @@
 plugins {
   id("com.android.application")
   id("org.jetbrains.kotlin.android")
-  id("org.jetbrains.kotlin.plugin.compose")
   id("com.google.dagger.hilt.android")
   id("com.google.devtools.ksp")
   id("org.jetbrains.kotlin.plugin.serialization")
-  id("com.google.gms.google-services")
-  id("com.google.firebase.crashlytics")
+  id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
@@ -24,22 +22,18 @@ android {
     vectorDrawables {
       useSupportLibrary = true
     }
+
+    buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:4000/api/v1/\"")
+    buildConfigField("String", "WS_BASE_URL", "\"ws://10.0.2.2:4000/ws\"")
   }
 
   buildTypes {
-    debug {
-      buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:4000/api/v1/\"")
-      buildConfigField("String", "WS_BASE_URL", "\"ws://10.0.2.2:4000/ws\"")
-    }
     release {
-      isMinifyEnabled = true
-      isShrinkResources = true
+      isMinifyEnabled = false
       proguardFiles(
         getDefaultProguardFile("proguard-android-optimize.txt"),
         "proguard-rules.pro"
       )
-      buildConfigField("String", "API_BASE_URL", "\"https://api.quizroyale.gg/api/v1/\"")
-      buildConfigField("String", "WS_BASE_URL", "\"wss://api.quizroyale.gg/ws\"")
     }
   }
 
@@ -75,11 +69,11 @@ dependencies {
   implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
   implementation("androidx.activity:activity-compose:1.10.1")
   implementation("androidx.navigation:navigation-compose:2.8.9")
+  implementation("com.google.android.material:material:1.12.0")
   implementation("androidx.compose.ui:ui")
   implementation("androidx.compose.ui:ui-graphics")
   implementation("androidx.compose.ui:ui-tooling-preview")
   implementation("androidx.compose.material3:material3")
-  implementation("com.google.android.material:material:1.12.0")
   implementation("androidx.compose.foundation:foundation")
   implementation("androidx.compose.material:material-icons-extended")
 
@@ -87,15 +81,12 @@ dependencies {
   ksp("com.google.dagger:hilt-compiler:2.52")
   implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
 
+  implementation("io.socket:socket.io-client:2.1.0")
   implementation("com.squareup.okhttp3:okhttp:4.12.0")
   implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
   implementation("com.squareup.retrofit2:retrofit:2.11.0")
   implementation("com.squareup.retrofit2:converter-kotlinx-serialization:2.11.0")
-  implementation("com.jakewharton.retrofit:retrofit2-kotlinx-serialization-converter:1.0.0")
   implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
-  implementation("io.socket:socket.io-client:2.1.1") {
-    exclude(group = "org.json", module = "json")
-  }
 
   implementation("androidx.room:room-runtime:2.7.1")
   implementation("androidx.room:room-ktx:2.7.1")
@@ -104,9 +95,7 @@ dependencies {
   implementation("androidx.security:security-crypto:1.1.0-alpha06")
   implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
   implementation("com.android.billingclient:billing-ktx:7.1.1")
-  implementation(platform("com.google.firebase:firebase-bom:33.12.0"))
-  implementation("com.google.firebase:firebase-messaging-ktx")
-  implementation("com.google.firebase:firebase-crashlytics-ktx")
+  implementation("com.google.firebase:firebase-messaging-ktx:24.1.1")
 
   debugImplementation("androidx.compose.ui:ui-tooling")
   debugImplementation("androidx.compose.ui:ui-test-manifest")

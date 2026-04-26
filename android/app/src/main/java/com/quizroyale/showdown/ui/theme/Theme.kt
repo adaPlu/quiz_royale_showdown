@@ -5,20 +5,25 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-private val RoyaleDarkColors = darkColorScheme(
-  primary = Color(0xFF6C3EF5),
-  secondary = Color(0xFFFFD700),
-  background = Color(0xFF0E0E1A),
-  surface = Color(0xFF18182A),
-  onPrimary = Color.White,
-  onBackground = Color.White,
-  onSurface = Color.White
+private val DarkColorScheme = darkColorScheme(
+    primary          = BrandPurple,
+    onPrimary        = Color.White,
+    primaryContainer = Color(0xFF3B1FA0),
+    secondary        = GoldYellow,
+    background       = GameBackground,
+    surface          = GameSurface,
+    surfaceVariant   = GameCard,
+    outline          = GameBorder,
+    onSurface        = Color.White,
+    onBackground     = Color.White,
+    error            = AnswerWrong,
 )
 
 @Composable
 fun QuizRoyaleTheme(content: @Composable () -> Unit) {
-  MaterialTheme(
-    colorScheme = RoyaleDarkColors,
-    content = content
-  )
+    MaterialTheme(
+        colorScheme = DarkColorScheme,
+        typography  = Typography,
+        content     = content,
+    )
 }

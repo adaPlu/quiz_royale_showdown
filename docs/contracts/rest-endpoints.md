@@ -1,6 +1,27 @@
 # REST Endpoints
 
-The endpoints below are the canonical Phase 1 backend surface. Auth, rooms, users, power-up inventory, and cosmetics are implemented in `feature/backend`; shop, competitive, challenges, friends, and admin remain contract-only.
+This document lists routes mounted by the primary backend runtime in `backend/src/app.ts`.
+
+Mounted routers:
+
+- `/`
+- `/health`
+- `/api/v1/auth`
+- `/api/v1/rooms`
+
+Requests to unmounted routes return the standard 404 error response.
+
+## Root
+
+- `GET /`
+
+Returns service identity and readiness status.
+
+## Health
+
+- `GET /health`
+
+Checks PostgreSQL and Redis. Returns `200` when healthy and `503` when a dependency is unhealthy.
 
 ## Auth
 
@@ -10,6 +31,54 @@ The endpoints below are the canonical Phase 1 backend surface. Auth, rooms, user
 - `POST /api/v1/auth/logout`
 - `GET /api/v1/auth/me`
 
+`GET /api/v1/auth/me` requires `Authorization: Bearer <accessToken>`.
+
+Register accepts:
+
+```json
+{
+  "email": "alice@example.com",
+  "username": "alice",
+  "displayName": "Alice",
+  "password": "sup3rS3cr3t"
+}
+```
+
+`displayName` or `username` is required. `username` is optional and must be alphanumeric when present.
+
+Register and login return:
+
+```json
+{
+  "user": {
+    "id": "01H...",
+    "email": "alice@example.com",
+    "displayName": "Alice"
+  },
+  "accessToken": "...",
+  "refreshToken": "..."
+}
+```
+
+Refresh accepts:
+
+```json
+{
+  "refreshToken": "..."
+}
+```
+
+Refresh returns:
+
+```json
+{
+  "accessToken": "...",
+  "refreshToken": "..."
+}
+```
+
+Logout accepts the same refresh-token body and returns `204` on success.
+
 ## Rooms
 
 - `POST /api/v1/rooms`
@@ -18,46 +87,54 @@ The endpoints below are the canonical Phase 1 backend surface. Auth, rooms, user
 - `POST /api/v1/rooms/:roomId/start`
 - `POST /api/v1/rooms/:roomId/leave`
 
-## Power-Ups
+All room endpoints require `Authorization: Bearer <accessToken>` except `GET /api/v1/rooms/:roomCode`.
 
-- `GET /api/v1/powerups/inventory`
-- `POST /api/v1/powerups/use`
+Create room accepts:
 
-## Cosmetics
+```json
+{
+  "isPrivate": true,
+  "maxPlayers": 8
+}
+```
 
-- `GET /api/v1/cosmetics`
-- `GET /api/v1/cosmetics/owned`
-- `POST /api/v1/cosmetics/equip`
+Join room accepts:
 
-## Shop
+```json
+{
+  "roomCode": "ROYALE"
+}
+```
 
-- `GET /api/v1/shop/catalog`
-- `POST /api/v1/shop/checkout/google-play`
-- `POST /api/v1/shop/checkout/stripe`
-- `POST /api/v1/shop/receipts/verify`
+`roomCode` may be omitted or null for quick-play matchmaking.
 
-## Competitive
+Room responses include:
 
-- `GET /api/v1/leaderboard`
-- `GET /api/v1/seasons/current`
-- `GET /api/v1/seasons/:seasonId`
-- `GET /api/v1/seasons/:seasonId/leaderboard`
+```json
+{
+  "roomId": "01H...",
+  "roomCode": "ROYALE",
+  "room": {},
+  "hostUserId": "01H...",
+  "config": {},
+  "createdAt": "2026-04-25T00:00:00.000Z",
+  "startedAt": null,
+  "wsToken": "..."
+}
+```
 
-## Challenges
+`wsToken` is only included where the route issues one.
 
-- `GET /api/v1/challenges`
-- `POST /api/v1/challenges/:challengeId/claim`
+## Future / Unmounted
 
-## Friends
+These feature areas exist in schema, services, tests, or seed data, but are not mounted as REST routes in the primary backend runtime:
 
-- `GET /api/v1/friends`
-- `POST /api/v1/friends/invite`
-- `POST /api/v1/friends/:friendId/accept`
-- `DELETE /api/v1/friends/:friendId`
-
-## Admin
-
-- `POST /api/v1/admin/questions/import`
-- `POST /api/v1/admin/questions/activate`
-- `POST /api/v1/admin/seasons`
-- `POST /api/v1/admin/powerups/rebalance`
+- Power-ups REST catalog, inventory, and equip routes
+- Cosmetics catalog, inventory, and equip routes
+- Shop catalog, checkout, and receipt verification routes
+- Leaderboard routes
+- Seasons routes
+- Challenges routes
+- Friends routes
+- Admin routes
+- Profile routes beyond `GET /api/v1/auth/me`

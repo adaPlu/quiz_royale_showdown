@@ -2,12 +2,13 @@ package com.quizroyale.showdown.di
 
 import android.content.Context
 import androidx.room.Room
-import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import com.quizroyale.showdown.BuildConfig
 import com.quizroyale.showdown.data.auth.AuthApi
 import com.quizroyale.showdown.data.auth.TokenRefreshInterceptor
 import com.quizroyale.showdown.data.game.GameApi
 import com.quizroyale.showdown.data.local.AppDatabase
+import com.quizroyale.showdown.data.room.RoomApi
+import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -92,6 +93,10 @@ object AppModule {
   @Provides
   @Singleton
   fun provideGameApi(@ApiRetrofit retrofit: Retrofit): GameApi = retrofit.create(GameApi::class.java)
+
+  @Provides
+  @Singleton
+  fun provideRoomApi(retrofit: Retrofit): RoomApi = retrofit.create(RoomApi::class.java)
 
   @Provides
   @Singleton

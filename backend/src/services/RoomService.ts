@@ -1,95 +1,128 @@
-import type { Room, RoomPlayer, User } from "@prisma/client";
+/**
+ * RoomService - create, query, start, join, and leave rooms.
+ *
+ * Durable room state lives in Prisma (Postgres).
+ * Fast-changing lifecycle metadata lives in Redis.
+ */
+
+import { Prisma, type Room } from "@prisma/client";
 
 import { prisma } from "../models/prismaClient";
 import type { PlayerSummary, RoomSnapshot } from "../types/contracts";
-import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../utils/errors";
-import { generateId } from "../utils/ulid";
+import {
+  BadRequestError,
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+} from "../utils/errors";
 import { logger } from "../utils/logger";
+import { isValidId } from "../utils/ulid";
+import { generateId } from "../utils/ulid";
+import { signTokenPair } from "./AuthService";
 import { redisService } from "./RedisService";
 
-const DEFAULT_MAX_PLAYERS = 8;
-const MAX_PLAYERS_LIMIT = 100;
-const ROOM_PLAYERS_TTL_SECONDS = 2 * 60 * 60;
-const MATCHMAKING_QUEUE_KEY = "matchmaking:rooms";
-
-type RoomPlayerWithUser = RoomPlayer & {
-  user: Pick<User, "id" | "displayName" | "avatarUrl">;
-};
-
-type RoomWithPlayers = Room & {
-  players: RoomPlayerWithUser[];
-};
-
-export interface CreateRoomInput {
-  isPrivate?: boolean;
-  maxPlayers?: number;
+interface CreateRoomOpts {
+  isPrivate: boolean;
+  maxPlayers: number;
 }
 
-export interface JoinRoomResult {
-  room: RoomWithPlayers;
-  snapshot: RoomSnapshot;
-  joined: boolean;
+interface RoomConfig {
+  isPrivate: boolean;
+  maxPlayers: number;
 }
 
-export class RoomService {
-  async createRoom(hostUserId: string, input: CreateRoomInput = {}): Promise<RoomWithPlayers> {
-    const maxPlayers = input.maxPlayers ?? DEFAULT_MAX_PLAYERS;
-    this.assertMaxPlayers(maxPlayers);
+export interface RoomLifecycleState {
+  room: RoomSnapshot;
+  hostUserId: string;
+  config: RoomConfig;
+  createdAt: string;
+  startedAt: string | null;
+}
 
-    const userExists = await prisma.user.findUnique({
-      where: { id: hostUserId },
-      select: { id: true },
-    });
-    if (!userExists) {
-      throw new NotFoundError("Host user not found");
-    }
+export interface LeaveRoomResult {
+  left: true;
+  roomId: string;
+  roomClosed: boolean;
+  room: RoomSnapshot | null;
+  hostUserId: string | null;
+  config: RoomConfig | null;
+  createdAt: string | null;
+  startedAt: string | null;
+}
 
-    const room = await prisma.room.create({
-      data: {
-        id: generateId(),
-        code: await this.generateRoomCode(),
-        hostUserId,
-        status: "WAITING",
-        totalRounds: 10,
-        currentRound: 0,
-        players: {
-          create: {
-            id: generateId(),
-            userId: hostUserId,
-            seatIndex: 0,
-          },
+const MATCHMAKING_QUEUE_KEY = "matchmaking:queue";
+const ROOM_PLAYERS_TTL_SECONDS = 60 * 60 * 2;
+const DEFAULT_ROOM_CONFIG: RoomConfig = {
+  isPrivate: true,
+  maxPlayers: 8,
+};
+
+const roomWithPlayersInclude = Prisma.validator<Prisma.RoomInclude>()({
+  players: {
+    orderBy: { seatIndex: "asc" },
+    include: {
+      user: {
+        select: {
+          id: true,
+          displayName: true,
+          avatarUrl: true,
         },
       },
-      include: this.roomInclude(),
-    });
+    },
+  },
+});
 
-    await this.trackLivePlayer(room.id, hostUserId);
+type RoomWithPlayers = Prisma.RoomGetPayload<{
+  include: typeof roomWithPlayersInclude;
+}>;
 
-    if (!input.isPrivate) {
-      await this.enqueueForMatchmaking(room.id);
-    }
-
-    logger.info("Room created", {
-      roomId: room.id,
-      code: room.code,
-      hostUserId,
-      isPrivate: input.isPrivate ?? true,
-      maxPlayers,
-    });
-
-    return room;
+export class RoomService {
+  async createRoom(
+    hostUserId: string,
+    opts: Partial<CreateRoomOpts> = {}
+  ): Promise<RoomLifecycleState> {
+    const config = this.normalizeRoomConfig(opts);
+    const room = await this.createRoomEntity(hostUserId, config);
+    return this.toLifecycleState(room, config);
   }
 
-  async joinRoom(userId: string, roomCode?: string): Promise<JoinRoomResult> {
-    const room = roomCode
-      ? await this.findWaitingRoomByCode(roomCode)
-      : await this.matchmakeOrCreate(userId);
+  /**
+   * Join a room by code (private) or via the matchmaking queue (public).
+   * Returns the room row and a short-lived token for the WebSocket handshake.
+   */
+  async joinRoom(
+    userId: string,
+    roomCode?: string
+  ): Promise<{ room: Room; wsToken: string }> {
+    let room: Room;
 
-    const existing = room.players.find((player) => player.userId === userId);
-    let joined = false;
+    if (roomCode) {
+      const found = await prisma.room.findUnique({
+        where: { code: roomCode.toUpperCase() },
+      });
+
+      if (!found) {
+        throw new NotFoundError(`Room with code ${roomCode} not found`);
+      }
+
+      if (found.status !== "WAITING") {
+        throw new ForbiddenError("Room is no longer accepting players");
+      }
+
+      room = found;
+    } else {
+      room = await this.matchmakeOrCreate(userId);
+    }
+
+    const existing = await prisma.roomPlayer.findUnique({
+      where: { roomId_userId: { roomId: room.id, userId } },
+    });
 
     if (!existing) {
-      if (room.players.length >= DEFAULT_MAX_PLAYERS) {
+      const config = await this.getRoomConfig(room.id);
+      const seatCount = await prisma.roomPlayer.count({ where: { roomId: room.id } });
+
+      if (seatCount >= config.maxPlayers) {
         throw new ConflictError("Room is full");
       }
 
@@ -98,251 +131,427 @@ export class RoomService {
           id: generateId(),
           roomId: room.id,
           userId,
-          seatIndex: room.players.length,
+          seatIndex: seatCount,
         },
       });
-      await this.trackLivePlayer(room.id, userId);
-      joined = true;
+
+      await this.addLivePlayer(room.id, userId);
+
+      logger.info("Player joined room", { userId, roomId: room.id });
     }
 
-    const refreshed = await this.getRoom(room.id);
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { id: true, email: true, displayName: true },
+    });
+    const { accessToken: wsToken } = signTokenPair(user);
 
-    logger.info("Player joined room", { roomId: room.id, userId, joined });
-
-    return {
-      room: refreshed,
-      snapshot: this.toSnapshot(refreshed),
-      joined,
-    };
+    return { room, wsToken };
   }
 
-  async getRoom(roomId: string): Promise<RoomWithPlayers> {
+  async getRoomByCode(roomCode: string): Promise<RoomLifecycleState> {
+    const normalizedCode = roomCode.trim().toUpperCase();
+    const room = await prisma.room.findUnique({
+      where: { code: normalizedCode },
+      include: roomWithPlayersInclude,
+    });
+
+    if (!room) {
+      throw new NotFoundError(`Room with code ${normalizedCode} not found`);
+    }
+
+    return this.toLifecycleState(room);
+  }
+
+  async getRoomById(roomId: string): Promise<RoomLifecycleState> {
+    if (!isValidId(roomId)) {
+      throw new NotFoundError(`Room ${roomId} not found`);
+    }
+
     const room = await prisma.room.findUnique({
       where: { id: roomId },
-      include: this.roomInclude(),
+      include: roomWithPlayersInclude,
     });
+
     if (!room) {
-      throw new NotFoundError("Room not found");
+      throw new NotFoundError(`Room ${roomId} not found`);
     }
-    return room;
+
+    return this.toLifecycleState(room);
   }
 
-  async getRoomByCode(roomCode: string): Promise<RoomWithPlayers> {
-    // Accept either the 6-char room code or the internal UUID/ULID
-    const room = await prisma.room.findFirst({
-      where: { OR: [{ code: roomCode.toUpperCase() }, { id: roomCode }] },
-      include: this.roomInclude(),
+  async recoverStaleCountdown(roomId: string, hasActiveGame: boolean): Promise<boolean> {
+    const room = await prisma.room.findUnique({
+      where: { id: roomId },
+      select: { id: true, status: true },
     });
-    if (!room) {
-      throw new NotFoundError("Room not found");
+
+    if (!room || room.status !== "COUNTDOWN" || hasActiveGame) {
+      return false;
     }
-    return room;
+
+    const liveState = redisService
+      ? await redisService.getJson<unknown>(`game:${roomId}:state`)
+      : null;
+
+    if (liveState) {
+      return false;
+    }
+
+    const result = await prisma.room.updateMany({
+      where: { id: roomId, status: "COUNTDOWN" },
+      data: {
+        status: "WAITING",
+        startedAt: null,
+      },
+    });
+
+    if (result.count === 0) {
+      return false;
+    }
+
+    if (redisService) {
+      await redisService.del(
+        `game:${roomId}:state`,
+        `game:${roomId}:current_question`,
+        `room:${roomId}:scores`
+      );
+    }
+
+    logger.warn("Recovered stale COUNTDOWN room", { roomId });
+    return true;
   }
 
-  async getSnapshot(roomId: string): Promise<RoomSnapshot> {
-    return this.toSnapshot(await this.getRoom(roomId));
+  async resetStartFailure(roomId: string, reason: string): Promise<void> {
+    await prisma.room.updateMany({
+      where: { id: roomId, status: "COUNTDOWN" },
+      data: {
+        status: "WAITING",
+        startedAt: null,
+      },
+    });
+
+    if (redisService) {
+      await redisService.del(
+        `game:${roomId}:state`,
+        `game:${roomId}:current_question`,
+        `room:${roomId}:scores`
+      );
+    }
+
+    logger.warn("Reset room after game start failure", { roomId, reason });
   }
 
-  async startGame(roomId: string, requesterId: string): Promise<RoomWithPlayers> {
-    const room = await this.getRoom(roomId);
+  async startGame(roomId: string, requesterId: string): Promise<RoomLifecycleState> {
+    const room = await prisma.room.findUnique({
+      where: { id: roomId },
+      include: roomWithPlayersInclude,
+    });
+
+    if (!room) {
+      throw new NotFoundError(`Room ${roomId} not found`);
+    }
 
     if (room.hostUserId !== requesterId) {
-      throw new ForbiddenError("Only the room host can start the game");
-    }
-    if (room.status !== "WAITING") {
-      throw new ConflictError("Game already started");
+      throw new ForbiddenError("Only the host can start the game");
     }
 
-    const activePlayers = room.players.filter((player) => !player.isEliminated);
-    if (activePlayers.length < 1) {
-      throw new BadRequestError("At least 1 player is required to start");
+    if (room.status !== "WAITING") {
+      throw new ConflictError("Game has already started");
+    }
+
+    if (room.players.length < 2) {
+      throw new BadRequestError("At least 2 players are required to start");
     }
 
     await prisma.room.update({
       where: { id: roomId },
-      data: { status: "COUNTDOWN", startedAt: new Date() },
+      data: {
+        status: "COUNTDOWN",
+        startedAt: new Date(),
+      },
     });
-    await this.removeFromMatchmaking(roomId);
 
-    logger.info("Game marked started", { roomId, requesterId });
+    logger.info("Game started", { roomId, hostUserId: requesterId });
 
-    return this.getRoom(roomId);
+    return this.getRoomById(roomId);
   }
 
-  async markReady(roomId: string, userId: string): Promise<{ allReady: boolean; readyPlayerIds: string[] }> {
-    const room = await this.getRoom(roomId);
+  async leaveRoom(roomId: string, userId: string): Promise<LeaveRoomResult> {
+    const room = await prisma.room.findUnique({
+      where: { id: roomId },
+      include: roomWithPlayersInclude,
+    });
 
-    if (!room.players.some((player) => player.userId === userId)) {
-      throw new ForbiddenError("Player is not in this room");
+    if (!room) {
+      throw new NotFoundError(`Room ${roomId} not found`);
     }
 
-    if (!redisService) {
-      return {
-        allReady: room.players.filter((player) => !player.isEliminated).length >= 1,
-        readyPlayerIds: [userId],
-      };
+    const playerRecord = room.players.find((player) => player.userId === userId);
+    if (!playerRecord) {
+      throw new NotFoundError("You are not in this room");
     }
 
-    const readyKey = `room:${roomId}:ready`;
-    await redisService.sadd(readyKey, userId);
-    await redisService.expire(readyKey, ROOM_PLAYERS_TTL_SECONDS);
+    const config = await this.getRoomConfig(room.id);
 
-    const activePlayers = room.players.filter((player) => !player.isEliminated);
-    const readyPlayerIds = await redisService.smembers(readyKey);
-    const readySet = new Set(readyPlayerIds);
-    const allReady = activePlayers.length >= 1 && activePlayers.every((player) => readySet.has(player.userId));
+    await prisma.roomPlayer.delete({
+      where: { id: playerRecord.id },
+    });
 
-    return { allReady, readyPlayerIds };
-  }
+    await this.removeLivePlayer(room.id, userId);
 
-  async leaveRoom(roomId: string, userId: string): Promise<void> {
-    const room = await this.getRoom(roomId);
-    const player = room.players.find((entry) => entry.userId === userId);
+    const remainingPlayers = [...room.players]
+      .filter((player) => player.userId !== userId)
+      .sort((left, right) => left.seatIndex - right.seatIndex);
 
-    if (!player) {
-      throw new NotFoundError("Player is not in this room");
-    }
-
-    await prisma.roomPlayer.delete({ where: { id: player.id } });
-
-    if (redisService) {
-      await redisService.srem(`room:${roomId}:players`, userId);
-      await redisService.srem(`room:${roomId}:ready`, userId);
-    }
-
-    const remaining = room.players.filter((entry) => entry.userId !== userId);
-    if (remaining.length === 0) {
-      await this.removeFromMatchmaking(roomId);
+    if (remainingPlayers.length === 0) {
       await prisma.room.delete({ where: { id: roomId } });
+      await this.clearRoomCache(roomId);
+
       logger.info("Room deleted after final player left", { roomId });
-      return;
+
+      return {
+        left: true,
+        roomId,
+        roomClosed: true,
+        room: null,
+        hostUserId: null,
+        config: null,
+        createdAt: null,
+        startedAt: null,
+      };
     }
 
     if (room.hostUserId === userId) {
       await prisma.room.update({
         where: { id: roomId },
-        data: { hostUserId: remaining[0].userId },
+        data: { hostUserId: remainingPlayers[0].userId },
       });
-      logger.info("Room host transferred", { roomId, hostUserId: remaining[0].userId });
-    }
-  }
 
-  toSnapshot(room: RoomWithPlayers): RoomSnapshot {
+      logger.info("Room host transferred", {
+        roomId,
+        fromUserId: userId,
+        toUserId: remainingPlayers[0].userId,
+      });
+    }
+
+    logger.info("Player left room", { roomId, userId });
+
+    const updatedRoom = await this.getRoomById(roomId);
+
     return {
-      roomId: room.id,
-      code: room.code,
-      hostUserId: room.hostUserId,
-      phase: room.status,
-      roundNumber: room.currentRound,
-      totalRounds: room.totalRounds,
-      players: room.players
-        .slice()
-        .sort((left, right) => left.seatIndex - right.seatIndex)
-        .map((player): PlayerSummary => ({
-          id: player.userId,
-          displayName: player.user.displayName,
-          avatarUrl: player.user.avatarUrl ?? undefined,
-          score: player.score,
-          streak: player.streak,
-          isEliminated: player.isEliminated,
-        })),
+      left: true,
+      roomId,
+      roomClosed: false,
+      room: updatedRoom.room,
+      hostUserId: updatedRoom.hostUserId,
+      config,
+      createdAt: updatedRoom.createdAt,
+      startedAt: updatedRoom.startedAt,
     };
   }
 
-  private async findWaitingRoomByCode(roomCode: string): Promise<RoomWithPlayers> {
-    const room = await this.getRoomByCode(roomCode);
-    if (room.status !== "WAITING") {
-      throw new ForbiddenError("Room is no longer accepting players");
-    }
-    return room;
-  }
-
-  private async matchmakeOrCreate(userId: string): Promise<RoomWithPlayers> {
+  private async matchmakeOrCreate(userId: string): Promise<Room> {
     if (redisService) {
-      const candidateIds = await redisService.zrevrange(MATCHMAKING_QUEUE_KEY, 0, -1);
-      for (const roomId of candidateIds.reverse()) {
-        const room = await prisma.room.findUnique({
-          where: { id: roomId },
-          include: this.roomInclude(),
-        });
+      const candidates = await redisService.zrevrange(MATCHMAKING_QUEUE_KEY, -1, -1);
+      const candidateRoomId = candidates[0];
 
-        if (!room || room.status !== "WAITING") {
-          await redisService.zrem(MATCHMAKING_QUEUE_KEY, roomId);
-          continue;
+      if (candidateRoomId) {
+        const room = await prisma.room.findUnique({ where: { id: candidateRoomId } });
+
+        if (room && room.status === "WAITING") {
+          const count = await prisma.roomPlayer.count({ where: { roomId: room.id } });
+          const config = await this.getRoomConfig(room.id);
+
+          if (count >= config.maxPlayers) {
+            await redisService.zrem(MATCHMAKING_QUEUE_KEY, candidateRoomId);
+          } else {
+            return room;
+          }
+        } else {
+          await redisService.zrem(MATCHMAKING_QUEUE_KEY, candidateRoomId);
         }
-
-        if (room.players.length < DEFAULT_MAX_PLAYERS) {
-          return room;
-        }
-
-        await redisService.zrem(MATCHMAKING_QUEUE_KEY, roomId);
       }
     }
 
-    return this.createRoom(userId, { isPrivate: false, maxPlayers: DEFAULT_MAX_PLAYERS });
+    const room = await this.createRoomEntity(userId, {
+      isPrivate: false,
+      maxPlayers: DEFAULT_ROOM_CONFIG.maxPlayers,
+    });
+
+    if (redisService) {
+      await redisService.zadd(MATCHMAKING_QUEUE_KEY, Date.now(), room.id);
+    }
+
+    return room;
   }
 
-  private async trackLivePlayer(roomId: string, userId: string): Promise<void> {
+  private normalizeRoomConfig(opts: Partial<CreateRoomOpts>): RoomConfig {
+    const config: RoomConfig = {
+      isPrivate: opts.isPrivate ?? DEFAULT_ROOM_CONFIG.isPrivate,
+      maxPlayers: opts.maxPlayers ?? DEFAULT_ROOM_CONFIG.maxPlayers,
+    };
+
+    if (config.maxPlayers < 2 || config.maxPlayers > 100) {
+      throw new BadRequestError("maxPlayers must be between 2 and 100");
+    }
+
+    return config;
+  }
+
+  private async createRoomEntity(
+    hostUserId: string,
+    config: RoomConfig
+  ): Promise<RoomWithPlayers> {
+    const code = await this.generateRoomCode();
+    const roomId = generateId();
+
+    await prisma.$transaction(async (tx) => {
+      await tx.room.create({
+        data: {
+          id: roomId,
+          code,
+          hostUserId,
+          status: "WAITING",
+          totalRounds: 10,
+          currentRound: 0,
+        },
+      });
+
+      await tx.roomPlayer.create({
+        data: {
+          id: generateId(),
+          roomId,
+          userId: hostUserId,
+          seatIndex: 0,
+        },
+      });
+    });
+
+    await Promise.all([
+      this.addLivePlayer(roomId, hostUserId),
+      this.setRoomConfig(roomId, config),
+    ]);
+
+    logger.info("Room created", {
+      roomId,
+      code,
+      hostUserId,
+      isPrivate: config.isPrivate,
+      maxPlayers: config.maxPlayers,
+    });
+
+    const room = await prisma.room.findUnique({
+      where: { id: roomId },
+      include: roomWithPlayersInclude,
+    });
+
+    if (!room) {
+      throw new NotFoundError(`Room ${roomId} not found after creation`);
+    }
+
+    return room;
+  }
+
+  private async addLivePlayer(roomId: string, userId: string): Promise<void> {
     if (!redisService) {
       return;
     }
 
-    const key = `room:${roomId}:players`;
-    await redisService.sadd(key, userId);
-    await redisService.expire(key, ROOM_PLAYERS_TTL_SECONDS);
-    await redisService.zadd(`room:${roomId}:scores`, 0, userId);
+    await redisService.sadd(`room:${roomId}:players`, userId);
+    await redisService.expire(`room:${roomId}:players`, ROOM_PLAYERS_TTL_SECONDS);
   }
 
-  private async enqueueForMatchmaking(roomId: string): Promise<void> {
-    if (redisService) {
-      await redisService.zadd(MATCHMAKING_QUEUE_KEY, Date.now(), roomId);
+  private async removeLivePlayer(roomId: string, userId: string): Promise<void> {
+    if (!redisService) {
+      return;
     }
+
+    await redisService.srem(`room:${roomId}:players`, userId);
   }
 
-  private async removeFromMatchmaking(roomId: string): Promise<void> {
-    if (redisService) {
-      await redisService.zrem(MATCHMAKING_QUEUE_KEY, roomId);
+  private async setRoomConfig(roomId: string, config: RoomConfig): Promise<void> {
+    if (!redisService) {
+      return;
     }
+
+    await redisService.setJson(
+      `room:${roomId}:config`,
+      config,
+      ROOM_PLAYERS_TTL_SECONDS
+    );
+  }
+
+  private async getRoomConfig(roomId: string): Promise<RoomConfig> {
+    if (!redisService) {
+      return DEFAULT_ROOM_CONFIG;
+    }
+
+    const config = await redisService.getJson<RoomConfig>(`room:${roomId}:config`);
+    return config ?? DEFAULT_ROOM_CONFIG;
+  }
+
+  private async clearRoomCache(roomId: string): Promise<void> {
+    if (!redisService) {
+      return;
+    }
+
+    await redisService.del(`room:${roomId}:players`, `room:${roomId}:config`);
+  }
+
+  private async toLifecycleState(
+    room: RoomWithPlayers,
+    configOverride?: RoomConfig
+  ): Promise<RoomLifecycleState> {
+    const config = configOverride ?? (await this.getRoomConfig(room.id));
+
+    return {
+      room: {
+        roomId: room.id,
+        code: room.code,
+        phase: room.status,
+        roundNumber: room.currentRound,
+        totalRounds: room.totalRounds,
+        players: room.players.map((player) => this.toPlayerSummary(player)),
+      },
+      hostUserId: room.hostUserId,
+      config,
+      createdAt: room.createdAt.toISOString(),
+      startedAt: room.startedAt?.toISOString() ?? null,
+    };
+  }
+
+  private toPlayerSummary(
+    player: RoomWithPlayers["players"][number]
+  ): PlayerSummary {
+    return {
+      id: player.user.id,
+      displayName: player.user.displayName,
+      avatarUrl: player.user.avatarUrl ?? undefined,
+      score: player.score,
+      streak: player.streak,
+      isEliminated: player.isEliminated,
+    };
   }
 
   private async generateRoomCode(): Promise<string> {
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const maxAttempts = 10;
 
-    for (let attempt = 0; attempt < 10; attempt += 1) {
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       let code = "";
+
       for (let index = 0; index < 6; index += 1) {
         code += chars[Math.floor(Math.random() * chars.length)];
       }
 
-      const existing = await prisma.room.findUnique({ where: { code }, select: { id: true } });
+      const existing = await prisma.room.findUnique({ where: { code } });
       if (!existing) {
         return code;
       }
     }
 
-    throw new ConflictError("Unable to allocate a unique room code");
-  }
-
-  private assertMaxPlayers(maxPlayers: number): void {
-    if (!Number.isInteger(maxPlayers) || maxPlayers < 2 || maxPlayers > MAX_PLAYERS_LIMIT) {
-      throw new BadRequestError(`maxPlayers must be an integer between 2 and ${MAX_PLAYERS_LIMIT}`);
-    }
-  }
-
-  private roomInclude() {
-    return {
-      players: {
-        include: {
-          user: {
-            select: {
-              id: true,
-              displayName: true,
-              avatarUrl: true,
-            },
-          },
-        },
-      },
-    } as const;
+    throw new Error("Failed to generate a unique room code after maximum attempts");
   }
 }
 

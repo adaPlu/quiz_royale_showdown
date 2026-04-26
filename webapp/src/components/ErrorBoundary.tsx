@@ -1,35 +1,40 @@
-import React from 'react';
+import { Component, type ErrorInfo, type ReactNode } from 'react';
 
-type Props = { children: React.ReactNode };
-type State = { error: Error | null };
+interface Props {
+  children: ReactNode;
+}
 
-export class ErrorBoundary extends React.Component<Props, State> {
-  state: State = { error: null };
+interface State {
+  hasError: boolean;
+  message: string;
+}
+
+export class ErrorBoundary extends Component<Props, State> {
+  state: State = { hasError: false, message: '' };
 
   static getDerivedStateFromError(error: Error): State {
-    return { error };
+    return { hasError: true, message: error.message };
   }
 
-  componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error('[ErrorBoundary]', error, info.componentStack);
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('[ErrorBoundary]', error, info);
   }
 
   render() {
-    if (this.state.error) {
-      return (
-        <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-game-bg px-4 text-center">
-          <p className="text-5xl">⚠️</p>
-          <h1 className="text-2xl font-black text-white">Something went wrong</h1>
-          <p className="max-w-sm text-sm text-game-muted">{this.state.error.message}</p>
-          <button
-            onClick={() => window.location.replace('/home')}
-            className="rounded-xl bg-brand px-6 py-3 font-bold text-white shadow-royale"
-          >
-            Go Home
-          </button>
-        </div>
-      );
-    }
-    return this.props.children;
+    if (!this.state.hasError) return this.props.children;
+
+    return (
+      <div className="min-h-screen bg-game-bg flex flex-col items-center justify-center gap-6 p-6 text-center text-white">
+        <p className="text-5xl">💥</p>
+        <h1 className="text-2xl font-black">Something went wrong</h1>
+        <p className="max-w-md text-sm text-white/50">{this.state.message}</p>
+        <button
+          onClick={() => window.location.reload()}
+          className="rounded-xl bg-brand px-6 py-3 font-bold shadow-royale hover:opacity-90"
+        >
+          Reload
+        </button>
+      </div>
+    );
   }
 }

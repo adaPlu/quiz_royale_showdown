@@ -2,13 +2,12 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { socketService } from '@/services/socketService';
-import { useAuthStore } from '@/stores/authStore';
 import { useGameStore } from '@/stores/gameStore';
-import { useProfileStore } from '@/stores/profileStore';
 
-export const useGameSocket = (roomId: string | undefined) => {
+export function useGameSocket(roomId: string | undefined) {
   const navigate = useNavigate();
-  const accessToken = useAuthStore((state) => state.accessToken);
+
+  const roomCode = useGameStore((state) => state.code);
   const applyRoomState = useGameStore((state) => state.applyRoomState);
   const applyPlayerJoined = useGameStore((state) => state.applyPlayerJoined);
   const applyPlayerLeft = useGameStore((state) => state.applyPlayerLeft);
@@ -18,71 +17,109 @@ export const useGameSocket = (roomId: string | undefined) => {
   const applyRoundResult = useGameStore((state) => state.applyRoundResult);
   const applyElimination = useGameStore((state) => state.applyElimination);
   const applyFinaleStarted = useGameStore((state) => state.applyFinaleStarted);
-  const applyPowerupUsed = useGameStore((state) => state.applyPowerupUsed);
-  const applyPowerupEffect = useGameStore((state) => state.applyPowerupEffect);
   const applyGameOver = useGameStore((state) => state.applyGameOver);
-  const applyLevelUp = useGameStore((state) => state.applyLevelUp);
-  const updateXp = useProfileStore((state) => state.updateXp);
 
   useEffect(() => {
-    const token = accessToken ?? localStorage.getItem('qrs.accessToken');
-    if (token) {
-      socketService.connect(token);
+    if (roomId && roomCode) {
+      socketService.setActiveRoom({ roomId, roomCode });
     }
+  }, [roomCode, roomId]);
 
-    if (roomId) {
-      socketService.setActiveRoom(roomId);
-      socketService.emit('room:join', { roomCode: roomId });
-    }
+  useEffect(() => {
+    const unsubs: Array<() => void> = [];
 
-    const unsubs = [
-      socketService.on('room:state_sync', applyRoomState),
-      socketService.on('room:player_joined', applyPlayerJoined),
-      socketService.on('room:player_left', applyPlayerLeft),
+    unsubs.push(
+      socketService.on('room:state_sync', (payload) => {
+        applyRoomState(payload);
+        socketService.updateRoomSnapshot(payload.room.roomId, payload.room.code);
+
+        if (payload.room.phase === 'GAME_OVER') {
+          navigate(`/results/${payload.room.roomId}`, { replace: true });
+          return;
+        }
+
+        if (payload.room.phase !== 'WAITING') {
+          navigate(`/game/${payload.room.roomId}`, { replace: true });
+        }
+      }),
+    );
+
+    unsubs.push(
+      socketService.on('room:player_joined', (payload) => {
+        applyPlayerJoined(payload);
+      }),
+    );
+
+    unsubs.push(
+      socketService.on('room:player_left', (payload) => {
+        applyPlayerLeft(payload);
+      }),
+    );
+
+    unsubs.push(
       socketService.on('round:countdown_started', (payload) => {
         applyCountdown(payload);
         navigate(`/game/${payload.roomId}`, { replace: true });
       }),
+    );
+
+    unsubs.push(
       socketService.on('round:question_started', (payload) => {
         applyQuestion(payload);
-        navigate(`/game/${payload.roomId}`, { replace: true });
       }),
-      socketService.on('round:answer_locked', applyAnswerLocked),
-      socketService.on('round:result', applyRoundResult),
-      socketService.on('round:elimination', applyElimination),
-      socketService.on('round:finale_started', applyFinaleStarted),
-      socketService.on('powerup:activated', applyPowerupUsed),
-      socketService.on('powerup:effect', applyPowerupEffect),
+    );
+
+    unsubs.push(
+      socketService.on('round:answer_locked', (payload) => {
+        applyAnswerLocked(payload);
+      }),
+    );
+
+    unsubs.push(
+      socketService.on('round:result', (payload) => {
+        applyRoundResult(payload);
+      }),
+    );
+
+    unsubs.push(
+      socketService.on('round:elimination', (payload) => {
+        applyElimination(payload);
+      }),
+    );
+
+    unsubs.push(
+      socketService.on('round:finale_started', (payload) => {
+        applyFinaleStarted(payload);
+      }),
+    );
+
+    unsubs.push(
       socketService.on('game:over', (payload) => {
         applyGameOver(payload);
-        navigate(`/results/${payload.roomId}`);
+        navigate(`/results/${payload.roomId}`, { replace: true });
       }),
-      socketService.on('player:level_up', (payload) => {
-        applyLevelUp(payload);
-        updateXp(payload.xp, payload.newLevel);
+    );
+
+    unsubs.push(
+      socketService.on('error', (payload) => {
+        console.error('[socket] Server error:', payload.code, payload.message, payload.details);
       }),
-    ];
+    );
 
     return () => {
       unsubs.forEach((unsubscribe) => unsubscribe());
     };
   }, [
-    accessToken,
-    roomId,
-    navigate,
-    applyRoomState,
-    applyPlayerJoined,
-    applyPlayerLeft,
-    applyCountdown,
-    applyQuestion,
     applyAnswerLocked,
-    applyRoundResult,
+    applyCountdown,
     applyElimination,
     applyFinaleStarted,
-    applyPowerupUsed,
-    applyPowerupEffect,
     applyGameOver,
-    applyLevelUp,
-    updateXp,
+    applyPlayerJoined,
+    applyPlayerLeft,
+    applyQuestion,
+    applyRoomState,
+    applyRoundResult,
+    navigate,
   ]);
-};
+}

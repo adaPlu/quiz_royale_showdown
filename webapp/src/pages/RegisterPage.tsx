@@ -1,16 +1,18 @@
-import { zodResolver } from '@hookform/resolvers/zod';
+import React from 'react';
 import { useForm } from 'react-hook-form';
-import { Link, useNavigate } from 'react-router-dom';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { Link, useNavigate } from 'react-router-dom';
 
 import { api } from '@services/apiClient';
-import { useAuthStore } from '@stores/authStore';
+import { type AuthResponse, useAuthStore } from '@stores/authStore';
 
 const schema = z.object({
   username: z
     .string()
     .min(3, 'Username must be at least 3 characters')
-    .max(24, 'Username must be at most 24 characters'),
+    .max(20, 'Username must be at most 20 characters')
+    .regex(/^[a-zA-Z0-9_]+$/, 'Letters, numbers, underscores only'),
   email: z.string().email('Enter a valid email'),
   password: z.string().min(8, 'Password must be at least 8 characters'),
   confirmPassword: z.string(),
@@ -23,25 +25,28 @@ type FormData = z.infer<typeof schema>;
 
 export default function RegisterPage() {
   const navigate = useNavigate();
-  const setUser = useAuthStore((state) => state.setUser);
-  const setTokens = useAuthStore((state) => state.setTokens);
+  const setSession = useAuthStore((state) => state.setSession);
 
-  const { register, handleSubmit, formState: { errors, isSubmitting }, setError } = useForm<FormData>({
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+    setError,
+  } = useForm<FormData>({
     resolver: zodResolver(schema),
   });
 
   const onSubmit = async (data: FormData) => {
     try {
-      const response = await api.post<{
-        user: Parameters<typeof setUser>[0];
-        tokens: { accessToken: string; refreshToken: string };
-      }>('/auth/register', {
-        displayName: data.username,
-        email: data.email,
+      const normalizedUsername = data.username.trim();
+      const response = await api.post<AuthResponse>('/auth/register', {
+        username: normalizedUsername,
+        displayName: normalizedUsername,
+        email: data.email.trim().toLowerCase(),
         password: data.password,
       });
-      setTokens(response.data.tokens);
-      setUser({ ...response.data.user, username: data.username });
+
+      setSession(response.data);
       navigate('/home', { replace: true });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Registration failed. Please try again.';
@@ -50,66 +55,69 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-game-bg p-4">
+    <div className="min-h-screen bg-game-bg flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
-        <div className="mb-8 text-center">
+        <div className="text-center mb-8">
           <h1 className="text-4xl font-black text-white">Quiz Royale</h1>
-          <p className="text-xl font-semibold text-brand">Showdown</p>
+          <p className="text-brand font-semibold text-xl">Showdown</p>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 rounded-3xl border border-game-border bg-game-surface p-6 shadow-royale">
-          <h2 className="text-center text-xl font-bold text-white">Create Account</h2>
+        <form
+          onSubmit={handleSubmit(onSubmit)}
+          className="bg-game-surface rounded-3xl p-6 border border-game-border shadow-royale space-y-4"
+        >
+          <h2 className="text-white text-xl font-bold text-center">Create Account</h2>
 
           <div>
-            <label className="mb-1 block text-xs text-game-muted">Display Name</label>
+            <label className="block text-xs text-game-muted mb-1">Username</label>
             <input
               {...register('username')}
               type="text"
               autoComplete="username"
-              className="w-full rounded-xl border border-game-border bg-game-card px-4 py-3 text-white placeholder-game-muted transition-colors focus:border-brand focus:outline-none"
+              className="w-full bg-game-card border border-game-border rounded-xl px-4 py-3 text-white placeholder-game-muted focus:outline-none focus:border-brand transition-colors"
               placeholder="CoolPlayer99"
             />
-            {errors.username && <p className="mt-1 text-xs text-answer-wrong">{errors.username.message}</p>}
+            {errors.username && <p className="text-answer-wrong text-xs mt-1">{errors.username.message}</p>}
           </div>
 
           <div>
-            <label className="mb-1 block text-xs text-game-muted">Email</label>
+            <label className="block text-xs text-game-muted mb-1">Email</label>
             <input
               {...register('email')}
               type="email"
               autoComplete="email"
-              className="w-full rounded-xl border border-game-border bg-game-card px-4 py-3 text-white placeholder-game-muted transition-colors focus:border-brand focus:outline-none"
+              className="w-full bg-game-card border border-game-border rounded-xl px-4 py-3 text-white placeholder-game-muted focus:outline-none focus:border-brand transition-colors"
               placeholder="you@example.com"
             />
-            {errors.email && <p className="mt-1 text-xs text-answer-wrong">{errors.email.message}</p>}
+            {errors.email && <p className="text-answer-wrong text-xs mt-1">{errors.email.message}</p>}
           </div>
 
           <div>
-            <label className="mb-1 block text-xs text-game-muted">Password</label>
+            <label className="block text-xs text-game-muted mb-1">Password</label>
             <input
               {...register('password')}
               type="password"
               autoComplete="new-password"
-              className="w-full rounded-xl border border-game-border bg-game-card px-4 py-3 text-white placeholder-game-muted transition-colors focus:border-brand focus:outline-none"
-              placeholder="Password"
+              className="w-full bg-game-card border border-game-border rounded-xl px-4 py-3 text-white placeholder-game-muted focus:outline-none focus:border-brand transition-colors"
+              placeholder="********"
             />
-            {errors.password && <p className="mt-1 text-xs text-answer-wrong">{errors.password.message}</p>}
+            {errors.password && <p className="text-answer-wrong text-xs mt-1">{errors.password.message}</p>}
           </div>
 
           <div>
-            <label className="mb-1 block text-xs text-game-muted">Confirm Password</label>
+            <label className="block text-xs text-game-muted mb-1">Confirm Password</label>
             <input
               {...register('confirmPassword')}
               type="password"
               autoComplete="new-password"
-              className="w-full rounded-xl border border-game-border bg-game-card px-4 py-3 text-white placeholder-game-muted transition-colors focus:border-brand focus:outline-none"
-              placeholder="Confirm password"
+              className="w-full bg-game-card border border-game-border rounded-xl px-4 py-3 text-white placeholder-game-muted focus:outline-none focus:border-brand transition-colors"
+              placeholder="********"
             />
-            {errors.confirmPassword && <p className="mt-1 text-xs text-answer-wrong">{errors.confirmPassword.message}</p>}
+            {errors.confirmPassword && <p className="text-answer-wrong text-xs mt-1">{errors.confirmPassword.message}</p>}
           </div>
 
           {errors.root && (
-            <p className="rounded-xl border border-red-800/40 bg-red-900/20 px-3 py-2 text-center text-sm text-answer-wrong">
+            <p className="text-answer-wrong text-sm text-center bg-red-900/20 border border-red-800/40 rounded-xl px-3 py-2">
               {errors.root.message}
             </p>
           )}
@@ -117,14 +125,14 @@ export default function RegisterPage() {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full rounded-xl bg-brand py-3 text-lg font-bold text-white shadow-royale transition-all hover:opacity-90 disabled:opacity-60"
+            className="w-full py-3 rounded-xl bg-brand text-white font-bold text-lg shadow-royale hover:opacity-90 disabled:opacity-60 transition-all"
           >
             {isSubmitting ? 'Creating account...' : 'Create Account'}
           </button>
 
-          <p className="text-center text-sm text-game-muted">
+          <p className="text-center text-game-muted text-sm">
             Already have an account?{' '}
-            <Link to="/login" className="font-semibold text-brand hover:underline">Sign In</Link>
+            <Link to="/login" className="text-brand hover:underline font-semibold">Sign In</Link>
           </p>
         </form>
       </div>

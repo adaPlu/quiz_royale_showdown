@@ -6,16 +6,8 @@ sealed interface GameUiState {
   data object Idle : GameUiState
 
   data class Lobby(
-    val roomId: String = "",
     val roomCode: String = "",
-    val players: List<PlayerUiModel> = emptyList(),
-    val phaseLabel: String = "WAITING"
-  ) : GameUiState
-
-  data class Countdown(
-    val roomId: String,
-    val seconds: Int,
-    val players: List<PlayerUiModel>
+    val players: List<PlayerUiModel> = emptyList()
   ) : GameUiState
 
   data class ActiveQuestion(
@@ -28,36 +20,20 @@ sealed interface GameUiState {
     val timerSeconds: Int,
     val players: List<PlayerUiModel>,
     val phaseLabel: String,
-    val selectedAnswerIndex: Int? = null,
-    val isAnswerLocked: Boolean = false,
-    val correctAnswerIndex: Int? = null,
-    val activePowerupEffect: PowerupEffectUiModel? = null
+    val selectedOptionIndex: Int? = null,
+    /** Power-ups owned by the local player for this round. */
+    val ownedPowerups: List<OwnedPowerup> = emptyList(),
   ) : GameUiState
 
   data class RoundResult(
     val roomId: String,
     val summary: String,
-    val players: List<PlayerUiModel>,
-    val correctAnswerIndex: Int? = null
-  ) : GameUiState
-
-  data class Elimination(
-    val roomId: String,
-    val eliminatedPlayerIds: List<String>,
-    val players: List<PlayerUiModel>
-  ) : GameUiState
-
-  data class Finale(
-    val roomId: String,
-    val finalistIds: List<String>,
     val players: List<PlayerUiModel>
   ) : GameUiState
 
   data class GameOver(
     val roomId: String,
-    val winnerId: String,
-    val players: List<PlayerUiModel>,
-    val xpAwarded: Int
+    val players: List<PlayerUiModel>
   ) : GameUiState
 }
 
@@ -67,12 +43,18 @@ data class PlayerUiModel(
   val score: Int,
   val streak: Int,
   val isEliminated: Boolean,
-  val avatarUrl: String? = null
+  val xpAwarded: Int = 0,
 )
 
-data class PowerupEffectUiModel(
+/**
+ * Represents a power-up slot in the player's tray.
+ *
+ * @param type        Which power-up this is.
+ * @param quantity    How many charges remain.
+ * @param usedThisRound Whether the player already activated it this round.
+ */
+data class OwnedPowerup(
   val type: PowerupType,
-  val title: String,
-  val detail: String,
-  val isPending: Boolean = false
+  val quantity: Int,
+  val usedThisRound: Boolean = false,
 )
