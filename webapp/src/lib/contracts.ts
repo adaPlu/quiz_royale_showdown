@@ -110,6 +110,16 @@ export const powerupLootDropPayloadSchema = z.object({
 
 export type PowerupLootDropPayload = z.infer<typeof powerupLootDropPayloadSchema>;
 
+export const powerupEffectPayloadSchema = z.object({
+  type: z.string(),
+  targetPlayerId: z.string().optional(),
+}).passthrough();
+
+export const powerupEffectPrivatePayloadSchema = z.object({
+  type: z.string(),
+  maskedAnswerIndices: z.array(z.number()).optional(),
+}).passthrough();
+
 export const gameLevelUpPayloadSchema = z.object({
   userId: z.string(),
   newLevel: z.number().int().min(1),
@@ -132,7 +142,9 @@ export const serverEventSchema = z.discriminatedUnion("type", [
   envelope("game:over", gameOverPayloadSchema),
   envelope("game:level_up", gameLevelUpPayloadSchema),
   envelope("error", socketErrorPayloadSchema),
-  envelope("powerup:loot_drop", powerupLootDropPayloadSchema)
+  envelope("powerup:loot_drop", powerupLootDropPayloadSchema),
+  envelope("powerup:effect", powerupEffectPayloadSchema),
+  envelope("powerup:effect_private", powerupEffectPrivatePayloadSchema),
 ]);
 
 export type ServerEvent = z.infer<typeof serverEventSchema>;
