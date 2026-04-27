@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useGameStore } from '@stores/gameStore';
 import { useAuthStore } from '@stores/authStore';
 import { PlayerAvatar } from '@components/PlayerAvatar';
+import { LevelUpToast } from '@components/LevelUpToast';
 
 export default function ResultsPage() {
   const navigate = useNavigate();
@@ -30,6 +31,7 @@ export default function ResultsPage() {
 
   return (
     <div className="min-h-screen bg-game-bg flex flex-col p-4">
+      <LevelUpToast />
       <div className="max-w-lg mx-auto w-full flex flex-col gap-4 py-6">
         <div className="text-center">
           <p className="text-5xl mb-2">

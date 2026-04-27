@@ -13,6 +13,7 @@ const HomePage = lazy(() => import('@/pages/HomePage'));
 const ResultsPage = lazy(() => import('@/pages/ResultsPage'));
 const ProfilePage = lazy(() => import('@/pages/ProfilePage'));
 const LeaderboardPage = lazy(() => import('@/pages/LeaderboardPage'));
+const CosmeticsPage = lazy(() => import('@/pages/CosmeticsPage'));
 
 const Spinner = () => (
   <div className="min-h-screen bg-game-bg flex items-center justify-center">
@@ -79,6 +80,7 @@ export const App = () => {
         <Route path="/results/:roomId" element={<RequireAuth><ResultsPage /></RequireAuth>} />
         <Route path="/profile/:username" element={<RequireAuth><ProfilePage /></RequireAuth>} />
         <Route path="/leaderboard" element={<RequireAuth><LeaderboardPage /></RequireAuth>} />
+        <Route path="/cosmetics" element={<RequireAuth><CosmeticsPage /></RequireAuth>} />
 
         <Route path="/" element={<RootRedirect />} />
         <Route path="*" element={<RootRedirect />} />
