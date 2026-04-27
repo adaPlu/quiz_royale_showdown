@@ -11,7 +11,7 @@ import {
   roomService,
 } from "../services/RoomService";
 import { getIo } from "../socket";
-import { UnauthorizedError } from "../utils/errors";
+import { NotFoundError, UnauthorizedError } from "../utils/errors";
 import { isValidId } from "../utils/ulid";
 
 export const roomsRouter = Router();
@@ -178,6 +178,70 @@ roomsRouter.post(
       });
 
       res.json(formatRoomResponse(room));
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// GET /rooms/join/:inviteCode — look up a room by invite code (no auth required)
+roomsRouter.get("/join/:inviteCode", async (req, res, next) => {
+  try {
+    const { inviteCode } = req.params;
+    const room = await prisma.room.findFirst({
+      where: { inviteCode, status: "WAITING" },
+      select: {
+        id: true,
+        code: true,
+        players: { select: { id: true } },
+      },
+    });
+
+    if (!room) {
+      throw new NotFoundError("Room not found or not accepting players");
+    }
+
+    res.json({
+      roomId: room.id,
+      code: room.code,
+      playerCount: room.players.length,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /rooms/:id/invite — generate an invite code (auth required, host only)
+roomsRouter.post(
+  "/:roomId/invite",
+  requireAuth,
+  validate({ params: roomIdParamsSchema }),
+  async (req, res, next) => {
+    try {
+      const userId = getAuthenticatedUserId(req.jwtClaims?.sub);
+      const { roomId } = req.params as z.infer<typeof roomIdParamsSchema>;
+
+      const room = await prisma.room.findUnique({
+        where: { id: roomId },
+        select: { hostUserId: true },
+      });
+
+      if (!room) {
+        throw new NotFoundError("Room not found");
+      }
+
+      if (room.hostUserId !== userId) {
+        throw new UnauthorizedError("Only the room host can generate an invite code");
+      }
+
+      const inviteCode = Math.random().toString(36).slice(2, 8).toUpperCase();
+
+      await prisma.room.update({
+        where: { id: roomId },
+        data: { inviteCode },
+      });
+
+      res.json({ inviteCode });
     } catch (error) {
       next(error);
     }

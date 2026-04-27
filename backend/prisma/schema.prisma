@@ -7,6 +7,12 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  BLOCKED
+}
+
 enum RoomStatus {
   WAITING
   COUNTDOWN
@@ -39,16 +45,18 @@ model User {
   rating           Int               @default(1000)
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
-  refreshTokens    RefreshToken[]
-  roomsHosted      Room[]            @relation("HostedRooms")
-  roomPlayers      RoomPlayer[]
-  answers          Answer[]
-  playerPowerUps   PlayerPowerUp[]
-  powerUpUses      PowerUpUse[]
-  userCosmetics    UserCosmetic[]
-  xpEvents         XpEvent[]
-  seasonScores     SeasonScore[]
-  purchaseReceipts PurchaseReceipt[]
+  refreshTokens          RefreshToken[]
+  roomsHosted            Room[]            @relation("HostedRooms")
+  roomPlayers            RoomPlayer[]
+  answers                Answer[]
+  playerPowerUps         PlayerPowerUp[]
+  powerUpUses            PowerUpUse[]
+  userCosmetics          UserCosmetic[]
+  xpEvents               XpEvent[]
+  seasonScores           SeasonScore[]
+  purchaseReceipts       PurchaseReceipt[]
+  sentFriendRequests     Friendship[]      @relation("FriendshipRequester")
+  receivedFriendRequests Friendship[]      @relation("FriendshipAddressee")
 }
 
 model RefreshToken {
@@ -71,6 +79,7 @@ model Room {
   createdAt      DateTime     @default(now())
   startedAt      DateTime?
   finishedAt     DateTime?
+  inviteCode     String?      @unique
   host           User         @relation("HostedRooms", fields: [hostUserId], references: [id])
   rounds         Round[]
   players        RoomPlayer[]
@@ -246,4 +255,19 @@ model PurchaseReceipt {
   status            String
   createdAt         DateTime @default(now())
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Friendship {
+  id          String           @id
+  requesterId String
+  addresseeId String
+  status      FriendshipStatus @default(PENDING)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  requester User @relation("FriendshipRequester", fields: [requesterId], references: [id])
+  addressee User @relation("FriendshipAddressee", fields: [addresseeId], references: [id])
+
+  @@unique([requesterId, addresseeId])
+  @@index([addresseeId])
 }

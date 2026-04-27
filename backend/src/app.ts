@@ -3,6 +3,7 @@ import express from "express";
 import helmet from "helmet";
 
 import { env } from "./config/env";
+import { requireAuth } from "./middleware/auth";
 import { errorHandler } from "./middleware/errorHandler";
 import { apiLimiter, authLimiter } from "./middleware/rateLimiter";
 import { authRouter } from "./routes/auth";
@@ -11,6 +12,7 @@ import { roomsRouter } from "./routes/rooms";
 import { adminRouter } from "./routes/admin";
 import challengesRouter from "./routes/challenges";
 import cosmeticsRouter from "./routes/cosmetics";
+import friendsRouter from "./routes/friends";
 import leaderboardRouter from "./routes/leaderboard";
 import powerupsRouter from "./routes/powerups";
 import pushRouter from "./routes/push";
@@ -38,6 +40,7 @@ export const createApp = () => {
   app.use("/api/v1", apiLimiter);
   app.use("/api/v1/rooms", roomsRouter);
   app.use("/api/v1/users", usersRouter);
+  app.use("/api/v1/friends", apiLimiter, requireAuth, friendsRouter);
   app.use("/api/v1/powerups", powerupsRouter);
   app.use("/api/v1/cosmetics", cosmeticsRouter);
   app.use("/api/v1/leaderboard", leaderboardRouter);

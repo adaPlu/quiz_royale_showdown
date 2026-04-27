@@ -14,6 +14,7 @@ const ResultsPage = lazy(() => import('@/pages/ResultsPage'));
 const ProfilePage = lazy(() => import('@/pages/ProfilePage'));
 const LeaderboardPage = lazy(() => import('@/pages/LeaderboardPage'));
 const CosmeticsPage = lazy(() => import('@/pages/CosmeticsPage'));
+const JoinPage = lazy(() => import('@/pages/JoinPage'));
 
 const Spinner = () => (
   <div className="min-h-screen bg-game-bg flex items-center justify-center">
@@ -73,6 +74,7 @@ export const App = () => {
       <Routes>
         <Route path="/login" element={<PublicOnly><LoginPage /></PublicOnly>} />
         <Route path="/register" element={<PublicOnly><RegisterPage /></PublicOnly>} />
+        <Route path="/join/:inviteCode" element={<JoinPage />} />
 
         <Route path="/home" element={<RequireAuth><HomePage /></RequireAuth>} />
         <Route path="/lobby/:roomId" element={<RequireAuth><LobbyPage /></RequireAuth>} />

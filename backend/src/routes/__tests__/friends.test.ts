@@ -1,0 +1,295 @@
+/**
+ * Tests for the /friends router.
+ *
+ * Critical paths:
+ *  - POST /friends/request requires auth (returns 401 without a token)
+ *  - POST /friends/request creates a friendship record (201)
+ *  - POST /friends/request returns 409 when friendship already exists
+ *  - GET /friends returns accepted friends list
+ */
+
+import express from "express";
+import http from "http";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// ─── Hoisted mocks ────────────────────────────────────────────────────────────
+
+const { prismaMock } = vi.hoisted(() => {
+  const prismaMock = {
+    friendship: {
+      findFirst: vi.fn(),
+      findMany: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+    },
+  };
+  return { prismaMock };
+});
+
+vi.mock("../../models/prismaClient", () => ({ prisma: prismaMock }));
+vi.mock("../../utils/logger", () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+
+import jwt from "jsonwebtoken";
+import { env } from "../../config/env";
+import { errorHandler } from "../../middleware/errorHandler";
+import friendsRouter from "../friends";
+
+function buildApp() {
+  const app = express();
+  app.use(express.json());
+  app.use("/friends", friendsRouter);
+  app.use(errorHandler);
+  return app;
+}
+
+function makeToken(sub = "user-test") {
+  return jwt.sign(
+    { sub, email: "t@example.com", displayName: "Tester" },
+    env.jwtAccessSecret,
+    { expiresIn: "1h" },
+  );
+}
+
+function request(
+  app: express.Express,
+  method: string,
+  path: string,
+  options: { headers?: Record<string, string>; body?: unknown } = {},
+): Promise<{ status: number; body: unknown }> {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer(app);
+    server.listen(0, () => {
+      const port = (server.address() as { port: number }).port;
+      const bodyStr = options.body ? JSON.stringify(options.body) : undefined;
+      const reqOptions = {
+        hostname: "127.0.0.1",
+        port,
+        path,
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          ...(bodyStr ? { "Content-Length": Buffer.byteLength(bodyStr).toString() } : {}),
+          ...(options.headers ?? {}),
+        },
+      };
+
+      const req = http.request(reqOptions, (res) => {
+        let data = "";
+        res.on("data", (chunk: Buffer) => {
+          data += chunk.toString();
+        });
+        res.on("end", () => {
+          server.close();
+          try {
+            resolve({ status: res.statusCode ?? 0, body: JSON.parse(data) });
+          } catch {
+            resolve({ status: res.statusCode ?? 0, body: data });
+          }
+        });
+      });
+
+      req.on("error", (err) => {
+        server.close();
+        reject(err);
+      });
+
+      if (bodyStr) req.write(bodyStr);
+      req.end();
+    });
+  });
+}
+
+describe("POST /friends/request", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns 401 when no Authorization header is provided", async () => {
+    const app = buildApp();
+    const res = await request(app, "POST", "/friends/request", {
+      body: { addresseeId: "other-user" },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("creates a friendship and returns 201", async () => {
+    const fakeFriendship = {
+      id: "01FRIENDSHIP001",
+      requesterId: "user-test",
+      addresseeId: "other-user",
+      status: "PENDING",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    prismaMock.friendship.findFirst.mockResolvedValue(null);
+    prismaMock.friendship.create.mockResolvedValue(fakeFriendship);
+
+    const token = makeToken("user-test");
+    const app = buildApp();
+    const res = await request(app, "POST", "/friends/request", {
+      headers: { Authorization: `Bearer ${token}` },
+      body: { addresseeId: "other-user" },
+    });
+
+    expect(res.status).toBe(201);
+    expect((res.body as { status: string }).status).toBe("PENDING");
+  });
+
+  it("returns 409 when a friendship already exists", async () => {
+    prismaMock.friendship.findFirst.mockResolvedValue({
+      id: "existing",
+      requesterId: "user-test",
+      addresseeId: "other-user",
+      status: "PENDING",
+    });
+
+    const token = makeToken("user-test");
+    const app = buildApp();
+    const res = await request(app, "POST", "/friends/request", {
+      headers: { Authorization: `Bearer ${token}` },
+      body: { addresseeId: "other-user" },
+    });
+
+    expect(res.status).toBe(409);
+  });
+
+  it("returns 400 when trying to friend yourself", async () => {
+    const token = makeToken("user-test");
+    const app = buildApp();
+    const res = await request(app, "POST", "/friends/request", {
+      headers: { Authorization: `Bearer ${token}` },
+      body: { addresseeId: "user-test" },
+    });
+
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("GET /friends", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns 401 when unauthenticated", async () => {
+    const app = buildApp();
+    const res = await request(app, "GET", "/friends");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns accepted friends list", async () => {
+    prismaMock.friendship.findMany.mockResolvedValue([
+      {
+        id: "fs1",
+        requesterId: "user-test",
+        addresseeId: "friend-user",
+        status: "ACCEPTED",
+        requester: { id: "user-test", displayName: "Tester", avatarUrl: null },
+        addressee: { id: "friend-user", displayName: "Friend", avatarUrl: null },
+      },
+    ]);
+
+    const token = makeToken("user-test");
+    const app = buildApp();
+    const res = await request(app, "GET", "/friends", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(200);
+    const body = res.body as { friends: Array<{ displayName: string }> };
+    expect(body.friends).toHaveLength(1);
+    expect(body.friends[0].displayName).toBe("Friend");
+  });
+});
+
+describe("PUT /friends/:id/accept", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns 401 when unauthenticated", async () => {
+    const app = buildApp();
+    const res = await request(app, "PUT", "/friends/fs1/accept");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 when friendship not found", async () => {
+    prismaMock.friendship.findFirst.mockResolvedValue(null);
+
+    const token = makeToken("user-test");
+    const app = buildApp();
+    const res = await request(app, "PUT", "/friends/nonexistent/accept", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(404);
+  });
+
+  it("accepts a pending request and returns 200", async () => {
+    const fakeFriendship = {
+      id: "fs1",
+      requesterId: "other-user",
+      addresseeId: "user-test",
+      status: "PENDING",
+    };
+    const updatedFriendship = { ...fakeFriendship, status: "ACCEPTED" };
+
+    prismaMock.friendship.findFirst.mockResolvedValue(fakeFriendship);
+    prismaMock.friendship.update.mockResolvedValue(updatedFriendship);
+
+    const token = makeToken("user-test");
+    const app = buildApp();
+    const res = await request(app, "PUT", "/friends/fs1/accept", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(200);
+    expect((res.body as { status: string }).status).toBe("ACCEPTED");
+  });
+});
+
+describe("DELETE /friends/:id", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns 401 when unauthenticated", async () => {
+    const app = buildApp();
+    const res = await request(app, "DELETE", "/friends/fs1");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 when friendship not found", async () => {
+    prismaMock.friendship.findFirst.mockResolvedValue(null);
+
+    const token = makeToken("user-test");
+    const app = buildApp();
+    const res = await request(app, "DELETE", "/friends/nonexistent", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(404);
+  });
+
+  it("deletes a friendship and returns 204", async () => {
+    const fakeFriendship = {
+      id: "fs1",
+      requesterId: "user-test",
+      addresseeId: "other-user",
+      status: "ACCEPTED",
+    };
+
+    prismaMock.friendship.findFirst.mockResolvedValue(fakeFriendship);
+    prismaMock.friendship.delete.mockResolvedValue(fakeFriendship);
+
+    const token = makeToken("user-test");
+    const app = buildApp();
+    const res = await request(app, "DELETE", "/friends/fs1", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(204);
+  });
+});

@@ -54,6 +54,22 @@ export const LobbyPage = () => {
   const [startError, setStartError] = useState<string | null>(null);
   const hasMinimumPlayers = players.length >= 2;
 
+  const [inviteCopied, setInviteCopied] = useState(false);
+
+  const handleInvite = async () => {
+    if (!roomId) return;
+    try {
+      const res = await api.post<{ inviteCode: string }>(`/rooms/${roomId}/invite`);
+      const { inviteCode } = res.data;
+      const link = `${window.location.origin}/join/${inviteCode}`;
+      await navigator.clipboard.writeText(link);
+      setInviteCopied(true);
+      setTimeout(() => setInviteCopied(false), 2000);
+    } catch {
+      // silently ignore clipboard or API errors
+    }
+  };
+
   useEffect(() => {
     return socketService.on('error', (payload) => {
       if (payload.code === 'GAME_START_FAILED') {
@@ -106,13 +122,27 @@ export const LobbyPage = () => {
                 Round {roundNumber} of {totalRounds}.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => navigate('/home')}
-              className="rounded-2xl border border-white/10 px-5 py-3 text-sm font-semibold text-white/80 transition hover:border-white/30 hover:text-white"
-            >
-              Back to Home
-            </button>
+            <div className="flex flex-col items-end gap-2">
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleInvite()}
+                  className="rounded-2xl border border-brand/40 bg-brand/10 px-5 py-3 text-sm font-semibold text-brand transition hover:bg-brand/20"
+                >
+                  Invite
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/home')}
+                  className="rounded-2xl border border-white/10 px-5 py-3 text-sm font-semibold text-white/80 transition hover:border-white/30 hover:text-white"
+                >
+                  Back to Home
+                </button>
+              </div>
+              {inviteCopied && (
+                <p className="text-xs text-answer-correct">Link copied!</p>
+              )}
+            </div>
           </div>
         </section>
 

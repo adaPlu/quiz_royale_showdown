@@ -5,6 +5,7 @@ import { PlayerAvatar } from '@components/PlayerAvatar';
 import { XpBar } from '@components/XpBar';
 import { SeasonRankBadge } from '@components/SeasonRankBadge';
 import { api } from '@services/apiClient';
+import { useWebPush } from '@/hooks/useWebPush';
 
 interface DailyChallenge {
   id: string;
@@ -48,6 +49,7 @@ interface ProfileData {
 export default function ProfilePage() {
   const { username } = useParams<{ username: string }>();
   const user = useAuthStore((s) => s.user);
+  const { pushState, subscribe, unsubscribe } = useWebPush();
 
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -147,6 +149,43 @@ export default function ProfilePage() {
           <div className="bg-game-surface rounded-2xl p-4 text-center border border-game-border">
             <p className="text-2xl font-black text-white">{profile.gamesPlayed}</p>
             <p className="text-game-muted text-xs">Games</p>
+          </div>
+        </div>
+
+        <div className="w-full mt-4">
+          <h2 className="text-white font-bold text-lg mb-3">Notifications</h2>
+          <div className="bg-game-surface rounded-2xl p-4 border border-game-border">
+            {pushState === 'unsupported' && (
+              <p className="text-game-muted text-sm">
+                Push notifications not supported in this browser.
+              </p>
+            )}
+            {pushState === 'denied' && (
+              <p className="text-game-muted text-sm">
+                Notifications blocked — enable them in browser settings.
+              </p>
+            )}
+            {pushState === 'unsubscribed' && (
+              <button
+                type="button"
+                onClick={() => void subscribe()}
+                className="w-full rounded-xl bg-brand py-3 text-sm font-semibold text-white transition hover:opacity-90"
+              >
+                Enable Notifications
+              </button>
+            )}
+            {pushState === 'subscribed' && (
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-answer-correct text-sm font-medium">Notifications enabled ✓</p>
+                <button
+                  type="button"
+                  onClick={() => void unsubscribe()}
+                  className="rounded-xl border border-game-border px-4 py-2 text-sm font-semibold text-game-muted transition hover:border-white/30 hover:text-white"
+                >
+                  Disable
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
