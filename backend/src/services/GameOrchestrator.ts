@@ -20,6 +20,7 @@ import { generateId } from "../utils/ulid";
 import { BadRequestError } from "../utils/errors";
 import { logger } from "../utils/logger";
 import type { PlayerSummary, ServerEvents } from "../types/contracts";
+import { levelFromTotalXp, xpToNextLevel } from "./XpService";
 
 const COUNTDOWN_MS = 5_000;
 const ROUND_RESULT_DISPLAY_MS = 4_000;
@@ -469,6 +470,14 @@ export class GameOrchestrator {
         };
       });
 
+    // Fetch prevTotalXp for each finalist BEFORE inserting new events
+    const prevXpSums = await prisma.xpEvent.groupBy({
+      by: ["userId"],
+      where: { userId: { in: finalStandings.map((s) => s.playerId) } },
+      _sum: { amount: true }
+    });
+    const prevXpMap = new Map(prevXpSums.map((row) => [row.userId, row._sum.amount ?? 0]));
+
     await Promise.all(
       finalStandings.map((standing) =>
         prisma.xpEvent.create({
@@ -482,6 +491,27 @@ export class GameOrchestrator {
         })
       )
     );
+
+    // Emit game:level_up to any player who leveled up this game
+    for (const standing of finalStandings) {
+      const prevTotalXp = prevXpMap.get(standing.playerId) ?? 0;
+      const newTotalXp = prevTotalXp + standing.xpAwarded;
+      const prevLevel = levelFromTotalXp(prevTotalXp);
+      const newLevel = levelFromTotalXp(newTotalXp);
+      if (newLevel > prevLevel) {
+        io.to(standing.playerId).emit("message", {
+          type: "game:level_up",
+          version: "v1",
+          payload: {
+            userId: standing.playerId,
+            newLevel,
+            xpAwarded: standing.xpAwarded,
+            xpToNextLevel: xpToNextLevel(newLevel)
+          }
+        });
+        logger.info("Level up emitted", { roomId, userId: standing.playerId, prevLevel, newLevel });
+      }
+    }
 
     // Upsert SeasonScore for each finalist if an active season exists
     const season = await prisma.season.findFirst({

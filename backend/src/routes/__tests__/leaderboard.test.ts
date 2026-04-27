@@ -237,3 +237,117 @@ describe("GET /leaderboard/friends", () => {
     );
   });
 });
+
+describe("GET /leaderboard/season", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns 401 when no Authorization header is provided", async () => {
+    const app = buildApp();
+    const res = await request(app, "GET", "/leaderboard/season");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns season null and empty rankings when no active season exists", async () => {
+    prismaMock.season.findFirst.mockResolvedValue(null);
+
+    const token = makeToken();
+    const app = buildApp();
+    const res = await request(app, "GET", "/leaderboard/season", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(200);
+    const body = res.body as { season: null; rankings: unknown[] };
+    expect(body.season).toBeNull();
+    expect(body.rankings).toEqual([]);
+  });
+
+  it("returns season info and ranked standings when an active season exists", async () => {
+    const endsAt = new Date(Date.now() + 86400_000);
+    prismaMock.season.findFirst.mockResolvedValue({
+      id: "season-42",
+      name: "Season 42",
+      slug: "s42",
+      startsAt: new Date(Date.now() - 1000),
+      endsAt,
+    });
+    prismaMock.seasonScore.findMany.mockResolvedValue([
+      {
+        userId: "u1",
+        mmr: 2000,
+        wins: 15,
+        gamesPlayed: 30,
+        seasonId: "season-42",
+        user: { id: "u1", displayName: "Alice", avatarUrl: null },
+      },
+      {
+        userId: "u2",
+        mmr: 1500,
+        wins: 5,
+        gamesPlayed: 20,
+        seasonId: "season-42",
+        user: { id: "u2", displayName: "Bob", avatarUrl: "https://example.com/bob.png" },
+      },
+    ]);
+
+    const token = makeToken();
+    const app = buildApp();
+    const res = await request(app, "GET", "/leaderboard/season", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(200);
+    const body = res.body as {
+      season: { id: string; name: string; endsAt: string };
+      rankings: Array<{ rank: number; userId: string; displayName: string; mmr: number; wins: number; gamesPlayed: number }>;
+    };
+    expect(body.season.id).toBe("season-42");
+    expect(body.season.name).toBe("Season 42");
+    expect(body.rankings).toHaveLength(2);
+    expect(body.rankings[0]).toMatchObject({
+      rank: 1,
+      userId: "u1",
+      displayName: "Alice",
+      mmr: 2000,
+      wins: 15,
+      gamesPlayed: 30,
+    });
+    expect(body.rankings[1]).toMatchObject({
+      rank: 2,
+      userId: "u2",
+      displayName: "Bob",
+      mmr: 1500,
+      avatarUrl: "https://example.com/bob.png",
+    });
+    // XP fallback should NOT be invoked
+    expect(prismaMock.xpEvent.groupBy).not.toHaveBeenCalled();
+  });
+
+  it("queries seasonScore with limit 100 ordered by mmr desc", async () => {
+    const endsAt = new Date(Date.now() + 3600_000);
+    prismaMock.season.findFirst.mockResolvedValue({
+      id: "season-99",
+      name: "Season 99",
+      slug: "s99",
+      startsAt: new Date(Date.now() - 1000),
+      endsAt,
+    });
+    prismaMock.seasonScore.findMany.mockResolvedValue([]);
+
+    const token = makeToken();
+    const app = buildApp();
+    await request(app, "GET", "/leaderboard/season", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(prismaMock.seasonScore.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { seasonId: "season-99" },
+        orderBy: { mmr: "desc" },
+        take: 100,
+      }),
+    );
+  });
+});

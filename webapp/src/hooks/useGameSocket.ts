@@ -20,6 +20,7 @@ export function useGameSocket(roomId: string | undefined) {
   const applyFinaleStarted = useGameStore((state) => state.applyFinaleStarted);
   const applyGameOver = useGameStore((state) => state.applyGameOver);
   const applyLootDrop = useGameStore((state) => state.applyLootDrop);
+  const applyLevelUp = useGameStore((state) => state.applyLevelUp);
   const applyFiftyFiftyMask = useGameStore((state) => state.applyFiftyFiftyMask);
 
   useEffect(() => {
@@ -104,6 +105,17 @@ export function useGameSocket(roomId: string | undefined) {
     );
 
     unsubs.push(
+      socketService.on('game:level_up', (payload) => {
+        applyLevelUp({
+          playerId: payload.userId,
+          newLevel: payload.newLevel,
+          xp: payload.xpAwarded,
+          xpToNextLevel: payload.xpToNextLevel,
+        });
+      }),
+    );
+
+    unsubs.push(
       socketService.on('powerup:loot_drop', (payload) => {
         const parsed = powerupLootDropPayloadSchema.safeParse(payload);
         if (parsed.success) {
@@ -136,6 +148,7 @@ export function useGameSocket(roomId: string | undefined) {
     applyFiftyFiftyMask,
     applyFinaleStarted,
     applyGameOver,
+    applyLevelUp,
     applyLootDrop,
     applyPlayerJoined,
     applyPlayerLeft,

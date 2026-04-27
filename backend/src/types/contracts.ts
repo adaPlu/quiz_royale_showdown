@@ -80,6 +80,10 @@ export type ServerEvents =
       }
     >
   | EventEnvelope<
+      "game:level_up",
+      { userId: string; newLevel: number; xpAwarded: number; xpToNextLevel: number }
+    >
+  | EventEnvelope<
       "powerup:loot_drop",
       { powerupId: string; powerupType: string; quantity: number }
     >

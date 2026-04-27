@@ -10,7 +10,8 @@ const prismaMock = {
     count: vi.fn()
   },
   xpEvent: {
-    create: vi.fn()
+    create: vi.fn(),
+    groupBy: vi.fn()
   },
   room: {
     update: vi.fn()
@@ -41,6 +42,11 @@ vi.mock("../../utils/ulid", () => ({
   generateId: vi.fn(() => "generated-id")
 }));
 
+vi.mock("../XpService", () => ({
+  levelFromTotalXp: vi.fn((xp: number) => (xp >= 150 ? 2 : 1)),
+  xpToNextLevel: vi.fn((level: number) => (level + 1) * (level + 1) * 150)
+}));
+
 function createIoMock() {
   const emit = vi.fn();
 
@@ -67,6 +73,7 @@ describe("GameOrchestrator hardening", () => {
     redisMock.del.mockResolvedValue(1);
     prismaMock.room.update.mockResolvedValue({});
     prismaMock.xpEvent.create.mockResolvedValue({});
+    prismaMock.xpEvent.groupBy.mockResolvedValue([]);
     prismaMock.season.findFirst.mockResolvedValue(null);
     prismaMock.seasonScore.upsert.mockResolvedValue({});
   });
@@ -331,6 +338,97 @@ describe("GameOrchestrator hardening", () => {
       }).runGameOver("room-11", io, ["finalist-a"], ["finalist-a"]);
 
       expect(prismaMock.seasonScore.upsert).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("game:level_up emission", () => {
+    function makeIo() {
+      const playerEmitCalls: Record<string, Array<unknown[]>> = {};
+      const io = {
+        to: vi.fn((room: string) => {
+          if (!playerEmitCalls[room]) playerEmitCalls[room] = [];
+          return {
+            emit: vi.fn((...args: unknown[]) => {
+              playerEmitCalls[room].push(args);
+            }),
+          };
+        }),
+      };
+      return { io, playerEmitCalls };
+    }
+
+    it("emits game:level_up to a player who crosses a level threshold", async () => {
+      const { levelFromTotalXp, xpToNextLevel } = await import("../XpService");
+      // prevXp = 0 → level 1; newXp = 0 + 200 = 200 → level floor(sqrt(200/150)) = 1 — nope
+      // We need a crossing: e.g. prevXp=140 (level 0 → level 1) or prevXp=590 → newXp=600+
+      // Level 2 threshold: 2²×150 = 600. So prevXp=590, xpAwarded=40 → newXp=630 → level 2.
+      vi.mocked(levelFromTotalXp).mockImplementation((xp) => {
+        if (xp >= 600) return 2;
+        return 1;
+      });
+      vi.mocked(xpToNextLevel).mockImplementation((level) => (level + 1) * (level + 1) * 150);
+
+      // prevXp of 590 for "player-x"
+      prismaMock.xpEvent.groupBy.mockResolvedValue([
+        { userId: "player-x", _sum: { amount: 590 } },
+      ]);
+      redisMock.zrevrangeWithScores.mockResolvedValue([
+        { member: "player-x", score: 400 },
+      ]);
+
+      const { GameOrchestrator } = await import("../GameOrchestrator");
+      const orchestrator = new GameOrchestrator();
+      const { io, playerEmitCalls } = makeIo();
+
+      await (orchestrator as unknown as {
+        runGameOver(roomId: string, io: unknown, winnerIds: string[], finalistIds: string[]): Promise<void>;
+      }).runGameOver("room-lu", io, ["player-x"], ["player-x"]);
+
+      // player-x xpAwarded = max(10, round(400/10)) = 40; prevXp=590 → newXp=630 ≥ 600 → level 2
+      const calls = playerEmitCalls["player-x"] ?? [];
+      const levelUpCall = calls.find(
+        (args) =>
+          args[0] === "message" &&
+          typeof args[1] === "object" &&
+          args[1] !== null &&
+          (args[1] as { type: string }).type === "game:level_up"
+      );
+      expect(levelUpCall, "Expected game:level_up emit for player-x").toBeDefined();
+      const envelope = levelUpCall![1] as { type: string; version: string; payload: { userId: string; newLevel: number; xpAwarded: number; xpToNextLevel: number } };
+      expect(envelope.version).toBe("v1");
+      expect(envelope.payload.userId).toBe("player-x");
+      expect(envelope.payload.newLevel).toBe(2);
+      expect(envelope.payload.xpAwarded).toBe(40);
+    });
+
+    it("does not emit game:level_up for players who did not level up", async () => {
+      const { levelFromTotalXp, xpToNextLevel } = await import("../XpService");
+      // Always return level 1 regardless of XP (no crossing)
+      vi.mocked(levelFromTotalXp).mockReturnValue(1);
+      vi.mocked(xpToNextLevel).mockReturnValue(600);
+
+      prismaMock.xpEvent.groupBy.mockResolvedValue([]);
+      redisMock.zrevrangeWithScores.mockResolvedValue([
+        { member: "player-y", score: 100 },
+      ]);
+
+      const { GameOrchestrator } = await import("../GameOrchestrator");
+      const orchestrator = new GameOrchestrator();
+      const { io, playerEmitCalls } = makeIo();
+
+      await (orchestrator as unknown as {
+        runGameOver(roomId: string, io: unknown, winnerIds: string[], finalistIds: string[]): Promise<void>;
+      }).runGameOver("room-nolu", io, ["player-y"], ["player-y"]);
+
+      const calls = playerEmitCalls["player-y"] ?? [];
+      const levelUpCall = calls.find(
+        (args) =>
+          args[0] === "message" &&
+          typeof args[1] === "object" &&
+          args[1] !== null &&
+          (args[1] as { type: string }).type === "game:level_up"
+      );
+      expect(levelUpCall).toBeUndefined();
     });
   });
 });
