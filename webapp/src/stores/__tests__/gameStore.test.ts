@@ -30,6 +30,25 @@ describe('applyLootDrop', () => {
   });
 });
 
+describe('applyFiftyFiftyMask', () => {
+  it('sets fiftyFiftyEliminated to the provided indices', () => {
+    act(() => useGameStore.getState().applyFiftyFiftyMask([1, 3]));
+    expect(useGameStore.getState().fiftyFiftyEliminated).toEqual([1, 3]);
+  });
+
+  it('overwrites a previous mask when called again', () => {
+    act(() => useGameStore.getState().applyFiftyFiftyMask([0, 2]));
+    act(() => useGameStore.getState().applyFiftyFiftyMask([1, 3]));
+    expect(useGameStore.getState().fiftyFiftyEliminated).toEqual([1, 3]);
+  });
+
+  it('is cleared by resetRoom', () => {
+    act(() => useGameStore.getState().applyFiftyFiftyMask([0, 1]));
+    act(() => useGameStore.getState().resetRoom());
+    expect(useGameStore.getState().fiftyFiftyEliminated).toEqual([]);
+  });
+});
+
 describe('setMyAnswer', () => {
   it('sets myAnswerIndex without clobbering other state', () => {
     act(() => {

@@ -249,11 +249,11 @@ Additionally:
 **Theme:** Server-authoritative power-up effects.
 
 #### Backend Agent
-- [ ] BACKEND: `PowerUpService.validateInventory()` — rejects use if player has no inventory
-- [ ] BACKEND: DOUBLE_DOWN effect: score multiplier applied server-side — client cannot bypass
-- [ ] BACKEND: FIFTY_FIFTY effect: server picks 2 wrong options to eliminate, sends to all clients — options hidden on both clients
-- [ ] BACKEND: TIME_FREEZE effect: extend round lock deadline in Redis — `TimerAuthority` respects extended deadline
-- [ ] BACKEND: SHIELD + SABOTAGE effects implemented — elimination bypass and skip-mark applied server-side
+- [x] BACKEND: `PowerUpService.validateInventory()` — rejects use if player has no inventory
+- [x] BACKEND: DOUBLE_DOWN effect: score multiplier applied server-side — client cannot bypass
+- [x] BACKEND: FIFTY_FIFTY effect: server picks 2 wrong options to eliminate, sends private `powerup:effect_private` to activating socket
+- [x] BACKEND: TIME_FREEZE effect: extend round lock deadline in Redis — `TimerAuthority` respects extended deadline
+- [x] BACKEND: SHIELD + SABOTAGE effects implemented — elimination bypass and skip-mark applied server-side
 
 #### Android Agent
 - [ ] ANDROID: Power-up tray UI (bottom sheet) — shows available power-ups with cooldown timer
@@ -343,14 +343,14 @@ Additionally:
 
 **Goal:** All 5 power-ups work server-authoritatively; game feel is polished.
 
-**Partial progress as of 2026-04-25:**
+**Progress as of 2026-04-26:**
 
 ### Backend Agent
 - [x] `powerup:loot_drop` emitted after `game:over` to finalists with a random power-up type and quantity 1
-- [ ] `PowerUpService`: validate inventory, consume power-up, apply server-side effects
-- [ ] Power-up effects enforced server-side: DOUBLE_DOWN, FIFTY_FIFTY, TIME_FREEZE, SHIELD, SABOTAGE
+- [x] `PowerUpService`: validate inventory, consume power-up, apply server-side effects
+- [x] Power-up effects enforced server-side: DOUBLE_DOWN, FIFTY_FIFTY, TIME_FREEZE, SHIELD, SABOTAGE
 - [ ] `PowerUpBalancer`: rarity drop rates in room loot
-- [ ] Emit `powerup:used` + `powerup:effect` events (canonical envelope format, not `v1:*`)
+- [x] Emit `powerup:effect` + `powerup:effect_private` events (canonical envelope format)
 
 ### Android Agent
 - [x] `CountdownRing` animated with `animateFloatAsState` (sweep angle driven by `timerSeconds` state)
@@ -362,13 +362,15 @@ Additionally:
 ### Web Agent
 - [x] `gameStore.powerupInventory` tracks received `powerup:loot_drop` events
 - [x] `GamePage` gates each power-up's `owned` state against actual inventory count
-- [ ] Power-up tray (hover card with activation button) connected to `powerup:activate` socket
+- [x] `PowerUpTray` connected to `powerup:activate` socket with uppercase backend enum names
+- [x] `useGameSocket` handles `powerup:effect_private` — FIFTY_FIFTY mask applied client-side
 - [ ] CSS keyframe animations per power-up type
 - [ ] Web Audio API synthesized SFX
 - [ ] Framer Motion phase transitions
 
 ### Phase 2 Integration Gate
-- [ ] All 5 power-ups activate from both clients and server effects apply correctly
+- [x] All 5 power-up server effects apply correctly — 94 backend tests pass
+- [x] FIFTY_FIFTY client delivery wired end-to-end — webapp typecheck + 15 tests pass
 - [ ] Balance simulation shows no power-up > 60% win rate contribution
 - [ ] Animations run at 60 fps on Pixel 4a and Chrome mobile
 

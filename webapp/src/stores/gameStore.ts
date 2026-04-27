@@ -87,6 +87,7 @@ interface GameActions {
   applyGameOver: (payload: GameOverPayload) => void;
   applyLevelUp: (payload: LevelUpPayload) => void;
   applyLootDrop: (powerupType: string, quantity: number) => void;
+  applyFiftyFiftyMask: (indices: number[]) => void;
   setMyAnswer: (index: number) => void;
   dismissLevelUp: () => void;
   resetRoom: () => void;
@@ -325,6 +326,8 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       },
     }));
   },
+
+  applyFiftyFiftyMask: (indices) => set({ fiftyFiftyEliminated: indices }),
 
   setMyAnswer: (index) => set({ myAnswerIndex: index }),
 

@@ -83,6 +83,14 @@ export type ServerEvents =
       "powerup:loot_drop",
       { powerupId: string; powerupType: string; quantity: number }
     >
+  | EventEnvelope<
+      "powerup:effect",
+      { type: string; targetPlayerId?: string; [key: string]: unknown }
+    >
+  | EventEnvelope<
+      "powerup:effect_private",
+      { type: string; maskedAnswerIndices?: number[]; [key: string]: unknown }
+    >
   | SocketErrorEvent;
 
 export type ClientEvents =

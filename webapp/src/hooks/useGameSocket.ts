@@ -20,6 +20,7 @@ export function useGameSocket(roomId: string | undefined) {
   const applyFinaleStarted = useGameStore((state) => state.applyFinaleStarted);
   const applyGameOver = useGameStore((state) => state.applyGameOver);
   const applyLootDrop = useGameStore((state) => state.applyLootDrop);
+  const applyFiftyFiftyMask = useGameStore((state) => state.applyFiftyFiftyMask);
 
   useEffect(() => {
     if (roomId && roomCode) {
@@ -112,6 +113,14 @@ export function useGameSocket(roomId: string | undefined) {
     );
 
     unsubs.push(
+      socketService.on('powerup:effect_private', (payload) => {
+        if (payload.type === 'FIFTY_FIFTY' && Array.isArray(payload.maskedAnswerIndices)) {
+          applyFiftyFiftyMask(payload.maskedAnswerIndices as number[]);
+        }
+      }),
+    );
+
+    unsubs.push(
       socketService.on('error', (payload) => {
         console.error('[socket] Server error:', payload.code, payload.message, payload.details);
       }),
@@ -124,6 +133,7 @@ export function useGameSocket(roomId: string | undefined) {
     applyAnswerLocked,
     applyCountdown,
     applyElimination,
+    applyFiftyFiftyMask,
     applyFinaleStarted,
     applyGameOver,
     applyLootDrop,
