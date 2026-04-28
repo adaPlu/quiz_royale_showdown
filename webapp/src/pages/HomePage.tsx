@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 
 import { PlayerAvatar } from '@components/PlayerAvatar';
 import { api } from '@services/apiClient';
@@ -66,6 +66,27 @@ export default function HomePage() {
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [launchNotice, setLaunchNotice] = useState<string | null>(null);
+
+  const installPromptRef = useRef<any>(null);
+  const [showInstall, setShowInstall] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault();
+      installPromptRef.current = e;
+      setShowInstall(true);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstall = async () => {
+    if (!installPromptRef.current) return;
+    installPromptRef.current.prompt();
+    await installPromptRef.current.userChoice;
+    installPromptRef.current = null;
+    setShowInstall(false);
+  };
 
   const enterLobby = (session: RoomSession) => {
     const socketToken = session.wsToken ?? accessToken;
@@ -144,13 +165,21 @@ export default function HomePage() {
             <p className="text-game-muted text-xs">Level {user?.level ?? 1}</p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => setLaunchNotice('Profiles are local-only during launch and do not call the backend yet.')}
-          className="text-game-muted hover:text-white text-sm"
-        >
-          Profile
-        </button>
+        <div className="flex items-center gap-3">
+          <Link
+            to="/friends"
+            className="text-game-muted hover:text-white text-sm transition"
+          >
+            Friends
+          </Link>
+          <button
+            type="button"
+            onClick={() => setLaunchNotice('Profiles are local-only during launch and do not call the backend yet.')}
+            className="text-game-muted hover:text-white text-sm"
+          >
+            Profile
+          </button>
+        </div>
       </header>
 
       <main className="flex-1 flex flex-col items-center justify-center gap-4 px-4 max-w-sm mx-auto w-full">
@@ -202,6 +231,16 @@ export default function HomePage() {
             Leaderboard
           </button>
         </div>
+
+        {showInstall && (
+          <button
+            type="button"
+            onClick={() => void handleInstall()}
+            className="text-sm text-white/60 underline"
+          >
+            Install App
+          </button>
+        )}
       </main>
     </div>
   );

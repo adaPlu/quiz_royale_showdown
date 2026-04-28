@@ -14,6 +14,7 @@ const ResultsPage = lazy(() => import('@/pages/ResultsPage'));
 const ProfilePage = lazy(() => import('@/pages/ProfilePage'));
 const LeaderboardPage = lazy(() => import('@/pages/LeaderboardPage'));
 const CosmeticsPage = lazy(() => import('@/pages/CosmeticsPage'));
+const FriendsPage = lazy(() => import('@/pages/FriendsPage'));
 const JoinPage = lazy(() => import('@/pages/JoinPage'));
 
 const Spinner = () => (
@@ -83,6 +84,7 @@ export const App = () => {
         <Route path="/profile/:username" element={<RequireAuth><ProfilePage /></RequireAuth>} />
         <Route path="/leaderboard" element={<RequireAuth><LeaderboardPage /></RequireAuth>} />
         <Route path="/cosmetics" element={<RequireAuth><CosmeticsPage /></RequireAuth>} />
+        <Route path="/friends" element={<RequireAuth><FriendsPage /></RequireAuth>} />
 
         <Route path="/" element={<RootRedirect />} />
         <Route path="*" element={<RootRedirect />} />

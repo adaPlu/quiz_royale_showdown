@@ -26,7 +26,7 @@ export default defineConfig({
         name: "Quiz Royale Showdown",
         short_name: "QuizRoyale",
         description: "Multiplayer trivia battle royale — answer fast, outlast everyone",
-        theme_color: "#6C3EF5",
+        theme_color: "#0E0E1A",
         background_color: "#0E0E1A",
         display: "standalone",
         orientation: "portrait",
@@ -34,6 +34,8 @@ export default defineConfig({
         scope: "/",
         icons: [
           { src: "/favicon.svg", sizes: "any", type: "image/svg+xml", purpose: "any maskable" },
+          { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
+          { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
         ],
         categories: ["games", "entertainment"],
       },
