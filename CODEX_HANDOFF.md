@@ -1,9 +1,9 @@
 # Quiz Royale Showdown — Codex Handoff
 
-**Updated:** 2026-04-27
+**Updated:** 2026-04-29
 **Primary repo:** `c:\Users\plugu\AndroidStudioProjects\QuizGame-main`
-**Branch:** `main` — HEAD `d8248df`
-**Status:** Phase 3 + Phase 4 (partial) complete. 112 backend + 15 webapp tests. tsc -b + vite build clean.
+**Branch:** `main` — HEAD `e009905`
+**Status:** Phase 3 + Phase 4 (partial) complete. 112 backend + 15 webapp tests. tsc -b + vite build clean. Production login fixed.
 
 ---
 
@@ -16,7 +16,7 @@
 
 ---
 
-## Current Verified State (2026-04-27)
+## Current Verified State (2026-04-29)
 
 ### Backend — 112/112 tests, TypeScript clean
 
@@ -34,7 +34,9 @@
 
 ### Webapp — 15/15 tests, tsc -b clean, vite build clean
 
-- All pages live: `HomePage`, `LoginPage`, `RegisterPage`, `LobbyPage`, `GamePage`, `ResultsPage`, `ProfilePage`, `LeaderboardPage`, `CosmeticsPage`, `/join/:inviteCode` (JoinPage).
+- **Production login confirmed working** — Railway health OK, CORS verified, login returns `{ user, accessToken, refreshToken }` as expected.
+- **Root cause of "Cannot read properties of undefined (reading 'accessToken')"**: committed `webapp/dist/` was stale (old bundle accessed `response.data.tokens.accessToken`, new backend returns flat `response.data.accessToken`). Fixed by rebuilding and committing new dist — HEAD `e009905`.
+- All pages live: `HomePage`, `LoginPage`, `RegisterPage`, `LobbyPage`, `GamePage`, `ResultsPage`, `ProfilePage`, `LeaderboardPage`, `CosmeticsPage`, `/join/:inviteCode` (JoinPage), `FriendsPage`.
 - `LeaderboardPage`: Global / Season / Friends tabs — Season tab hits `/leaderboard/season`.
 - `ProfilePage`: XP/level display, daily challenges section, push notification opt-in via `useWebPush`.
 - `CosmeticsPage`: catalog grid, equip flow.
@@ -78,32 +80,34 @@ All 5 power-up server effects enforced. FIFTY_FIFTY client mask wired.
 | Invite share button in LobbyPage | ✅ |
 | Push notification opt-in in ProfilePage | ✅ |
 | FCM token route (backend) | ✅ (already existed) |
+| FriendsPage (search, add, accept/decline, remove) | ✅ |
+| PWA install prompt + OG tags | ✅ |
+| `vercel.json` (SPA rewrites, security headers, asset caching) | ✅ |
+| Production deployment (Vercel + Railway) | ✅ Login verified working |
 | Android FCM integration | ⏳ Needs Firebase config |
 | Android deep links for invites | ⏳ |
-| Friends list UI in webapp | ⏳ Next agent |
-| PWA install prompt / SEO/OG tags | ⏳ Next agent |
 
 ---
 
 ## Next Assigned Work
 
-### Agent A — Webapp: Friends list UI
-1. Create `webapp/src/pages/FriendsPage.tsx`:
-   - Fetch `GET /api/v1/friends` — show accepted friends list.
-   - Fetch `GET /api/v1/users/search?q=...` with a debounced search input (300ms).
-   - "Add Friend" button on each search result calls `POST /api/v1/friends/request`.
-   - Pending requests section: fetch all friendships where `status = PENDING` and show Accept/Decline.
-   - Accept calls `PUT /api/v1/friends/:id/accept`. Decline calls `DELETE /api/v1/friends/:id`.
-2. Add `/friends` route in `App.tsx` (auth-gated).
-3. Add nav link to Friends page in the main nav/header component.
+### Deployment Note
+The committed `webapp/dist/` must be kept up-to-date whenever source changes. Before pushing a source change, ALWAYS:
+1. `cd webapp && npm run build`
+2. `git add -f webapp/dist/`
+3. Include dist changes in the commit
 
-### Agent B — Webapp: PWA polish + OG tags
-1. In `vite.config.ts` PWA manifest, verify `name`, `short_name`, `icons`, `theme_color` are set.
-2. Add `<meta>` OG tags to `index.html`: `og:title`, `og:description`, `og:image`, `og:url`.
-3. Add an "Install App" button on `HomePage.tsx` using the `beforeinstallprompt` event pattern (store the prompt in a ref, show button only when prompt is available, call `prompt.prompt()` on click).
-4. In `ProfilePage.tsx`, confirm the push opt-in section is visible and functional (already added last session — just verify it renders correctly in the build).
+### Remaining Phase 4 / Phase 5
+| Item | Notes |
+|---|---|
+| Android FCM integration | Needs `google-services.json` from Firebase console |
+| Android deep links for `/join/:inviteCode` | Configure intent filters in `AndroidManifest.xml` |
+| Stripe shop integration | Needs Stripe keys; webhook already scaffolded |
+| Android ShopScreen (Play Billing v5) | Deferred until Stripe backend complete |
+| Leaderboard Friends tab data | Currently shows empty — needs `GET /friends` cross-ref with `/leaderboard` |
 
-**Acceptance for both:** `npm run typecheck` + `npm run test` (15 pass) + `npm run build` clean.
+### IMPORTANT: dist commit workflow
+The `webapp/dist/` dir is both tracked in git AND listed in `.gitignore`. New files added by Vite builds are gitignored and must be force-added (`git add -f webapp/dist/`). This is intentional so Vercel can serve pre-built assets without needing a build step configured.
 
 ---
 
@@ -157,10 +161,10 @@ Migration `20260427000000_friends_invite` adds `Friendship` model and `inviteCod
 ## Recent Commits
 
 ```
+e009905 build(webapp): rebuild dist with Railway URL fallback and full Phase 4 pages
+0e27d7a fix(webapp): auto-detect production host and use Railway URL as fallback
+aeda1d4 feat: friends pending endpoint, security hardening, a11y pass, Vercel config
+0895b72 feat(webapp): FriendsPage, PWA install prompt, OG tags, friends nav
+5e8c8d4 docs: update CODEX_HANDOFF — Phase 3 complete, Phase 4 partial, 112+15 tests
 d8248df feat(webapp): season leaderboard tabs, push opt-in, invite share + join page
-5621350 fix(webapp): resolve build errors in pre-existing components + add powerup event schemas
-70b6b68 feat(webapp): level-up toast, CosmeticsPage, daily challenges in ProfilePage
-05d075f feat(backend): emit game:level_up per player + add GET /leaderboard/season
-5e8680c feat: wire FIFTY_FIFTY client delivery + add powerup:effect_private type
-bbe1540 docs: update CODEX_HANDOFF — Phase 2 power-up enforcement complete, 94+12 tests
 ```
