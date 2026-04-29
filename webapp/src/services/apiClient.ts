@@ -5,7 +5,11 @@ import axios, {
   type AxiosResponse,
 } from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000/api/v1';
+const API_BASE_URL =
+  (import.meta as unknown as { env: Record<string, string> }).env?.VITE_API_BASE_URL ??
+  (typeof window !== 'undefined' && window.location.hostname !== 'localhost'
+    ? 'https://quizroyaleshowdown-production.up.railway.app/api/v1'
+    : 'http://localhost:4000/api/v1');
 
 type ErrorBody = {
   error?: string;
@@ -78,6 +82,11 @@ apiClient.interceptors.response.use(
       throw toApiError(error);
     }
 
+    const url = originalRequest.url ?? '';
+    if (url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/refresh')) {
+      throw toApiError(error);
+    }
+
     const refreshToken = getStoredRefreshToken();
     if (!refreshToken) {
       clearStoredTokens();
@@ -87,13 +96,13 @@ apiClient.interceptors.response.use(
     originalRequest._retry = true;
 
     refreshPromise ??= axios
-      .post<{ tokens: { accessToken: string; refreshToken: string } }>(
+      .post<{ accessToken: string; refreshToken: string }>(
         `${API_BASE_URL}/auth/refresh`,
         { refreshToken },
       )
       .then((response) => {
-        storeTokens(response.data.tokens);
-        return response.data.tokens.accessToken;
+        storeTokens(response.data);
+        return response.data.accessToken;
       })
       .finally(() => {
         refreshPromise = null;

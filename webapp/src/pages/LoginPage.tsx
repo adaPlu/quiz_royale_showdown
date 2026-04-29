@@ -26,9 +26,10 @@ export default function LoginPage() {
     try {
       const response = await api.post<{
         user: Parameters<typeof setUser>[0];
-        tokens: { accessToken: string; refreshToken: string };
+        accessToken: string;
+        refreshToken: string;
       }>('/auth/login', data);
-      setTokens(response.data.tokens);
+      setTokens({ accessToken: response.data.accessToken, refreshToken: response.data.refreshToken });
       setUser(response.data.user);
       navigate('/home', { replace: true });
     } catch (error: unknown) {
