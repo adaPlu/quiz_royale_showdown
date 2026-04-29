@@ -10,7 +10,7 @@ import { generateId } from "../utils/ulid";
 const friendsRouter = Router();
 
 const requestBodySchema = z.object({
-  addresseeId: z.string().min(1),
+  addresseeId: z.string().min(1).max(64),
 });
 
 // POST /friends/request — send a friend request
@@ -108,6 +108,33 @@ friendsRouter.put("/:id/accept", requireAuth, async (req, res, next) => {
     });
 
     res.json(updated);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /friends/pending — list incoming pending friend requests (addressee view)
+friendsRouter.get("/pending", requireAuth, async (req, res, next) => {
+  try {
+    const userId = req.jwtClaims!.sub;
+
+    const pendingFriendships = await prisma.friendship.findMany({
+      where: {
+        addresseeId: userId,
+        status: "PENDING",
+      },
+      include: {
+        requester: { select: { id: true, displayName: true, avatarUrl: true } },
+      },
+    });
+
+    const pending = pendingFriendships.map((f) => ({
+      friendshipId: f.id,
+      requester: f.requester,
+      createdAt: f.createdAt,
+    }));
+
+    res.json({ pending });
   } catch (err) {
     next(err);
   }

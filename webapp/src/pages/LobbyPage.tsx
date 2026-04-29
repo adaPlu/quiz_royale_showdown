@@ -164,9 +164,11 @@ export const LobbyPage = () => {
             </div>
           </div>
 
-          <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div role="list" className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {players.map((player) => (
-              <PlayerAvatar key={player.id} player={player} />
+              <div key={player.id} role="listitem">
+                <PlayerAvatar player={player} />
+              </div>
             ))}
             {players.length === 0 && (
               <div className="rounded-3xl border border-dashed border-white/10 p-6 text-white/50">

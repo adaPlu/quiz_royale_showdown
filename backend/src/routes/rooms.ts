@@ -47,6 +47,10 @@ const roomIdParamsSchema = z.object({
   roomId: z.string().trim().refine(isValidId, "roomId must be a valid ULID"),
 });
 
+const inviteCodeParamsSchema = z.object({
+  inviteCode: z.string().trim().min(1).max(64),
+});
+
 function getAuthenticatedUserId(jwtSub?: string): string {
   if (!jwtSub) {
     throw new UnauthorizedError("Missing authenticated user");
@@ -185,9 +189,9 @@ roomsRouter.post(
 );
 
 // GET /rooms/join/:inviteCode — look up a room by invite code (no auth required)
-roomsRouter.get("/join/:inviteCode", async (req, res, next) => {
+roomsRouter.get("/join/:inviteCode", validate({ params: inviteCodeParamsSchema }), async (req, res, next) => {
   try {
-    const { inviteCode } = req.params;
+    const { inviteCode } = req.params as z.infer<typeof inviteCodeParamsSchema>;
     const room = await prisma.room.findFirst({
       where: { inviteCode, status: "WAITING" },
       select: {

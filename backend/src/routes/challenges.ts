@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middleware/auth";
+import { validate } from "../middleware/validate";
 import { prisma } from "../models/prismaClient";
 import { generateId } from "../utils/ulid";
 
@@ -71,9 +72,10 @@ router.get("/daily", requireAuth, async (req, res, next) => {
 });
 
 const progressBodySchema = z.object({ delta: z.number().int().min(1).max(100) });
+const challengeIdParamsSchema = z.object({ id: z.string().min(1).max(64) });
 
 // POST /challenges/:id/progress — record progress toward a challenge
-router.post("/:id/progress", requireAuth, async (req, res, next) => {
+router.post("/:id/progress", requireAuth, validate({ params: challengeIdParamsSchema }), async (req, res, next) => {
   try {
     const userId = req.jwtClaims!.sub;
     const challengeId = req.params.id;

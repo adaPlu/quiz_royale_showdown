@@ -20,7 +20,7 @@ const BCRYPT_ROUNDS = 12;
 
 const registerSchema = z
   .object({
-    email: z.string().email(),
+    email: z.string().email().max(254),
     username: z
       .string()
       .trim()
@@ -28,8 +28,8 @@ const registerSchema = z
       .max(24)
       .regex(/^\w+$/, "username must be alphanumeric")
       .optional(),
-    displayName: z.string().trim().min(1).max(40).optional(),
-    password: z.string().min(8).max(72)
+    displayName: z.string().trim().min(1).max(32).optional(),
+    password: z.string().min(8).max(128)
   })
   .refine((value) => Boolean(value.displayName ?? value.username), {
     message: "displayName or username is required",
@@ -37,8 +37,8 @@ const registerSchema = z
   });
 
 const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1)
+  email: z.string().email().max(254),
+  password: z.string().min(1).max(128)
 });
 
 const refreshSchema = z.object({

@@ -250,6 +250,44 @@ describe("PUT /friends/:id/accept", () => {
   });
 });
 
+describe("GET /friends/pending", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns 401 when unauthenticated", async () => {
+    const app = buildApp();
+    const res = await request(app, "GET", "/friends/pending");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns pending incoming friend requests for the addressee", async () => {
+    prismaMock.friendship.findMany.mockResolvedValue([
+      {
+        id: "fs-pending-1",
+        requesterId: "requester-user",
+        addresseeId: "user-test",
+        status: "PENDING",
+        createdAt: new Date("2026-01-01T00:00:00Z"),
+        updatedAt: new Date("2026-01-01T00:00:00Z"),
+        requester: { id: "requester-user", displayName: "Requester", avatarUrl: null },
+      },
+    ]);
+
+    const token = makeToken("user-test");
+    const app = buildApp();
+    const res = await request(app, "GET", "/friends/pending", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(200);
+    const body = res.body as { pending: Array<{ friendshipId: string; requester: { displayName: string } }> };
+    expect(body.pending).toHaveLength(1);
+    expect(body.pending[0].friendshipId).toBe("fs-pending-1");
+    expect(body.pending[0].requester.displayName).toBe("Requester");
+  });
+});
+
 describe("DELETE /friends/:id", () => {
   beforeEach(() => {
     vi.clearAllMocks();

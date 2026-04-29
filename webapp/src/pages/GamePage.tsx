@@ -121,6 +121,7 @@ export const GamePage = () => {
             initial={{ y: -80, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: -80, opacity: 0 }}
+            role="alert"
             className="fixed inset-x-0 top-0 z-50 flex items-center justify-center bg-answer-wrong/90 py-4 text-xl font-black uppercase tracking-widest backdrop-blur"
           >
             💀 A player has been eliminated!
@@ -152,7 +153,11 @@ export const GamePage = () => {
             </div>
 
             {/* Countdown pill */}
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-2xl font-black text-gold">
+            <div
+              role="timer"
+              aria-live="polite"
+              className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-2xl font-black text-gold"
+            >
               {question ? `${Math.round(durationSec)}` : '--'}
             </div>
           </div>
@@ -185,6 +190,8 @@ export const GamePage = () => {
                     type="button"
                     disabled={isLocked || !question}
                     onClick={() => handleAnswer(index)}
+                    aria-label={`Answer ${index + 1}: ${answer}`}
+                    aria-pressed={myAnswer === index}
                     whileHover={!isLocked && !!question ? { scale: 1.02 } : {}}
                     whileTap={!isLocked && !!question ? { scale: 0.97 } : {}}
                     className={[

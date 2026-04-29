@@ -14,7 +14,12 @@ export const LevelUpToast: React.FC = () => {
       : 100;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Level up notification"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+    >
       <div className="bg-game-surface border border-gold/40 rounded-2xl p-6 max-w-sm w-full mx-4 shadow-2xl text-center">
         <div className="flex h-14 w-14 items-center justify-center rounded-full bg-gold/20 text-3xl mx-auto mb-3">
           ⭐

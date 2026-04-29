@@ -179,10 +179,12 @@ export default function LeaderboardPage() {
       <h1 className="text-white text-2xl font-black mb-4">🏆 Leaderboard</h1>
 
       {/* Tab switcher */}
-      <div className="flex gap-2 mb-4 flex-wrap">
+      <div role="tablist" className="flex gap-2 mb-4 flex-wrap">
         {tabLabels.map(({ key, label }) => (
           <button
             key={key}
+            role="tab"
+            aria-selected={tab === key}
             onClick={() => setTab(key)}
             className={`px-4 py-2 rounded-xl text-sm font-semibold capitalize transition-colors ${
               tab === key
@@ -197,7 +199,7 @@ export default function LeaderboardPage() {
 
       {/* In-game tab: real-time standings from gameStore */}
       {tab === 'in-game' && (
-        <div className="space-y-2">
+        <div role="rowgroup" className="space-y-2">
           {inGamePlayers.length === 0 && (
             <p className="text-game-muted text-center py-8">
               No active game session. Join a room to see the in-game leaderboard.
@@ -206,6 +208,7 @@ export default function LeaderboardPage() {
           {inGamePlayers.map((player, i) => (
             <div
               key={player.id}
+              role="row"
               className={`flex items-center gap-3 p-3 rounded-xl border ${
                 player.id === user?.id
                   ? 'bg-brand/10 border-brand/30'
@@ -233,7 +236,7 @@ export default function LeaderboardPage() {
 
       {/* Global tab: fetched from REST API */}
       {tab === 'global' && (
-        <div className="space-y-2">
+        <div role="rowgroup" className="space-y-2">
           {globalLoading && (
             <div className="flex justify-center py-8">
               <div className="w-8 h-8 border-2 border-brand border-t-transparent rounded-full animate-spin" />
@@ -253,6 +256,7 @@ export default function LeaderboardPage() {
             return (
               <div
                 key={e.userId ?? i}
+                role="row"
                 className={`flex items-center gap-3 p-3 rounded-xl border ${
                   e.userId === user?.id
                     ? 'bg-brand/10 border-brand/30'
@@ -275,7 +279,7 @@ export default function LeaderboardPage() {
 
       {/* Season tab: fetched from /leaderboard/season */}
       {tab === 'season' && (
-        <div className="space-y-2">
+        <div role="rowgroup" className="space-y-2">
           {seasonLoading && (
             <div className="flex justify-center py-8">
               <div className="w-8 h-8 border-2 border-brand border-t-transparent rounded-full animate-spin" />
@@ -303,6 +307,7 @@ export default function LeaderboardPage() {
               {seasonEntries.map((e, i) => (
                 <div
                   key={e.userId ?? i}
+                  role="row"
                   className={`flex items-center gap-3 p-3 rounded-xl border ${
                     e.userId === user?.id
                       ? 'bg-brand/10 border-brand/30'
@@ -327,7 +332,7 @@ export default function LeaderboardPage() {
 
       {/* Friends tab: fetched from /leaderboard/friends */}
       {tab === 'friends' && (
-        <div className="space-y-2">
+        <div role="rowgroup" className="space-y-2">
           {friendsLoading && (
             <div className="flex justify-center py-8">
               <div className="w-8 h-8 border-2 border-brand border-t-transparent rounded-full animate-spin" />
@@ -347,6 +352,7 @@ export default function LeaderboardPage() {
             return (
               <div
                 key={e.userId ?? i}
+                role="row"
                 className={`flex items-center gap-3 p-3 rounded-xl border ${
                   e.userId === user?.id
                     ? 'bg-brand/10 border-brand/30'
