@@ -25,6 +25,7 @@ import com.quizroyale.showdown.ui.lobby.LobbyScreen
 import com.quizroyale.showdown.ui.screens.cosmetics.CosmeticsScreen
 import com.quizroyale.showdown.ui.screens.home.HomeScreen
 import com.quizroyale.showdown.ui.screens.leaderboard.LeaderboardScreen
+import com.quizroyale.showdown.ui.screens.friends.FriendsScreen
 import com.quizroyale.showdown.ui.screens.profile.ProfileScreen
 import com.quizroyale.showdown.ui.screens.results.ResultsScreen
 
@@ -130,8 +131,13 @@ fun AppNavGraph() {
     composable(Screen.Profile.route) {
       ProfileScreen(
         onNavigateBack = { navController.popBackStack() },
-        onNavigateToCosmetics = { navController.navigate(Screen.Cosmetics.route) }
+        onNavigateToCosmetics = { navController.navigate(Screen.Cosmetics.route) },
+        onNavigateToFriends = { navController.navigate(Screen.Friends.route) }
       )
+    }
+
+    composable(Screen.Friends.route) {
+      FriendsScreen(onNavigateBack = { navController.popBackStack() })
     }
 
     composable(Screen.Leaderboard.route) {

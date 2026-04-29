@@ -6,6 +6,7 @@ import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFact
 import com.quizroyale.showdown.BuildConfig
 import com.quizroyale.showdown.data.auth.AuthApi
 import com.quizroyale.showdown.data.auth.TokenRefreshInterceptor
+import com.quizroyale.showdown.data.friends.FriendsApi
 import com.quizroyale.showdown.data.game.GameApi
 import com.quizroyale.showdown.data.local.AppDatabase
 import dagger.Module
@@ -92,6 +93,10 @@ object AppModule {
   @Provides
   @Singleton
   fun provideGameApi(@ApiRetrofit retrofit: Retrofit): GameApi = retrofit.create(GameApi::class.java)
+
+  @Provides
+  @Singleton
+  fun provideFriendsApi(@ApiRetrofit retrofit: Retrofit): FriendsApi = retrofit.create(FriendsApi::class.java)
 
   @Provides
   @Singleton

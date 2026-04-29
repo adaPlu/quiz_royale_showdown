@@ -27,6 +27,7 @@ private val BgDark = Color(0xFF0E0E1A)
 fun ProfileScreen(
     onNavigateBack: () -> Unit = {},
     onNavigateToCosmetics: () -> Unit = {},
+    onNavigateToFriends: () -> Unit = {},
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -60,6 +61,16 @@ fun ProfileScreen(
             is ProfileUiState.Loading -> CircularProgressIndicator(color = Brand)
             is ProfileUiState.Error -> Text(s.message, color = Color.Red)
             is ProfileUiState.Success -> ProfileContent(s)
+        }
+
+        Spacer(Modifier.height(24.dp))
+
+        Button(
+            onClick = onNavigateToFriends,
+            colors = ButtonDefaults.buttonColors(containerColor = Brand),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Friends", color = Color.White, fontWeight = FontWeight.Bold)
         }
     }
 }
