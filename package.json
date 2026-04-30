@@ -6,6 +6,7 @@
     "webapp"
   ],
   "scripts": {
+    "build": "npm run build -w webapp",
     "dev:backend": "npm run dev -w backend",
     "dev:webapp": "npm run dev -w webapp",
     "typecheck": "npm run typecheck -w backend && npm run typecheck -w webapp",
