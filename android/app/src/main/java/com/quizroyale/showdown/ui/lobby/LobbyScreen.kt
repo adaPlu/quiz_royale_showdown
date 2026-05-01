@@ -199,7 +199,10 @@ fun LobbyScreen(
                 Text("Refresh")
             }
             OutlinedButton(
-                onClick = onNavigateHome,
+                onClick = {
+                    viewModel.leaveForHome()
+                    onNavigateHome()
+                },
                 modifier = Modifier.weight(1f),
             ) {
                 Text("Back Home")

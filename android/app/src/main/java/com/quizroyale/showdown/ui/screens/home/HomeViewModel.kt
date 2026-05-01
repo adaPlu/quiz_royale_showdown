@@ -2,8 +2,10 @@ package com.quizroyale.showdown.ui.screens.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.quizroyale.showdown.data.auth.AuthRepository
 import com.quizroyale.showdown.data.room.CachedRoomSummary
 import com.quizroyale.showdown.data.room.RoomRepository
+import com.quizroyale.showdown.data.socket.WebSocketManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,6 +20,7 @@ data class HomeUiState(
     val activeAction: HomeAction? = null,
     val errorMessage: String? = null,
     val navigateToLobby: String? = null,
+    val navigateToLogin: Boolean = false,
 )
 
 enum class HomeAction {
@@ -29,6 +32,8 @@ enum class HomeAction {
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val roomRepository: RoomRepository,
+    private val authRepository: AuthRepository,
+    private val webSocketManager: WebSocketManager,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -104,11 +109,23 @@ class HomeViewModel @Inject constructor(
     }
 
     fun onNavigationHandled() {
-        _uiState.update { it.copy(navigateToLobby = null) }
+        _uiState.update { it.copy(navigateToLobby = null, navigateToLogin = false) }
     }
 
     fun dismissError() {
         _uiState.update { it.copy(errorMessage = null) }
+    }
+
+    fun logout() {
+        webSocketManager.disconnect()
+        authRepository.clearSession()
+        _uiState.update {
+            it.copy(
+                activeAction = null,
+                errorMessage = null,
+                navigateToLogin = true,
+            )
+        }
     }
 
     private fun createRoom(action: HomeAction, isPrivate: Boolean) {

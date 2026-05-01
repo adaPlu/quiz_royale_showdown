@@ -68,6 +68,9 @@ fun QuizRoyaleNavHost() {
       HomeScreen(
         onNavigateToLobby = { roomReference ->
           navController.navigate(QuizRoyaleRoute.Lobby.createRoute(roomReference))
+        },
+        onLogoutComplete = {
+          navController.navigateAndClearBackStack(QuizRoyaleRoute.Login.route)
         }
       )
     }
@@ -127,6 +130,11 @@ fun QuizRoyaleNavHost() {
             popUpTo(QuizRoyaleRoute.Lobby.route) { inclusive = false }
           }
         },
+        onExitGame = {
+          viewModel.exitGame {
+            navController.navigateAndClearBackStack(QuizRoyaleRoute.Home.route)
+          }
+        },
       )
     }
 
@@ -161,9 +169,11 @@ fun QuizRoyaleNavHost() {
       ResultsScreen(
         players = players,
         onPlayAgain = {
+          viewModel.clearLocalSession()
           navController.navigateAndClearBackStack(QuizRoyaleRoute.Home.route)
         },
         onHome = {
+          viewModel.clearLocalSession()
           navController.navigateAndClearBackStack(QuizRoyaleRoute.Home.route)
         },
       )

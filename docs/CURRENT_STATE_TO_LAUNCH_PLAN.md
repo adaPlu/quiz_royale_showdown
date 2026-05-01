@@ -1,6 +1,6 @@
 # Quiz Royale Showdown - Current State to Launch Plan
 
-**Last Updated:** 2026-04-26
+**Last Updated:** 2026-05-01
 **Owner:** Technical Lead  
 **Scope:** Ground-to-launch status for the primary repo at `c:\Users\plugu\AndroidStudioProjects\QuizGame`.
 
@@ -10,7 +10,7 @@
 
 Phase 1 recovery is verified through the first live gameplay event. The Phase 2 full-loop smoke is also verified: `smoke:phase2` completed 10 rounds through finale, `game:over`, XP writes, and scoring on 2026-04-26.
 
-The repo is no longer in scaffold recovery or core-loop recovery. It is now in launch hardening: keep the verified core game loop stable while preparing staging/production deployment, rate limiting, client polish, and production smoke checks.
+The repo is no longer in scaffold recovery or core-loop recovery. It is now in launch hardening: keep the verified core game loop stable while preparing staging/production deployment, tuning already-wired rate limits, client polish, and production smoke checks.
 
 ## 2. Mounted Backend Surface
 
@@ -86,7 +86,7 @@ Remaining work is no longer Phase 2 recovery; it is launch hardening.
 Exit criteria:
 - Primary repo backend is deployed to Railway with `GET /health` green.
 - Staging/production smoke passes for auth, room create/join/start, `/ws`, first question, and full-loop smoke where practical.
-- Auth/API rate limiting is active and covered by tests.
+- Auth/API rate limiting is active; keep coverage focused on limiter ordering and status/body regressions.
 - Android debug build remains green with Socket.IO reconnect/backoff.
 - Web launch path avoids calls to unmounted profile/leaderboard/meta endpoints.
 - Railway question audit is current and reports the expected active question bank.

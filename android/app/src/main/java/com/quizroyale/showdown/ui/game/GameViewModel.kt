@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.quizroyale.showdown.BuildConfig
 import com.quizroyale.showdown.data.auth.AuthRepository
+import com.quizroyale.showdown.data.game.GameRepository
 import com.quizroyale.showdown.data.socket.WebSocketManager
 import com.quizroyale.showdown.domain.model.PowerupType
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -31,6 +32,7 @@ sealed class GameIntent {
     data class JoinRoom(val roomCode: String) : GameIntent()
     data class SubmitAnswer(val optionIndex: Int) : GameIntent()
     data class UsePowerup(val type: PowerupType) : GameIntent()
+    data object ExitGame : GameIntent()
 }
 
 // ── ViewModel ─────────────────────────────────────────────────────────────────
@@ -39,6 +41,7 @@ sealed class GameIntent {
 class GameViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val webSocketManager: WebSocketManager,
+    private val gameRepository: GameRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<GameUiState>(GameUiState.Idle)
@@ -76,6 +79,7 @@ class GameViewModel @Inject constructor(
             is GameIntent.JoinRoom -> joinRoom(intent.roomCode)
             is GameIntent.SubmitAnswer -> submitAnswer(intent.optionIndex)
             is GameIntent.UsePowerup -> usePowerup(intent.type)
+            GameIntent.ExitGame -> exitGame()
         }
     }
 
@@ -113,6 +117,27 @@ class GameViewModel @Inject constructor(
         webSocketManager.send(
             """{"type":"powerup:activate","version":"v1","payload":{"roomId":"${state.roomId}","powerUpId":"${type.name}"}}"""
         )
+    }
+
+    fun exitGame(onComplete: () -> Unit = {}) {
+        val roomId = leaveableRoomId()
+        viewModelScope.launch {
+            try {
+                if (!roomId.isNullOrBlank()) {
+                    runCatching { gameRepository.leaveRoom(roomId) }
+                }
+            } finally {
+                clearLocalSession()
+                onComplete()
+            }
+        }
+    }
+
+    fun clearLocalSession() {
+        timerJob?.cancel()
+        activeRoomCode = null
+        webSocketManager.disconnect()
+        _uiState.value = GameUiState.Idle
     }
 
     // ── WS Event Handling ─────────────────────────────────────────────────────
@@ -430,6 +455,14 @@ class GameViewModel @Inject constructor(
             is GameUiState.GameOver -> current.roomId
             is GameUiState.Lobby -> current.roomCode
             GameUiState.Idle -> ""
+        }
+
+    private fun leaveableRoomId(): String? =
+        when (val current = _uiState.value) {
+            is GameUiState.ActiveQuestion -> current.roomId
+            is GameUiState.RoundResult -> current.roomId
+            is GameUiState.GameOver -> current.roomId
+            else -> null
         }
 
     private fun JSONObject.optStringArray(name: String): List<String> {

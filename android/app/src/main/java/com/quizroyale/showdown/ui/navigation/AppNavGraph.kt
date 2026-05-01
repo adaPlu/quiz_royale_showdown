@@ -36,6 +36,12 @@ fun AppNavGraph() {
       HomeScreen(
         onNavigateToLobby = { roomCode ->
           navController.navigate(Screen.Lobby.createRoute(roomCode))
+        },
+        onLogoutComplete = {
+          navController.navigate(Screen.Home.route) {
+            popUpTo(Screen.Home.route) { inclusive = true }
+            launchSingleTop = true
+          }
         }
       )
     }
@@ -98,7 +104,15 @@ fun AppNavGraph() {
           isReconnecting = isReconnecting,
           onNavigateToResults = { resultRoomId ->
             navController.navigate(Screen.Results.createRoute(resultRoomId))
-          }
+          },
+          onExitGame = {
+            viewModel.exitGame {
+              navController.navigate(Screen.Home.route) {
+                popUpTo(Screen.Home.route) { inclusive = true }
+                launchSingleTop = true
+              }
+            }
+          },
         )
       }
     }

@@ -1,12 +1,13 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { useCallback, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useCallback, useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 
 import { CountdownBar } from '@/components/CountdownBar';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { PowerUpTray } from '@/components/PowerUpTray';
 import type { PowerupSlot } from '@/components/PowerUpTray';
 import { useGameSocket } from '@/hooks/useGameSocket';
+import { api } from '@/services/apiClient';
 import { socketService } from '@/services/socketService';
 import { useAuthStore } from '@/stores/authStore';
 import {
@@ -46,6 +47,8 @@ function answerButtonClass(
 // ---------------------------------------------------------------------------
 export const GamePage = () => {
   const { roomId } = useParams<{ roomId: string }>();
+  const navigate = useNavigate();
+  const [isExiting, setIsExiting] = useState(false);
 
   // Wire all WS events → gameStore, and navigate on game:over
   useGameSocket(roomId);
@@ -62,6 +65,7 @@ export const GamePage = () => {
   const revealedOptionIndex = useGameStore((s) => s.revealedOptionIndex);
   const timeBoostActive = useGameStore((s) => s.timeBoostActive);
   const setMyAnswer = useGameStore((s) => s.setMyAnswer);
+  const resetRoom = useGameStore((s) => s.resetRoom);
   const leaderboard = useGameStore(selectLeaderboard);
   const players     = useGameStore((s) => s.players);
 
@@ -86,6 +90,23 @@ export const GamePage = () => {
       clientSentAt: new Date().toISOString(),
     });
   }, [isLocked, question, roomId, setMyAnswer]);
+
+  const handleExitGame = useCallback(async () => {
+    if (isExiting) return;
+
+    setIsExiting(true);
+    try {
+      if (roomId) {
+        await api.post(`/rooms/${roomId}/leave`);
+      }
+    } catch {
+      // Local exit still wins so the player is not trapped by a transient API failure.
+    } finally {
+      socketService.disconnect(true);
+      resetRoom();
+      navigate('/home', { replace: true });
+    }
+  }, [isExiting, navigate, resetRoom, roomId]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -156,9 +177,19 @@ export const GamePage = () => {
               </h1>
             </div>
 
-            {/* Countdown pill */}
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-2xl font-black text-gold">
-              {question ? `${Math.round(durationSec)}` : '--'}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => void handleExitGame()}
+                disabled={isExiting}
+                className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-white/80 transition hover:border-white/30 hover:text-white disabled:opacity-50"
+              >
+                {isExiting ? 'Exiting...' : 'Exit Game'}
+              </button>
+              {/* Countdown pill */}
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-2xl font-black text-gold">
+                {question ? `${Math.round(durationSec)}` : '--'}
+              </div>
             </div>
           </div>
 

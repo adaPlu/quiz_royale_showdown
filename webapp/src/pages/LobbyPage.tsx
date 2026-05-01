@@ -53,8 +53,10 @@ export const LobbyPage = () => {
   }, [accessToken, code, roomId]);
 
   const [isStarting, setIsStarting] = useState(false);
+  const [isLeaving, setIsLeaving] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const hasMinimumPlayers = players.length >= 2;
+  const resetRoom = useGameStore((state) => state.resetRoom);
 
   useEffect(() => {
     return socketService.on('error', (payload) => {
@@ -92,6 +94,27 @@ export const LobbyPage = () => {
     }
   };
 
+  const handleLeaveLobby = async () => {
+    if (isLeaving) return;
+
+    setIsLeaving(true);
+    setStartError(null);
+
+    try {
+      if (roomId) {
+        await api.post(`/rooms/${roomId}/leave`);
+      }
+    } catch {
+      // Returning home should not strand the client in a stale room if leave fails.
+    } finally {
+      socketService.disconnect(true);
+      resetRoom();
+      if (mountedRef.current) {
+        navigate('/home', { replace: true });
+      }
+    }
+  };
+
   const displayCode = code ?? socketService.getActiveRoom()?.roomCode ?? '----';
   const canRecoverSession = !!displayCode && displayCode !== '----';
 
@@ -111,10 +134,11 @@ export const LobbyPage = () => {
             </div>
             <button
               type="button"
-              onClick={() => navigate('/home')}
+              onClick={() => void handleLeaveLobby()}
+              disabled={isLeaving}
               className="rounded-2xl border border-white/10 px-5 py-3 text-sm font-semibold text-white/80 transition hover:border-white/30 hover:text-white"
             >
-              Back to Home
+              {isLeaving ? 'Leaving...' : 'Back to Home'}
             </button>
           </div>
         </section>

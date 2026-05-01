@@ -75,6 +75,7 @@ fun GameScreen(
     onIntent: ((GameIntent) -> Unit)? = null,
     isReconnecting: Boolean = false,
     onNavigateToResults: ((String) -> Unit)? = null,
+    onExitGame: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val haptic  = LocalHapticFeedback.current
@@ -219,6 +220,17 @@ fun GameScreen(
         }
 
         // ── Loot-drop animated banner (slides from top) ───────────────────────
+        Button(
+            onClick = { onExitGame?.invoke() },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .systemBarsPadding()
+                .padding(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2A2A40)),
+        ) {
+            Text("Exit Game", color = Color.White)
+        }
+
         AnimatedVisibility(
             visible = lootDropVisible,
             enter   = slideInVertically(initialOffsetY  = { -it }),

@@ -29,6 +29,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 @Composable
 fun HomeScreen(
     onNavigateToLobby: (String) -> Unit,
+    onLogoutComplete: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -39,6 +40,13 @@ fun HomeScreen(
         viewModel.onNavigationHandled()
     }
 
+    LaunchedEffect(uiState.navigateToLogin) {
+        if (uiState.navigateToLogin) {
+            onLogoutComplete()
+            viewModel.onNavigationHandled()
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -46,10 +54,18 @@ fun HomeScreen(
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        Text(
-            text = "Room Hub",
-            style = MaterialTheme.typography.displaySmall,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = "Room Hub",
+                style = MaterialTheme.typography.displaySmall,
+            )
+            TextButton(onClick = viewModel::logout) {
+                Text("Logout")
+            }
+        }
         Text(
             text = "Create a room, join by code, or jump back into your latest lobby.",
             style = MaterialTheme.typography.bodyLarge,

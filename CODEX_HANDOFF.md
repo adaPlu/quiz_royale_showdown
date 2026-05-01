@@ -1,6 +1,6 @@
 # Quiz Royale Showdown - Codex Handoff
 
-**Updated:** 2026-04-26  
+**Updated:** 2026-05-01
 **Primary repo:** `c:\Users\plugu\AndroidStudioProjects\QuizGame`  
 **Status:** Phase 2 VERIFIED. Full game loop smoke passed end-to-end on 2026-04-26 (10 rounds, finale, game:over, XP writes, both players scored correctly).
 
@@ -17,11 +17,13 @@ Do not mix these scopes. The Railway question audit belongs to `QuizGame-main\ba
 
 - Phase 1 smoke reaches `round:question_started`.
 - Android CLI build passes (`android\gradlew.bat -p android :app:assembleDebug`).
-- Backend: 34/34 tests pass. TypeScript exits 0.
+- Backend: TypeScript and tests were green in the last verified local pass; rerun after backend/security changes.
 - Webapp: TypeScript exits 0. Production build exits 0.
 - `gameHandlers.ts` has been deleted; its logic lives in `backend/src/socket/handlers/` (submitAnswer, usePowerup, reconnect, playerReady).
 - Android `parseRankings` fixed: display names are now preserved from the current player list across `round:result` transitions.
-- `smoke:phase2` PASSED on 2026-04-26 — 10 rounds, finale, `game:over`, XP writes, scoring all verified.
+- Android `CountdownRing` animation is fixed and should remain verified in Android QA/build checks.
+- Auth/API rate limiting is wired in `backend/src/app.ts` via the general API limiter and auth-specific limiter.
+- `smoke:phase2` PASSED on 2026-04-26: 10 rounds, finale, `game:over`, XP writes, scoring all verified.
   Run: `DATABASE_URL=<railway-postgres> REDIS_URL=redis://localhost:6379 npm run dev:backend` (local Redis via Docker), then `npm run smoke:phase2`.
 
 The primary backend mounted launch surface is limited to:
@@ -56,11 +58,11 @@ Treat those question scripts/admin workflows as separate from the primary repo u
 
 Phase 2 is verified. The next phase is **launch hardening**:
 
-1. **Deploy the primary backend to Railway** — the current Railway deployment (if any) is from the `QuizGame-main` repo; the primary repo (`QuizGame`) needs its own Railway service wired to the same Postgres + Redis.
-2. **Fix `CountdownRing` animation** in `GameScreen.kt` — the arc is static (216° hardcoded), doesn't animate from `timerSeconds` state.
-3. **Power-up inventory gating** — currently all 4 power-ups show as `owned: true` in the webapp. Gate display behind actual `powerup:loot_drop` events once backend emits them.
+1. **Deploy the primary backend to Railway** - the current Railway deployment (if any) is from the `QuizGame-main` repo; the primary repo (`QuizGame`) needs its own Railway service wired to the same Postgres + Redis.
+2. **Run staging smoke against the primary backend** for health, auth, room create/join/start, `/ws`, first-question, and full-loop checks where practical.
+3. **Keep power-up REST/web inventory work out of default launch ownership** unless explicitly assigned; mounted socket power-up handling exists, but REST catalog/inventory/equip remains future/unmounted.
 4. **Profile / leaderboard / cosmetics** remain unmounted and future scope.
-5. **Rate limiting** — add per-IP rate limiting to auth routes before going public.
+5. **Tune production rate limits from staging evidence**; auth/API limiters are already wired.
 
 ## Guardrails
 
