@@ -31,7 +31,8 @@ export const useGameSocket = (roomId: string | undefined) => {
     }
 
     if (roomId) {
-      socketService.setActiveRoom(roomId);
+      const roomCode = useGameStore.getState().code;
+      socketService.setActiveRoom(roomId, roomCode ?? undefined);
       socketService.emit('room:join', { roomCode: roomId });
     }
 
@@ -57,9 +58,9 @@ export const useGameSocket = (roomId: string | undefined) => {
         applyGameOver(payload);
         navigate(`/results/${payload.roomId}`);
       }),
-      socketService.on('player:level_up', (payload) => {
+      socketService.on('game:level_up', (payload) => {
         applyLevelUp(payload);
-        updateXp(payload.xp, payload.newLevel);
+        updateXp(payload.xpAwarded, payload.newLevel);
       }),
     ];
 

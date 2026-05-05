@@ -37,7 +37,7 @@ export type FinalStanding = {
 export type LevelUpEntry = {
   playerId: string;
   newLevel: number;
-  xp: number;
+  xpAwarded: number;
   xpToNextLevel: number;
 };
 
@@ -141,7 +141,7 @@ type GameState = {
   revealedOptionIndex: number | null;
   timeBoostActive: boolean;
   activePowerupEffect: ActivePowerupEffect | null;
-  lootDrop: { powerupCode: string; ts: number } | null;
+  lootDrop: { powerupType: string; ts: number } | null;
 };
 
 type GameActions = {
@@ -245,7 +245,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       phase: 'COUNTDOWN',
       question: null,
       ...resetRoundInteraction,
-      countdownEndsAt: new Date(payload.startsAt).getTime() + payload.seconds * 1000,
+      countdownEndsAt: new Date(payload.startsAt).getTime(),
     });
   },
 
@@ -421,12 +421,12 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
         get().applyPowerupEffect(event.payload);
         break;
       case 'powerup:loot_drop':
-        get().setLootDrop((event.payload as { powerupCode: string }).powerupCode);
+        get().setLootDrop((event.payload as { powerupType: string }).powerupType);
         break;
     }
   },
 
-  setLootDrop: (code) => set({ lootDrop: { powerupCode: code, ts: Date.now() } }),
+  setLootDrop: (code) => set({ lootDrop: { powerupType: code, ts: Date.now() } }),
   clearLootDrop: () => set({ lootDrop: null }),
 }));
 

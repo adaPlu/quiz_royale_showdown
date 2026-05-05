@@ -103,7 +103,7 @@ const GameOverPayload = z.object({
 const LevelUpPayload = z.object({
   playerId: z.string(),
   newLevel: z.number(),
-  xp: z.number(),
+  xpAwarded: z.number(),
   xpToNextLevel: z.number(),
 });
 
@@ -126,9 +126,9 @@ export const ServerEventSchemas = {
   'round:finale_started': FinaleStartedPayload,
   'powerup:activated': PowerupActivatedPayload,
   'powerup:effect': PowerupEffectPayload,
-  'powerup:loot_drop': z.object({ roomId: z.string(), powerupCode: z.string() }),
+  'powerup:loot_drop': z.object({ roomId: z.string(), powerupType: z.string(), quantity: z.number() }),
   'game:over': GameOverPayload,
-  'player:level_up': LevelUpPayload,
+  'game:level_up': LevelUpPayload,
   error: ErrorPayload,
 } as const;
 
@@ -169,6 +169,7 @@ const ServerEnvelopeSchema = z.object({
 class SocketService {
   private socket: Socket | null = null;
   private activeRoomId: string | null = null;
+  private activeRoomCode: string | null = null;
   private accessToken: string | null = null;
   private listeners = new Map<ServerEventType, Set<(payload: unknown) => void>>();
   private statusListeners = new Set<(status: ConnectionStatus) => void>();
@@ -210,8 +211,8 @@ class SocketService {
     this.socket.on('message', (raw: unknown) => this.handleMessage(raw));
     this.socket.on('connect', () => {
       this.emitStatus('connected');
-      if (this.activeRoomId) {
-        this.emit('room:join', { roomCode: this.activeRoomId });
+      if (this.activeRoomCode) {
+        this.emit('room:join', { roomCode: this.activeRoomCode });
       }
     });
     this.socket.on('disconnect', () => this.emitStatus('disconnected'));
@@ -222,10 +223,13 @@ class SocketService {
     this.socket?.disconnect();
     this.socket = null;
     this.accessToken = null;
+    this.activeRoomId = null;
+    this.activeRoomCode = null;
   }
 
-  setActiveRoom(roomId: string): void {
+  setActiveRoom(roomId: string, roomCode?: string): void {
     this.activeRoomId = roomId;
+    if (roomCode) this.activeRoomCode = roomCode;
   }
 
   emit<E extends ClientEventType>(event: E, payload: ClientEventPayloads[E]): void {

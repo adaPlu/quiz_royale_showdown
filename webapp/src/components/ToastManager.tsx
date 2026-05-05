@@ -18,7 +18,7 @@ export function ToastManager() {
       )}
       {lootDrop && (
         <LootDropToast
-          powerupCode={lootDrop.powerupCode.toLowerCase() as PowerUpType}
+          powerupCode={lootDrop.powerupType.toLowerCase() as PowerUpType}
           onDismiss={clearLootDrop}
         />
       )}

@@ -93,7 +93,7 @@ export const serverEventSchema = z.discriminatedUnion("type", [
   ),
   envelope(
     "powerup:loot_drop",
-    z.object({ roomId: z.string(), powerupCode: z.string() })
+    z.object({ roomId: z.string(), powerupType: z.string(), quantity: z.number() })
   ),
   envelope(
     "game:over",
@@ -111,11 +111,11 @@ export const serverEventSchema = z.discriminatedUnion("type", [
     })
   ),
   envelope(
-    "player:level_up",
+    "game:level_up",
     z.object({
       playerId: z.string(),
       newLevel: z.number(),
-      xp: z.number(),
+      xpAwarded: z.number(),
       xpToNextLevel: z.number()
     })
   )

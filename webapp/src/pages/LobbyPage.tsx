@@ -28,7 +28,7 @@ export const LobbyPage = () => {
     const normalizedCode = roomCode.trim().toUpperCase();
     if (!normalizedCode) return;
 
-    socketService.setActiveRoom(normalizedCode);
+    socketService.setActiveRoom(normalizedCode, normalizedCode);
     socketService.emit('room:join', { roomCode: normalizedCode });
   };
 

@@ -307,7 +307,7 @@ export const GamePage = () => {
         onComplete={onFxComplete}
       />
       <LootDropToast
-        powerupCode={lootDrop?.powerupCode as PowerUpType ?? null}
+        powerupCode={lootDrop?.powerupType as PowerUpType ?? null}
         onDismiss={clearLootDrop}
       />
       <LevelUpToast
