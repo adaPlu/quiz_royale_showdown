@@ -117,29 +117,39 @@ export class RoomService {
       room = await this.matchmakeOrCreate(userId);
     }
 
-    const existing = await prisma.roomPlayer.findUnique({
-      where: { roomId_userId: { roomId: room.id, userId } },
-    });
+    const config = await this.getRoomConfig(room.id);
 
-    if (!existing) {
-      const config = await this.getRoomConfig(room.id);
-      const seatCount = await prisma.roomPlayer.count({ where: { roomId: room.id } });
+    const joinResult = await prisma.$transaction(async (tx) => {
+      // Re-read inside transaction for accurate seat count
+      const freshRoom = await tx.room.findUnique({
+        where: { id: room.id },
+        include: { players: { select: { userId: true } } },
+      });
+      if (!freshRoom) throw new NotFoundError("Room no longer exists");
 
-      if (seatCount >= config.maxPlayers) {
+      const alreadyIn = freshRoom.players.some((p) => p.userId === userId);
+      if (alreadyIn) {
+        return { alreadyJoined: true };
+      }
+
+      if (freshRoom.players.length >= (config.maxPlayers ?? 8)) {
         throw new ConflictError("Room is full");
       }
 
-      await prisma.roomPlayer.create({
+      await tx.roomPlayer.create({
         data: {
           id: generateId(),
           roomId: room.id,
           userId,
-          seatIndex: seatCount,
+          seatIndex: freshRoom.players.length,
         },
       });
 
-      await this.addLivePlayer(room.id, userId);
+      return { alreadyJoined: false };
+    });
 
+    if (!joinResult.alreadyJoined) {
+      await this.addLivePlayer(room.id, userId);
       logger.info("Player joined room", { userId, roomId: room.id });
     }
 

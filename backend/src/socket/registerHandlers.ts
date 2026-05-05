@@ -176,24 +176,19 @@ export function registerSocketHandlers(io: Server, socket: AuthenticatedSocket):
     const roomId = socket.data.roomId;
     const userId = socket.data.userId;
 
-    if (!roomId) {
-      return;
-    }
+    if (!roomId || !userId) return;
 
-    if (redisService) {
-      void redisService.set(`room:${roomId}:player:${userId}:grace`, "1", 30).catch(() => undefined);
-      return;
-    }
-
+    // Always notify peers immediately
     const leftEvent: ServerEvents = {
       type: "room:player_left",
       version: "v1",
-      payload: {
-        roomId,
-        playerId: userId
-      }
+      payload: { roomId, playerId: userId }
     };
-
     socket.to(roomId).emit("message", leftEvent);
+
+    // Set grace period for reconnect (Redis path)
+    if (redisService) {
+      void redisService.set(`room:${roomId}:player:${userId}:grace`, "1", 30).catch(() => undefined);
+    }
   });
 }

@@ -44,11 +44,18 @@ router.get("/search", requireAuth, async (req, res, next) => {
   }
 });
 
-// GET /users/:displayName/profile — public profile
-router.get("/:displayName/profile", async (req, res, next) => {
+// GET /users/:identifier/profile — public profile; resolves by userId first, then displayName
+router.get("/:identifier/profile", async (req, res, next) => {
   try {
+    const { identifier } = req.params as { identifier: string };
+    // Try userId first (exact), then fall back to displayName (case-insensitive)
     const user = await prisma.user.findFirst({
-      where: { displayName: req.params.displayName },
+      where: {
+        OR: [
+          { id: identifier },
+          { displayName: { equals: identifier, mode: "insensitive" } },
+        ],
+      },
       select: {
         id: true,
         displayName: true,

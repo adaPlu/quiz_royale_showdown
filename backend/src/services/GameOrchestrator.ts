@@ -565,6 +565,20 @@ export class GameOrchestrator {
       }
     });
 
+    // Persist final scores to RoomPlayer
+    try {
+      await Promise.all(
+        finalStandings.map((standing) =>
+          prisma.roomPlayer.updateMany({
+            where: { roomId, userId: standing.playerId },
+            data: { score: standing.score },
+          })
+        )
+      );
+    } catch (err) {
+      logger.error("Failed to persist final scores", { roomId, error: err instanceof Error ? err.message : String(err) });
+    }
+
     const POWERUP_CODES = ["DOUBLE_DOWN", "FIFTY_FIFTY", "TIME_FREEZE", "SHIELD", "SABOTAGE"] as const;
 
     for (const playerId of finalistIds) {
@@ -574,6 +588,25 @@ export class GameOrchestrator {
         version: "v1",
         payload: { powerupType: randomPowerup, quantity: 1 }
       });
+
+      // Persist loot drop to PlayerPowerUp inventory
+      try {
+        const powerUpRecord = await prisma.powerUp.findUnique({ where: { code: randomPowerup } });
+        if (powerUpRecord) {
+          await prisma.playerPowerUp.upsert({
+            where: { userId_powerUpId: { userId: playerId, powerUpId: powerUpRecord.id } },
+            update: { quantity: { increment: 1 } },
+            create: {
+              id: generateId(),
+              userId: playerId,
+              powerUpId: powerUpRecord.id,
+              quantity: 1,
+            },
+          });
+        }
+      } catch (err) {
+        logger.error("Failed to persist loot drop", { roomId, userId: playerId, error: err instanceof Error ? err.message : String(err) });
+      }
     }
 
     if (redisService) {

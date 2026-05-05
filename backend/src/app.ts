@@ -40,7 +40,7 @@ export const createApp = () => {
   app.use("/api/v1", apiLimiter);
   app.use("/api/v1/rooms", roomsRouter);
   app.use("/api/v1/users", usersRouter);
-  app.use("/api/v1/friends", apiLimiter, requireAuth, friendsRouter);
+  app.use("/api/v1/friends", requireAuth, friendsRouter);
   app.use("/api/v1/powerups", powerupsRouter);
   app.use("/api/v1/cosmetics", cosmeticsRouter);
   app.use("/api/v1/leaderboard", leaderboardRouter);

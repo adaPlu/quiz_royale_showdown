@@ -16,12 +16,4 @@ router.get("/inventory", requireAuth, async (req, res, next) => {
   }
 });
 
-// POST /powerups/use - activation is server-authoritative via WebSocket in Phase 2.
-router.post("/use", requireAuth, async (_req, res) => {
-  res.status(501).json({
-    code: "USE_VIA_WEBSOCKET",
-    message: "Power-up activation must be sent via the WebSocket powerup:activate event",
-  });
-});
-
 export default router;
