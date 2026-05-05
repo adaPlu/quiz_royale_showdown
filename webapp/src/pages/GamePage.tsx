@@ -111,11 +111,13 @@ export const GamePage = () => {
     return unsub;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const storedRoomId = useGameStore((state) => state.roomId);
+
   const correctIndex = result?.correctAnswerIndex ?? null;
   const isQuestionActive = phase === 'QUESTION_ACTIVE' && !!question;
   const isLocked = !isQuestionActive || myAnswer !== null;
   const durationSec = question ? Math.max(1, question.timeLimitMs / 1000) : 20;
-  const activeRoomId = roomId ?? useGameStore.getState().roomId ?? '';
+  const activeRoomId = roomId ?? storedRoomId ?? '';
 
   const powerUpSlots: PowerUpSlot[] = [
     { type: 'fifty_fifty', owned: inventory.fifty_fifty > 0, used: usedPowerUps.includes('fifty_fifty'), count: inventory.fifty_fifty },
@@ -289,7 +291,9 @@ export const GamePage = () => {
             <div className="mt-4 space-y-2">
               {result.rankings.slice(0, 5).map((ranking) => (
                 <div key={ranking.playerId} className="flex justify-between gap-4 text-sm">
-                  <span className="truncate text-white/70">{ranking.playerId}</span>
+                  <span className="truncate text-white/70">
+                    {players.find((p) => p.id === ranking.playerId)?.displayName ?? ranking.playerId}
+                  </span>
                   <span className={ranking.scoreDelta >= 0 ? 'font-bold text-answer-correct' : 'font-bold text-answer-wrong'}>
                     {ranking.scoreDelta >= 0 ? `+${ranking.scoreDelta}` : ranking.scoreDelta}
                   </span>

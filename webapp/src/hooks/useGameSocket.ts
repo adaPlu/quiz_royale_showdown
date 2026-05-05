@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { socketService } from '@/services/socketService';
@@ -9,6 +9,7 @@ import { useProfileStore } from '@/stores/profileStore';
 export const useGameSocket = (roomId: string | undefined) => {
   const navigate = useNavigate();
   const accessToken = useAuthStore((state) => state.accessToken);
+  const joinedRef = useRef(false);
   const applyRoomState = useGameStore((state) => state.applyRoomState);
   const applyPlayerJoined = useGameStore((state) => state.applyPlayerJoined);
   const applyPlayerLeft = useGameStore((state) => state.applyPlayerLeft);
@@ -30,7 +31,8 @@ export const useGameSocket = (roomId: string | undefined) => {
       socketService.connect(token);
     }
 
-    if (roomId) {
+    if (roomId && !joinedRef.current) {
+      joinedRef.current = true;
       const roomCode = useGameStore.getState().code;
       socketService.setActiveRoom(roomId, roomCode ?? undefined);
       socketService.emit('room:join', { roomCode: roomId });
@@ -65,25 +67,8 @@ export const useGameSocket = (roomId: string | undefined) => {
     ];
 
     return () => {
+      joinedRef.current = false;
       unsubs.forEach((unsubscribe) => unsubscribe());
     };
-  }, [
-    accessToken,
-    roomId,
-    navigate,
-    applyRoomState,
-    applyPlayerJoined,
-    applyPlayerLeft,
-    applyCountdown,
-    applyQuestion,
-    applyAnswerLocked,
-    applyRoundResult,
-    applyElimination,
-    applyFinaleStarted,
-    applyPowerupUsed,
-    applyPowerupEffect,
-    applyGameOver,
-    applyLevelUp,
-    updateXp,
-  ]);
+  }, [roomId, accessToken]); // eslint-disable-line react-hooks/exhaustive-deps
 };

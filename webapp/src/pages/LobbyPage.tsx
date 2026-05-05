@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { PlayerAvatar } from '@/components/PlayerAvatar';
@@ -16,6 +16,7 @@ export const LobbyPage = () => {
   const code = useGameStore((state) => state.code);
   const storedRoomId = useGameStore((state) => state.roomId);
   const [roomCode, setRoomCode] = useState((roomId ?? code ?? 'ROYALE').toUpperCase());
+  const [joinError, setJoinError] = useState<string | null>(null);
 
   useGameSocket(roomId ?? roomCode);
 
@@ -24,9 +25,19 @@ export const LobbyPage = () => {
     [code, roomCode, roomId, storedRoomId],
   );
 
+  useEffect(() => {
+    const unsub = socketService.on('error', (payload) => {
+      setJoinError(payload.message ?? payload.error ?? 'Failed to join room');
+    });
+    return unsub;
+  }, []);
+
   const joinRoom = () => {
     const normalizedCode = roomCode.trim().toUpperCase();
-    if (!normalizedCode) return;
+    if (normalizedCode.length !== 6) {
+      setJoinError('Room code must be exactly 6 characters.');
+      return;
+    }
 
     socketService.setActiveRoom(normalizedCode, normalizedCode);
     socketService.emit('room:join', { roomCode: normalizedCode });
@@ -61,9 +72,12 @@ export const LobbyPage = () => {
               </span>
               <input
                 value={roomCode}
-                onChange={(event) => setRoomCode(event.target.value.toUpperCase().slice(0, 12))}
+                onChange={(event) => {
+                  setJoinError(null);
+                  setRoomCode(event.target.value.toUpperCase().slice(0, 6));
+                }}
                 className="rounded-2xl border border-white/10 bg-black/30 px-5 py-4 text-2xl font-bold tracking-[0.3em] outline-none transition focus:border-gold"
-                maxLength={12}
+                maxLength={6}
               />
             </label>
             <button
@@ -74,6 +88,9 @@ export const LobbyPage = () => {
               Join Room
             </button>
           </div>
+          {joinError && (
+            <p className="mt-2 text-sm text-answer-wrong">{joinError}</p>
+          )}
 
           <div className="mt-5 flex flex-wrap items-center gap-3 text-sm text-white/60">
             <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">
