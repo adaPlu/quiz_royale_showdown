@@ -16,10 +16,19 @@ const prismaMock = {
   room: {
     update: vi.fn()
   },
+  roomPlayer: {
+    updateMany: vi.fn()
+  },
   season: {
     findFirst: vi.fn()
   },
   seasonScore: {
+    upsert: vi.fn()
+  },
+  powerUp: {
+    findUnique: vi.fn()
+  },
+  playerPowerUp: {
     upsert: vi.fn()
   }
 };
@@ -72,10 +81,13 @@ describe("GameOrchestrator hardening", () => {
     vi.clearAllMocks();
     redisMock.del.mockResolvedValue(1);
     prismaMock.room.update.mockResolvedValue({});
+    prismaMock.roomPlayer.updateMany.mockResolvedValue({ count: 0 });
     prismaMock.xpEvent.create.mockResolvedValue({});
     prismaMock.xpEvent.groupBy.mockResolvedValue([]);
     prismaMock.season.findFirst.mockResolvedValue(null);
     prismaMock.seasonScore.upsert.mockResolvedValue({});
+    prismaMock.powerUp.findUnique.mockResolvedValue(null);
+    prismaMock.playerPowerUp.upsert.mockResolvedValue({});
   });
 
   it("computes winners from finalists only, excluding eliminated high scorers", async () => {
@@ -429,6 +441,71 @@ describe("GameOrchestrator hardening", () => {
           (args[1] as { type: string }).type === "game:level_up"
       );
       expect(levelUpCall).toBeUndefined();
+    });
+  });
+
+  describe("loot drop", () => {
+    function makeIo(droppedPowerups?: string[]) {
+      return {
+        to: vi.fn().mockImplementation(() => ({
+          emit: vi.fn((event: string, payload: unknown) => {
+            if (
+              droppedPowerups &&
+              event === "message" &&
+              typeof payload === "object" &&
+              payload !== null &&
+              (payload as { type: string }).type === "powerup:loot_drop"
+            ) {
+              droppedPowerups.push(
+                (payload as { payload: { powerupType: string } }).payload.powerupType
+              );
+            }
+          }),
+        })),
+      };
+    }
+
+    it("emits powerup:loot_drop to each finalist's socket room after runGameOver", async () => {
+      const droppedPowerups: string[] = [];
+      const io = makeIo(droppedPowerups);
+      const finalistIds = ["finalist-x", "finalist-y"];
+
+      redisMock.zrevrangeWithScores.mockResolvedValue([
+        { member: "finalist-x", score: 300 },
+        { member: "finalist-y", score: 200 },
+      ]);
+
+      const { GameOrchestrator } = await import("../GameOrchestrator");
+      const orchestrator = new GameOrchestrator();
+
+      await (orchestrator as unknown as {
+        runGameOver(roomId: string, io: unknown, winnerIds: string[], finalistIds: string[]): Promise<void>;
+      }).runGameOver("room-ld1", io, ["finalist-x"], finalistIds);
+
+      // One loot_drop emission per finalist
+      expect(droppedPowerups).toHaveLength(finalistIds.length);
+    });
+
+    it("calls prisma.playerPowerUp.upsert once per finalist when powerUp record exists", async () => {
+      const finalistIds = ["finalist-p", "finalist-q"];
+
+      redisMock.zrevrangeWithScores.mockResolvedValue([
+        { member: "finalist-p", score: 400 },
+        { member: "finalist-q", score: 250 },
+      ]);
+
+      // Simulate each powerUp.findUnique call returning a real record
+      prismaMock.powerUp.findUnique.mockResolvedValue({ id: "powerup-record-1" });
+
+      const io = makeIo();
+      const { GameOrchestrator } = await import("../GameOrchestrator");
+      const orchestrator = new GameOrchestrator();
+
+      await (orchestrator as unknown as {
+        runGameOver(roomId: string, io: unknown, winnerIds: string[], finalistIds: string[]): Promise<void>;
+      }).runGameOver("room-ld2", io, ["finalist-p"], finalistIds);
+
+      expect(prismaMock.playerPowerUp.upsert).toHaveBeenCalledTimes(finalistIds.length);
     });
   });
 });

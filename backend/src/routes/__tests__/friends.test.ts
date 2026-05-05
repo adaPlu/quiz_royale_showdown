@@ -23,6 +23,12 @@ const { prismaMock } = vi.hoisted(() => {
       update: vi.fn(),
       delete: vi.fn(),
     },
+    user: {
+      findMany: vi.fn(),
+    },
+    xpEvent: {
+      groupBy: vi.fn(),
+    },
   };
   return { prismaMock };
 });
@@ -30,6 +36,9 @@ const { prismaMock } = vi.hoisted(() => {
 vi.mock("../../models/prismaClient", () => ({ prisma: prismaMock }));
 vi.mock("../../utils/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+vi.mock("../../services/XpService", () => ({
+  levelFromTotalXp: vi.fn((xp: number) => (xp >= 600 ? 2 : 1)),
 }));
 
 import jwt from "jsonwebtoken";
@@ -329,5 +338,101 @@ describe("DELETE /friends/:id", () => {
     });
 
     expect(res.status).toBe(204);
+  });
+});
+
+describe("GET /friends/leaderboard", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns 401 when unauthenticated", async () => {
+    const app = buildApp();
+    const res = await request(app, "GET", "/friends/leaderboard");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns a sorted leaderboard with rank field when user has friends", async () => {
+    // user-test has one accepted friend: friend-a
+    prismaMock.friendship.findMany.mockResolvedValue([
+      {
+        id: "fs-lb-1",
+        requesterId: "user-test",
+        addresseeId: "friend-a",
+        status: "ACCEPTED",
+      },
+    ]);
+    prismaMock.user.findMany.mockResolvedValue([
+      { id: "user-test", displayName: "Me", avatarUrl: null },
+      { id: "friend-a", displayName: "Friend A", avatarUrl: null },
+    ]);
+    prismaMock.xpEvent.groupBy.mockResolvedValue([
+      { userId: "user-test", _sum: { amount: 200 } },
+      { userId: "friend-a", _sum: { amount: 800 } },
+    ]);
+
+    const token = makeToken("user-test");
+    const app = buildApp();
+    const res = await request(app, "GET", "/friends/leaderboard", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(200);
+    const body = res.body as {
+      leaderboard: Array<{ rank: number; id: string; totalXp: number }>;
+    };
+    expect(body.leaderboard).toHaveLength(2);
+    // friend-a has more XP so should be rank 1
+    expect(body.leaderboard[0].rank).toBe(1);
+    expect(body.leaderboard[0].id).toBe("friend-a");
+    expect(body.leaderboard[1].rank).toBe(2);
+    expect(body.leaderboard[1].id).toBe("user-test");
+  });
+
+  it("self is always included even with no friends", async () => {
+    prismaMock.friendship.findMany.mockResolvedValue([]);
+    prismaMock.user.findMany.mockResolvedValue([
+      { id: "user-test", displayName: "Me", avatarUrl: null },
+    ]);
+    prismaMock.xpEvent.groupBy.mockResolvedValue([
+      { userId: "user-test", _sum: { amount: 100 } },
+    ]);
+
+    const token = makeToken("user-test");
+    const app = buildApp();
+    const res = await request(app, "GET", "/friends/leaderboard", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(200);
+    const body = res.body as {
+      leaderboard: Array<{ rank: number; id: string }>;
+    };
+    expect(body.leaderboard).toHaveLength(1);
+    expect(body.leaderboard[0].id).toBe("user-test");
+    expect(body.leaderboard[0].rank).toBe(1);
+  });
+
+  it("returns rank 1 with totalXp 0 when user has no friends and no XP", async () => {
+    prismaMock.friendship.findMany.mockResolvedValue([]);
+    prismaMock.user.findMany.mockResolvedValue([
+      { id: "user-test", displayName: "Me", avatarUrl: null },
+    ]);
+    // No XP events for this user
+    prismaMock.xpEvent.groupBy.mockResolvedValue([]);
+
+    const token = makeToken("user-test");
+    const app = buildApp();
+    const res = await request(app, "GET", "/friends/leaderboard", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(200);
+    const body = res.body as {
+      leaderboard: Array<{ rank: number; totalXp: number }>;
+    };
+    expect(body.leaderboard).toHaveLength(1);
+    expect(body.leaderboard[0].rank).toBe(1);
+    expect(body.leaderboard[0].totalXp).toBe(0);
   });
 });

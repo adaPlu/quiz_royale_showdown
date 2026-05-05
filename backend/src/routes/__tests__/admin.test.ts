@@ -198,3 +198,39 @@ describe("Admin router — secret gating", () => {
     expect(body.status).toBe("running");
   });
 });
+
+describe("Admin router — x-admin-secret header and 403 gating", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prismaMock.questionBank.count.mockResolvedValue(0);
+  });
+
+  it("returns 403 when x-admin-secret header is missing", async () => {
+    const app = buildApp();
+    const res = await request(app, "GET", "/admin/questions/count");
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 403 when x-admin-secret header has the wrong value", async () => {
+    const app = buildApp();
+    const res = await request(app, "GET", "/admin/questions/count", {
+      headers: { "x-admin-secret": "totally-wrong-secret" },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("passes through with the correct x-admin-secret header and returns 200", async () => {
+    prismaMock.questionBank.count
+      .mockResolvedValueOnce(10)
+      .mockResolvedValueOnce(8);
+
+    const app = buildApp();
+    const res = await request(app, "GET", "/admin/questions/count", {
+      headers: { "x-admin-secret": env.adminSecret },
+    });
+
+    expect(res.status).toBe(200);
+    const body = res.body as { total: number; active: number };
+    expect(body.total).toBe(10);
+  });
+});
