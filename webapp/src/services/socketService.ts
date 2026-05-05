@@ -192,11 +192,7 @@ class SocketService {
       this.disconnect();
     }
 
-    const wsUrl =
-      import.meta.env.VITE_WS_BASE_URL ??
-      (typeof window !== 'undefined' && window.location.hostname !== 'localhost'
-        ? 'https://quizroyaleshowdown-production.up.railway.app'
-        : 'http://localhost:4000');
+    const wsUrl = import.meta.env.VITE_WS_BASE_URL ?? 'http://localhost:4000';
     this.accessToken = accessToken;
     this.socket = io(wsUrl, {
       path: '/ws',

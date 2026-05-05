@@ -5,11 +5,7 @@ import axios, {
   type AxiosResponse,
 } from 'axios';
 
-const API_BASE_URL =
-  (import.meta as unknown as { env: Record<string, string> }).env?.VITE_API_BASE_URL ??
-  (typeof window !== 'undefined' && window.location.hostname !== 'localhost'
-    ? 'https://quizroyaleshowdown-production.up.railway.app/api/v1'
-    : 'http://localhost:4000/api/v1');
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000/api/v1';
 
 type ErrorBody = {
   error?: string;
