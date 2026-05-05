@@ -230,6 +230,7 @@ export class RoomService {
     return {
       roomId: room.id,
       code: room.code,
+      hostId: room.hostUserId,
       phase: room.status,
       roundNumber: room.currentRound,
       totalRounds: room.totalRounds,

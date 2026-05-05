@@ -222,13 +222,25 @@ async function handleRoomLeave(io: Server, socket: Socket, userId: string, paylo
     return;
   }
 
-  await roomService.leaveRoom(parsed.data.roomId, userId);
-  await socket.leave(parsed.data.roomId);
-  emitToRoom(io, parsed.data.roomId, {
+  const { roomId: leftRoomId } = parsed.data;
+  await roomService.leaveRoom(leftRoomId, userId);
+  await socket.leave(leftRoomId);
+  emitToRoom(io, leftRoomId, {
     type: "room:player_left",
     version: "v1",
-    payload: { roomId: parsed.data.roomId, playerId: userId },
+    payload: { roomId: leftRoomId, playerId: userId },
   });
+  // Broadcast updated snapshot so remaining players see the new host
+  try {
+    const snapshot = await roomService.getSnapshot(leftRoomId);
+    emitToRoom(io, leftRoomId, {
+      type: "room:state_sync",
+      version: "v1",
+      payload: { room: snapshot },
+    });
+  } catch {
+    // Room was deleted (last player left) — nothing to broadcast
+  }
 }
 
 async function handleReconnect(socket: Socket, payload: unknown): Promise<void> {
