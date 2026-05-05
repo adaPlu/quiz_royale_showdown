@@ -37,6 +37,7 @@ function roomSnapshot(overrides: Partial<RoomSnapshot> = {}): RoomSnapshot {
   return {
     roomId: "room-1",
     code: "ABCD12",
+    hostId: "user-1",
     phase: "WAITING",
     roundNumber: 0,
     totalRounds: 10,

@@ -68,6 +68,7 @@ function timedDelay(roomId: string, label: string, durationMs: number): Promise<
 
 export class GameOrchestrator {
   private readonly activeRooms = new Set<string>();
+  private readonly botIds = new Map<string, string[]>();
 
   hasActiveGame(roomId: string): boolean {
     return this.activeRooms.has(roomId);
@@ -84,6 +85,13 @@ export class GameOrchestrator {
   }
 
   async startGame(roomId: string, playerIds: string[], io: Server): Promise<void> {
+    if (redisService) {
+      const acquired = await redisService.setnx(`game:${roomId}:lock`, '1', 30);
+      if (!acquired) {
+        logger.warn("GameOrchestrator.startGame: lock already held, skipping duplicate start", { roomId });
+        return;
+      }
+    }
     logger.info("GameOrchestrator starting", { roomId, playerCount: playerIds.length });
     this.activeRooms.add(roomId);
 
@@ -108,6 +116,7 @@ export class GameOrchestrator {
       const totalRounds = 10;
       const usedQuestionIds: string[] = [];
       const activePlayerIds = new Set(playerIds);
+      this.botIds.set(roomId, playerIds.filter((id) => id.startsWith('bot:')));
       let round = 0;
 
       while (round < totalRounds && state.playerCount > 1) {
@@ -200,6 +209,10 @@ export class GameOrchestrator {
       throw error;
     } finally {
       this.activeRooms.delete(roomId);
+      this.botIds.delete(roomId);
+      if (redisService) {
+        await redisService.del(`game:${roomId}:lock`).catch(() => undefined);
+      }
     }
   }
 
@@ -222,10 +235,17 @@ export class GameOrchestrator {
   }
 
   private async runQuestion(roomId: string, io: Server, usedQuestionIds: string[]): Promise<void> {
+    const latestRound = await prisma.round.findFirst({
+      where: { roomId },
+      orderBy: { roundNumber: "desc" },
+      select: { roundNumber: true }
+    });
+    const roundNumber = (latestRound?.roundNumber ?? 0) + 1;
+
     let question: QuestionBank;
 
     try {
-      question = await this.selectQuestion(usedQuestionIds);
+      question = await this.selectQuestion(usedQuestionIds, roundNumber);
     } catch (error) {
       logger.error("No questions available", {
         roomId,
@@ -240,12 +260,6 @@ export class GameOrchestrator {
     const startTs = Date.now();
     const startedAt = new Date(startTs).toISOString();
 
-    const latestRound = await prisma.round.findFirst({
-      where: { roomId },
-      orderBy: { roundNumber: "desc" },
-      select: { roundNumber: true }
-    });
-    const roundNumber = (latestRound?.roundNumber ?? 0) + 1;
     const roundId = generateId();
 
     await prisma.round.create({
@@ -292,7 +306,22 @@ export class GameOrchestrator {
       }
     });
 
-    await timedDelay(roomId, "question", DEFAULT_TIME_LIMIT_MS + 500);
+    const botPlayerIds = this.botIds.get(roomId) ?? [];
+    const botTimers: NodeJS.Timeout[] = [];
+    for (const botId of botPlayerIds) {
+      const minDelay = 2000;
+      const maxDelay = DEFAULT_TIME_LIMIT_MS - 1000;
+      const delay = minDelay + Math.floor(Math.random() * (maxDelay - minDelay));
+      const timer = setTimeout(() => {
+        void this.submitBotAnswer(roomId, roundId, botId, question.correctIndex, startTs, DEFAULT_TIME_LIMIT_MS);
+      }, delay);
+      botTimers.push(timer);
+    }
+    try {
+      await timedDelay(roomId, "question", DEFAULT_TIME_LIMIT_MS + 500);
+    } finally {
+      botTimers.forEach((t) => clearTimeout(t));
+    }
 
     const lockedAt = new Date().toISOString();
 
@@ -619,14 +648,61 @@ export class GameOrchestrator {
     }
   }
 
-  private async selectQuestion(usedIds: string[]): Promise<QuestionBank> {
-    const question = await prisma.questionBank.findFirst({
-      where: {
-        isActive: true,
-        id: { notIn: usedIds.length > 0 ? usedIds : undefined }
-      },
+  private async submitBotAnswer(
+    roomId: string,
+    roundId: string,
+    botId: string,
+    correctAnswerIndex: number,
+    startTs: number,
+    timeLimitMs: number
+  ): Promise<void> {
+    if (!redisService) return;
+
+    const lockKey = `answer_lock:${roomId}:${roundId}:${botId}`;
+    const locked = await redisService.setnx(lockKey, '1', 3600);
+    if (!locked) return;
+
+    const receivedAtMs = Date.now();
+    const answerIndex = Math.floor(Math.random() * 4);
+    const isCorrect = answerIndex === correctAnswerIndex;
+    const scoreDelta = isCorrect
+      ? Math.max(0, 1000 - Math.floor(((receivedAtMs - startTs) / timeLimitMs) * 400))
+      : 0;
+
+    await redisService.zincrby(`room:${roomId}:scores`, scoreDelta, botId);
+    await redisService.hset(
+      `room:${roomId}:round:${roundId}:answers`,
+      botId,
+      JSON.stringify({
+        answerIndex,
+        clientSentAt: new Date(receivedAtMs).toISOString(),
+        isCorrect,
+        scoreDelta,
+        submittedAt: new Date(receivedAtMs).toISOString()
+      })
+    );
+
+    logger.info("Bot answer submitted", { roomId, roundId, botId, isCorrect, scoreDelta });
+  }
+
+  private async selectQuestion(usedIds: string[], roundNumber = 1): Promise<QuestionBank> {
+    const targetDifficulty = roundNumber <= 3 ? 'EASY' : roundNumber <= 7 ? 'MEDIUM' : 'HARD';
+    const baseWhere = {
+      isActive: true,
+      id: { notIn: usedIds.length > 0 ? usedIds : undefined }
+    };
+
+    let question = await prisma.questionBank.findFirst({
+      where: { ...baseWhere, difficulty: targetDifficulty },
       orderBy: [{ lastUsedAt: "asc" }, { id: "asc" }]
     });
+
+    if (!question) {
+      question = await prisma.questionBank.findFirst({
+        where: baseWhere,
+        orderBy: [{ lastUsedAt: "asc" }, { id: "asc" }]
+      });
+    }
 
     if (!question) {
       throw new Error("No available questions in the bank");

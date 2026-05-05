@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { prisma } from "../models/prismaClient";
+import { levelFromTotalXp } from "../services/XpService";
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../utils/errors";
 import { generateId } from "../utils/ulid";
 
@@ -160,6 +161,53 @@ friendsRouter.delete("/:id", requireAuth, async (req, res, next) => {
     await prisma.friendship.delete({ where: { id } });
 
     res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /friends/leaderboard — self + accepted friends sorted by total XP
+friendsRouter.get("/leaderboard", requireAuth, async (req, res, next) => {
+  try {
+    const userId = req.jwtClaims!.sub;
+
+    const friendships = await prisma.friendship.findMany({
+      where: {
+        OR: [
+          { requesterId: userId, status: "ACCEPTED" },
+          { addresseeId: userId, status: "ACCEPTED" },
+        ],
+      },
+    });
+
+    const friendIds = friendships.map((f) =>
+      f.requesterId === userId ? f.addresseeId : f.requesterId
+    );
+    const allIds = [...new Set([userId, ...friendIds])];
+
+    const [users, xpSums] = await Promise.all([
+      prisma.user.findMany({
+        where: { id: { in: allIds } },
+        select: { id: true, displayName: true, avatarUrl: true },
+      }),
+      prisma.xpEvent.groupBy({
+        by: ["userId"],
+        where: { userId: { in: allIds } },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    const xpMap = new Map(xpSums.map((row) => [row.userId, row._sum.amount ?? 0]));
+
+    const leaderboard = users
+      .map((user) => {
+        const totalXp = xpMap.get(user.id) ?? 0;
+        return { ...user, totalXp, level: levelFromTotalXp(totalXp) };
+      })
+      .sort((a, b) => b.totalXp - a.totalXp)
+      .map((entry, index) => ({ ...entry, rank: index + 1 }));
+
+    res.json({ leaderboard });
   } catch (err) {
     next(err);
   }

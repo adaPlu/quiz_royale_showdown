@@ -100,6 +100,8 @@ export type ServerEvents =
 
 export type ClientEvents =
   | EventEnvelope<"room:join", { roomCode: string }>
+  | EventEnvelope<"room:start", { roomId: string }>
+  | EventEnvelope<"room:leave", { roomId: string }>
   | EventEnvelope<
       "round:submit_answer",
       { roomId: string; questionId: string; answerIndex: number; clientSentAt: string }
