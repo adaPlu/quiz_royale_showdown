@@ -15,6 +15,12 @@ type RoomResponse = {
 export default function HomePage() {
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
+  const clearAuth = useAuthStore((state) => state.clearAuth);
+
+  const handleLogout = () => {
+    clearAuth();
+    navigate('/login', { replace: true });
+  };
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -74,12 +80,20 @@ export default function HomePage() {
             <p className="text-xs text-game-muted">Level {user?.level ?? 1}</p>
           </div>
         </div>
-        <button
-          onClick={() => navigate(`/profile/${user?.username ?? user?.displayName ?? 'me'}`)}
-          className="text-sm text-game-muted hover:text-white"
-        >
-          Profile
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate(`/profile/${user?.username ?? user?.displayName ?? 'me'}`)}
+            className="text-sm text-game-muted hover:text-white"
+          >
+            Profile
+          </button>
+          <button
+            onClick={handleLogout}
+            className="text-sm text-game-muted hover:text-answer-wrong"
+          >
+            Log out
+          </button>
+        </div>
       </header>
 
       <main className="mx-auto flex w-full max-w-sm flex-1 flex-col items-center justify-center gap-4 px-4">

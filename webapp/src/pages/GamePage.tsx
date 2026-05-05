@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 
 import { CountdownBar } from '@/components/CountdownBar';
 import { LevelUpToast } from '@/components/LevelUpToast';
@@ -59,11 +59,14 @@ const answerButtonClass = ({
 
 export const GamePage = () => {
   const { roomId } = useParams<{ roomId: string }>();
+  const navigate = useNavigate();
   useGameSocket(roomId);
 
   const user = useAuthStore((state) => state.user);
   const inventory = useProfileStore((state) => state.powerupInventory);
   const phase = useGameStore((state) => state.phase);
+  const hostId = useGameStore((state) => state.hostId);
+  const isHost = !!user?.id && user.id === hostId;
   const question = useGameStore((state) => state.question);
   const result = useGameStore((state) => state.result);
   const myAnswer = useGameStore((state) => state.myAnswerIndex);
@@ -122,6 +125,16 @@ export const GamePage = () => {
     { type: 'second_chance', owned: inventory.second_chance > 0, used: usedPowerUps.includes('second_chance'), count: inventory.second_chance },
   ];
 
+  const handleStartGame = () => {
+    if (!activeRoomId) return;
+    socketService.emit('room:start', { roomId: activeRoomId });
+  };
+
+  const handleLeave = () => {
+    if (activeRoomId) socketService.emit('room:leave', { roomId: activeRoomId });
+    navigate('/home');
+  };
+
   const submitAnswer = (answerIndex: number) => {
     if (isLocked || !question || !activeRoomId || eliminated.includes(answerIndex)) return;
 
@@ -164,25 +177,44 @@ export const GamePage = () => {
       <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[1.5fr_380px]">
         <section className="rounded-[32px] border border-white/10 bg-white/5 p-6 backdrop-blur">
           <div className="mb-5 flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm uppercase tracking-[0.3em] text-gold">
-                Round {roundNumber} / {totalRounds}
-              </p>
-              <h1 className="mt-2 text-3xl font-extrabold">
-                {phase === 'WAITING' && 'Waiting for host'}
-                {phase === 'COUNTDOWN' && 'Get ready'}
-                {phase === 'QUESTION_ACTIVE' && 'Answer now'}
-                {phase === 'ANSWER_LOCKED' && 'Answer locked'}
-                {phase === 'ROUND_RESULT' && 'Round result'}
-                {phase === 'ELIMINATION' && 'Elimination'}
-                {phase === 'FINALE' && 'Finale'}
-                {phase === 'GAME_OVER' && 'Game over'}
-              </h1>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handleLeave}
+                className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white/60 hover:border-white/30 hover:text-white"
+              >
+                ← Back
+              </button>
+              <div>
+                <p className="text-sm uppercase tracking-[0.3em] text-gold">
+                  Round {roundNumber} / {totalRounds}
+                </p>
+                <h1 className="mt-2 text-3xl font-extrabold">
+                  {phase === 'WAITING' && (isHost ? 'Start when ready' : 'Waiting for host')}
+                  {phase === 'COUNTDOWN' && 'Get ready'}
+                  {phase === 'QUESTION_ACTIVE' && 'Answer now'}
+                  {phase === 'ANSWER_LOCKED' && 'Answer locked'}
+                  {phase === 'ROUND_RESULT' && 'Round result'}
+                  {phase === 'ELIMINATION' && 'Elimination'}
+                  {phase === 'FINALE' && 'Finale'}
+                  {phase === 'GAME_OVER' && 'Game over'}
+                </h1>
+              </div>
             </div>
-            <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-center">
-              <p className="text-xs uppercase tracking-[0.2em] text-white/45">Timer</p>
-              <p className="text-2xl font-black text-gold">{question ? `${Math.round(durationSec)}s` : '--'}</p>
-            </div>
+            {phase === 'WAITING' && isHost ? (
+              <button
+                type="button"
+                onClick={handleStartGame}
+                className="rounded-2xl bg-brand px-6 py-3 text-lg font-bold text-white shadow-royale hover:opacity-90"
+              >
+                Start Game
+              </button>
+            ) : (
+              <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-center">
+                <p className="text-xs uppercase tracking-[0.2em] text-white/45">Timer</p>
+                <p className="text-2xl font-black text-gold">{question ? `${Math.round(durationSec)}s` : '--'}</p>
+              </div>
+            )}
           </div>
 
           {isQuestionActive && (

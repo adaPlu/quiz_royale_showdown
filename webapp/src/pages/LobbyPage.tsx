@@ -36,6 +36,15 @@ export const LobbyPage = () => {
     <main className="min-h-screen bg-game-gradient px-6 py-12 text-white">
       <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[1.2fr_0.8fr]">
         <section className="rounded-[32px] border border-white/10 bg-white/5 p-8 shadow-royale backdrop-blur">
+          <div className="mb-4 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => navigate('/home')}
+              className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white/60 hover:border-white/30 hover:text-white"
+            >
+              ← Back
+            </button>
+          </div>
           <p className="mb-3 text-sm uppercase tracking-[0.3em] text-gold">Live Lobby</p>
           <h1 className="max-w-2xl text-4xl font-extrabold leading-tight md:text-5xl">
             Gather the room, sync the socket, then launch into the live quiz.

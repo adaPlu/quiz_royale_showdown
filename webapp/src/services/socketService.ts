@@ -14,6 +14,7 @@ const RoomStatePayload = z.object({
   room: z.object({
     roomId: z.string(),
     code: z.string(),
+    hostId: z.string(),
     phase: z.enum([
       'WAITING',
       'COUNTDOWN',
@@ -136,12 +137,16 @@ export type ServerEventPayload<E extends ServerEventType> = z.infer<(typeof Serv
 
 export type ClientEventType =
   | 'room:join'
+  | 'room:start'
+  | 'room:leave'
   | 'round:submit_answer'
   | 'powerup:activate'
   | 'client:heartbeat';
 
 type ClientEventPayloads = {
   'room:join': { roomCode: string };
+  'room:start': { roomId: string };
+  'room:leave': { roomId: string };
   'round:submit_answer': {
     roomId: string;
     questionId: string;
