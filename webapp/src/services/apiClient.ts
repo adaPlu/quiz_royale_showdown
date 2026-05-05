@@ -28,18 +28,13 @@ export class ApiError extends Error {
 }
 
 const getStoredAccessToken = () => localStorage.getItem('qrs.accessToken');
-const getStoredRefreshToken = () => localStorage.getItem('qrs.refreshToken');
 
-const storeTokens = (tokens: { accessToken: string; refreshToken?: string }) => {
+const storeTokens = (tokens: { accessToken: string }) => {
   localStorage.setItem('qrs.accessToken', tokens.accessToken);
-  if (tokens.refreshToken) {
-    localStorage.setItem('qrs.refreshToken', tokens.refreshToken);
-  }
 };
 
 export const clearStoredTokens = () => {
   localStorage.removeItem('qrs.accessToken');
-  localStorage.removeItem('qrs.refreshToken');
 };
 
 const toApiError = (error: AxiosError<ErrorBody>) => {
@@ -55,7 +50,7 @@ const toApiError = (error: AxiosError<ErrorBody>) => {
 
 export const apiClient: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
-  withCredentials: false,
+  withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -83,18 +78,13 @@ apiClient.interceptors.response.use(
       throw toApiError(error);
     }
 
-    const refreshToken = getStoredRefreshToken();
-    if (!refreshToken) {
-      clearStoredTokens();
-      throw toApiError(error);
-    }
-
     originalRequest._retry = true;
 
     refreshPromise ??= axios
-      .post<{ accessToken: string; refreshToken: string }>(
+      .post<{ accessToken: string }>(
         `${API_BASE_URL}/auth/refresh`,
-        { refreshToken },
+        {},
+        { withCredentials: true },
       )
       .then((response) => {
         storeTokens(response.data);

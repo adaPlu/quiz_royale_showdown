@@ -25,10 +25,9 @@ type AuthUserInput = Partial<AuthUser> & {
 type AuthState = {
   user: AuthUser | null;
   accessToken: string | null;
-  refreshToken: string | null;
   setUser: (user: AuthUserInput) => void;
   setAccessToken: (token: string) => void;
-  setTokens: (tokens: { accessToken: string; refreshToken?: string }) => void;
+  setTokens: (tokens: { accessToken: string }) => void;
   clearAuth: () => void;
 };
 
@@ -47,14 +46,12 @@ const normalizeUser = (user: AuthUserInput): AuthUser => {
 };
 
 const storedAccessToken = () => localStorage.getItem('qrs.accessToken');
-const storedRefreshToken = () => localStorage.getItem('qrs.refreshToken');
 
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
       user: null,
       accessToken: storedAccessToken(),
-      refreshToken: storedRefreshToken(),
       setUser: (user) => set({ user: normalizeUser(user) }),
       setAccessToken: (token) => {
         persistTokens({ accessToken: token });
@@ -64,15 +61,12 @@ export const useAuthStore = create<AuthState>()(
       setTokens: (tokens) => {
         persistTokens(tokens);
         socketService.connect(tokens.accessToken);
-        set((state) => ({
-          accessToken: tokens.accessToken,
-          refreshToken: tokens.refreshToken ?? state.refreshToken,
-        }));
+        set({ accessToken: tokens.accessToken });
       },
       clearAuth: () => {
         clearStoredTokens();
         socketService.disconnect();
-        set({ user: null, accessToken: null, refreshToken: null });
+        set({ user: null, accessToken: null });
       },
     }),
     {
@@ -80,7 +74,6 @@ export const useAuthStore = create<AuthState>()(
       partialize: (state) => ({
         user: state.user,
         accessToken: state.accessToken,
-        refreshToken: state.refreshToken,
       }),
     },
   ),
