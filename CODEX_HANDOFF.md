@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-04 — after Week 2 completion_
+_Last updated: 2026-05-05 — after Month 2 completion_
 
 ---
 
@@ -11,7 +11,7 @@ _Last updated: 2026-05-04 — after Week 2 completion_
 | `QuizGame-main` | `main` | Railway (backend, root `/backend`) |
 | `QuizGame-webapp` | `frontend` | Vercel (root dir `webapp/`) |
 | `QuizGame-android` | `feature/android` | Manual APK / Play Store |
-| `QuizGame-backend` | `feature/backend` | (mirror branch, not deployed) |
+| `QuizGame-backend` | `feature/backend` | (mirror branch — diverged, not deployed) |
 
 All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_royale_showdown.git`
 
@@ -19,76 +19,103 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 
 ## What works in production
 
-- Auth: register/login/refresh. JWT stored in localStorage (HttpOnly cookie is Month 2 work).
-- Lobby: join room by 6-char code, socket connect, player list syncs.
-- Host: first player in room is host. Host sees "Start when ready" + Start Game button.
+- Auth: register / login / refresh / logout. Refresh token in HttpOnly cookie (`qrs.rt`). Access token in memory (15 min TTL).
+- Lobby: join room by 6-char code, WebSocket connects, player list syncs.
+- Host: first player is host; sees "Start when ready" + Start Game button.
 - Game loop: countdown → question → answer submit → round result → elimination → finale → game over.
+- Difficulty curves: EASY rounds 1–3, MEDIUM 4–7, HARD 8+ with fallback.
+- Bots: single-player games fill a bot; bot submits a random answer with random delay per round.
+- Distributed lock: Redis `setnx` prevents double-start across Railway instances.
 - Power-ups: fifty_fifty, shield, time_boost, reveal_wrong, second_chance.
-- Level-up toasts and loot-drop toasts visible in-game.
-- Back/Logout navigation on all main pages.
+- Level-up toasts + loot-drop toasts in-game; loot drops persisted to `PlayerPowerUp`.
+- Friends leaderboard: `GET /friends/leaderboard` returns self + accepted friends sorted by totalXp.
+- Push notifications: subscriptions written to both Redis and `PushSubscription` table; fallback to DB when Redis down.
+- Daily challenges: `win_a_game`, `top_3`, `play_3_games` tracked server-side at game-over.
+- Scores, XP, season MMR all persisted to Postgres at game-over.
+- Request IDs on every response (`x-request-id`).
+- Sentry error capture (gated on `SENTRY_DSN` env var).
+- Pino structured logging (NDJSON in prod, pino-pretty in dev).
 
 ---
 
-## Recent completed work
+## Completed work by phase
 
-### Week 1 — Critical Security (committed: `2a49ddb`)
-- Removed hardcoded VAPID key fallbacks from `PushNotificationService.ts`
-- JWT/admin secrets: `.refine()` rejects dev values in production (`env.ts`)
-- Admin routes: timing-safe secret compare + rate limit 20 req/15 min (`admin.ts`)
-- Deleted client-authoritative `POST /:id/progress` XP endpoint (`challenges.ts`)
-- Room invite code: `Math.random` → `crypto.randomBytes(3).hex` (`rooms.ts`)
-- DB indexes: RefreshToken.tokenHash, XpEvent(userId,createdAt), QuestionBank.isActive, User.displayName (applied via `prisma db push`)
+### Week 1 — Critical Security (`2a49ddb`)
+- Removed hardcoded VAPID key fallbacks
+- JWT/admin secrets reject dev values in production (`env.ts`)
+- Admin routes: timing-safe compare + 20 req/15 min rate limit
+- Deleted client-authoritative `POST /:id/progress` XP endpoint
+- Room invite code: `Math.random` → `crypto.randomBytes(3).hex`
+- DB indexes: RefreshToken.tokenHash, XpEvent(userId,createdAt), QuestionBank.isActive, User.displayName
 
-### Week 2 — Data Integrity (committed: `882b769` backend, `d2d6e7a` webapp, `afb2c75` android)
+### Week 2 — Data Integrity (`882b769` backend, `d2d6e7a` webapp, `afb2c75` android)
+- Disconnect handler always emits `room:player_left` before Redis grace key
+- Deleted dead `AuthStore.ts`; deleted `POST /powerups/use` 501 stub
+- Removed duplicate `apiLimiter` on `/friends`
+- Profile endpoint: OR lookup by id or displayName (case-insensitive)
+- `joinRoom` wrapped in `prisma.$transaction` (seat-count race fix)
+- `GameOrchestrator.runGameOver`: persists `RoomPlayer.score` + upserts `PlayerPowerUp` loot drops
+- Webapp: `GamePage` proper Zustand selector, displayNames in round results, 6-char lobby clamp + error display, stable `useGameSocket` dependency array
+- Android: HTTP logging `Level.NONE` in release builds
 
-**Backend (`main`):**
-- Disconnect handler always emits `room:player_left` before Redis grace key (was skipped — Risk 8)
-- Deleted dead `AuthStore.ts` (zero consumers)
-- Deleted `POST /powerups/use` 501 stub
-- Removed duplicate `apiLimiter` on `/friends` mount (already applied globally)
-- Profile endpoint: OR lookup by `id` OR `displayName` case-insensitive
-- `joinRoom` wrapped in `prisma.$transaction` to prevent seat-count race
-- `GameOrchestrator.runGameOver`: writes `RoomPlayer.score` for each finalist; upserts `PlayerPowerUp` for loot drops (LR1)
+### Week 3 — Features (`9d14442`)
+- Bot answer submission: random-delay Redis writes per round
+- Distributed game-start lock via Redis `setnx`
+- Difficulty curves in `selectQuestion`
+- `GET /friends/leaderboard`
+- `ClientEvents` union: added `room:start` and `room:leave`
+- `RoomService.toLifecycleState`: fixed missing `hostId` in snapshot
 
-**Webapp (`frontend`):**
-- `GamePage.tsx`: replaced `useGameStore.getState()` render call with proper selector
-- Round result: shows `displayName` via players array lookup (was raw `playerId`)
-- `LobbyPage.tsx`: 6-char clamp, socket error display
-- `useGameSocket.ts`: `joinedRef` guard prevents double-emit; dependency array `[roomId, accessToken]`
+### Week 4 — Infrastructure + Tests (`4132a5d` backend, `147c729` webapp)
+- Pino logger (wrapper preserves existing `(msg, data)` API)
+- `requestIdMiddleware` stamps `x-request-id` on every request
+- Sentry init gated on `SENTRY_DSN`
+- Hardcoded Railway URLs removed from webapp; env vars only
+- 27 new tests: joinRoom transaction, XpService boundaries, admin auth, friends leaderboard, loot drop, invite code entropy
 
-**Android (`feature/android`):**
-- HTTP logging: `Level.NONE` in release builds (`AppModule.kt`)
+### Month 2 — Security + Persistence (`e1c7cc3` backend, `c408560` webapp)
+- **HttpOnly cookies (LR3)**: `qrs.rt` cookie set on login/register, rotated on refresh, cleared on logout. Body fallback for Android. `formatAuthPayload` no longer leaks refresh token.
+- **Push subscription persistence (LR6)**: `PushSubscription` Prisma model added (applied via `db push`). Save/remove writes to Redis + DB. `sendToUser` falls back to DB when Redis unavailable.
+- **Challenge tracking (LR7)**: `GameOrchestrator.runGameOver` tracks `win_a_game`, `top_3`, `play_3_games` via XP events with duplicate-award guard. Bots excluded.
+- Webapp: `withCredentials: true`, refresh interceptor sends empty body, `authStore` and `apiClient` strip all `refreshToken` state.
 
 ---
 
-## Pending work
+## Remaining work
 
-### Week 3
-- Bot answer submission: bots in `GameOrchestrator` currently join but never call `submitAnswer` (LR2)
-- `QuestionSelector`: difficulty curves not implemented — uniform random selection
-- Distributed game-start lock: two Railway instances could double-start (LR4)
-- Real friends leaderboard: `GET /friends/leaderboard` returns placeholder data (LR8)
-- Fix `XpEvent.amount` field: schema uses `amount` but service writes `xpAwarded` (type mismatch at runtime)
+### Redis AOF/RDB persistence
+- Enable `appendonly yes` on Railway Redis service dashboard.
+- No code change needed — pure infra config.
 
-### Week 4
-- Replace custom logger with `pino` (LR5)
-- Add request ID header + Sentry integration
-- Remove hardcoded production URLs from source (move to env vars)
-- Write missing tests: 12 identified in audit (GameOrchestrator FSM, RoomService.joinRoom, submitAnswer handler, XP calculation, auth refresh rotation, socket reconnect, power-up effects, admin route auth, invitation code entropy, leaderboard sort, level-up trigger, loot-drop probability)
+### Prisma migration consolidation
+- `prisma migrate dev` fails with `P3006` — `RoomStatus` enum pre-exists in shadow DB.
+- All schema changes applied via `prisma db push` (safe for this project's Railway setup).
+- To fix: spin up a clean shadow DB and run `prisma migrate resolve --applied` for existing migrations, then squash. Low priority.
 
-### Month 2
-- Replace localStorage JWT with HttpOnly cookies (LR3)
-- Push subscription DB persistence — currently in-memory only (LR6)
-- Redis AOF/RDB persistence config
-- Full server-side challenge verification (LR7)
-- Prisma migration history consolidation (shadow DB `RoomStatus` enum blocks `migrate dev` — use `db push` for now)
+### Remaining challenge types
+- `answer_10` (correct answers) and `streak_5` need per-round answer data.
+- Currently round answers stored in Redis only — need `Answer` table writes before these can be tracked.
+- `use_powerup`: can be tracked by querying `PowerUpUse` table at game-over (table exists, not yet wired to challenge tracking).
+
+### Android improvements
+- Kotlin coroutines for WebSocket reconnect (currently OkHttp callbacks)
+- Profile screen: fetch real data from `GET /users/:id/profile`
+- Push notification registration on Android (`saveFcmToken` endpoint exists)
+
+### Future / nice-to-have
+- Leaderboard: `GET /leaderboard` (global) currently returns placeholder data
+- Season end: no cron job to close seasons and award season rewards
+- Question bank admin UI: currently questions added only via raw DB inserts or API
+- Answer persistence to Postgres (`Answer` table exists but `submitAnswer` handler only writes to Redis)
 
 ---
 
 ## Known gotchas
 
-- `prisma migrate dev` fails with `P3006` — `RoomStatus` enum pre-exists in shadow DB. Always use `prisma db push` for schema changes on this project.
-- Vercel watches `frontend` branch, builds from repo root using root-level `vercel.json` (`buildCommand: "npm run build -w webapp"`, `outputDirectory: "webapp/dist"`).
-- Railway watches `main` branch, root directory set to `backend/` in dashboard.
+- `prisma migrate dev` — always use `prisma db push` for schema changes (shadow DB `RoomStatus` conflict).
+- Vercel watches `frontend` branch; root-level `vercel.json` sets `buildCommand: "npm run build -w webapp"` and `outputDirectory: "webapp/dist"`.
+- Railway watches `main` branch, root directory `/backend` in dashboard.
 - Socket envelope format: `{ type, version: "v1", payload }` — all events wrapped. Android clients may omit `version`; backend treats absence as v1.
-- `feature/backend` branch is a mirror/staging branch — it diverged. Do not merge into `main` without careful conflict resolution of `RoomService.ts` and `registerHandlers.ts`.
+- `feature/backend` branch diverged from `main` — do not merge without careful conflict resolution of `RoomService.ts` and `registerHandlers.ts`.
+- Cookie `sameSite: 'strict'` + `path: '/api/v1/auth'` — the refresh cookie is only sent to auth routes. Non-auth requests use the Bearer access token only.
+- CORS is configured with `credentials: true` and a specific origin (`CORS_ORIGIN` env var). Wildcard `*` will not work with `withCredentials: true`.
