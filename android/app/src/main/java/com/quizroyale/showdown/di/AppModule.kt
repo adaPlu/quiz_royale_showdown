@@ -36,7 +36,7 @@ object AppModule {
   @AuthOkHttpClient
   fun provideAuthOkHttp(): OkHttpClient {
     val logging = HttpLoggingInterceptor().apply {
-      level = HttpLoggingInterceptor.Level.BASIC
+      level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC else HttpLoggingInterceptor.Level.NONE
     }
     return OkHttpClient.Builder()
       .addInterceptor(logging)
@@ -48,7 +48,7 @@ object AppModule {
   @ApiOkHttpClient
   fun provideApiOkHttp(tokenRefreshInterceptor: TokenRefreshInterceptor): OkHttpClient {
     val logging = HttpLoggingInterceptor().apply {
-      level = HttpLoggingInterceptor.Level.BASIC
+      level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC else HttpLoggingInterceptor.Level.NONE
     }
     return OkHttpClient.Builder()
       .addInterceptor(tokenRefreshInterceptor)
