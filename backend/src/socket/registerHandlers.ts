@@ -1,5 +1,6 @@
 import type { Server } from "socket.io";
 import { prisma } from "../models/prismaClient";
+import { gameOrchestrator } from "../services/GameOrchestrator";
 import { redisService } from "../services/RedisService";
 import { roomService } from "../services/RoomService";
 import type { ClientEvents, ServerEvents, SocketErrorEvent } from "../types/contracts";
@@ -110,6 +111,45 @@ export function registerSocketHandlers(io: Server, socket: AuthenticatedSocket):
         case "room:join":
           await handleRoomJoin(io, socket, message.payload.roomCode);
           return;
+
+        case "room:start": {
+          const roomId = message.payload.roomId;
+          const userId = socket.data.userId;
+          const room = await prisma.room.findUnique({ where: { id: roomId } });
+          if (!room) { emitError(socket, "ROOM_NOT_FOUND", "Room not found"); return; }
+          if (room.hostUserId !== userId) { emitError(socket, "FORBIDDEN", "Only the host can start the game"); return; }
+          if (room.status !== "WAITING") { emitError(socket, "INVALID_STATE", "Game already started"); return; }
+          await roomService.startGame(roomId, userId);
+          const playerRows = await prisma.roomPlayer.findMany({ where: { roomId }, select: { userId: true } });
+          const playerIds = playerRows.map((row) => row.userId);
+          void roomService.waitForPlayersOrFillBots(roomId, playerIds).then((ids) =>
+            gameOrchestrator.startGame(roomId, ids, io)
+          ).catch((err: unknown) => {
+            logger.error("GameOrchestrator.startGame failed via socket", { roomId, message: err instanceof Error ? err.message : String(err) });
+          });
+          return;
+        }
+
+        case "room:leave": {
+          const roomId = message.payload.roomId;
+          const userId = socket.data.userId;
+          await roomService.leaveRoom(roomId, userId);
+          await socket.leave(roomId);
+          const leftEvent: ServerEvents = {
+            type: "room:player_left",
+            version: "v1",
+            payload: { roomId, playerId: userId }
+          };
+          socket.to(roomId).emit("message", leftEvent);
+          try {
+            const snapshot = await buildRoomSnapshot(roomId);
+            if (snapshot) {
+              const syncEvent: ServerEvents = { type: "room:state_sync", version: "v1", payload: { room: snapshot } };
+              io.to(roomId).emit("message", syncEvent);
+            }
+          } catch { /* room deleted */ }
+          return;
+        }
 
         case "client:heartbeat":
           if (socket.data.roomId && socket.data.roomId !== message.payload.roomId) {
