@@ -18,6 +18,15 @@ import { logger } from "../utils/logger";
 
 const BCRYPT_ROUNDS = 12;
 
+const REFRESH_COOKIE_NAME = 'qrs.rt';
+const REFRESH_COOKIE_OPTS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'strict' as const,
+  path: '/api/v1/auth',
+  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in ms
+};
+
 const registerSchema = z
   .object({
     email: z.string().email().max(254),
@@ -42,7 +51,7 @@ const loginSchema = z.object({
 });
 
 const refreshSchema = z.object({
-  refreshToken: z.string().min(20)
+  refreshToken: z.string().min(20).optional()
 });
 
 export const authRouter = Router();
@@ -61,8 +70,7 @@ function formatAuthPayload(
       email: user.email,
       displayName: user.displayName
     },
-    accessToken: tokens.accessToken,
-    refreshToken: tokens.refreshToken
+    accessToken: tokens.accessToken
   };
 }
 
@@ -104,6 +112,7 @@ authRouter.post("/register", validate({ body: registerSchema }), async (req, res
 
     logger.info("User registered", { userId: user.id });
 
+    res.cookie(REFRESH_COOKIE_NAME, tokens.refreshToken, REFRESH_COOKIE_OPTS);
     res.status(201).json(formatAuthPayload(user, tokens));
   } catch (error) {
     if (isUniqueConstraintError(error)) {
@@ -148,6 +157,7 @@ authRouter.post("/login", validate({ body: loginSchema }), async (req, res, next
 
     logger.info("User logged in", { userId: user.id });
 
+    res.cookie(REFRESH_COOKIE_NAME, tokens.refreshToken, REFRESH_COOKIE_OPTS);
     res.json(formatAuthPayload(user, tokens));
   } catch (error) {
     next(error);
@@ -156,26 +166,36 @@ authRouter.post("/login", validate({ body: loginSchema }), async (req, res, next
 
 authRouter.post("/refresh", validate({ body: refreshSchema }), async (req, res, next) => {
   try {
-    const { refreshToken } = req.body as z.infer<typeof refreshSchema>;
+    const refreshToken =
+      req.cookies?.[REFRESH_COOKIE_NAME] ??
+      (req.body as z.infer<typeof refreshSchema>).refreshToken;
+
+    if (!refreshToken) {
+      throw new UnauthorizedError('No refresh token');
+    }
+
     const tokens = await rotateRefreshToken(refreshToken);
 
     logger.info("Tokens refreshed");
 
-    res.json({
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken
-    });
+    res.cookie(REFRESH_COOKIE_NAME, tokens.refreshToken, REFRESH_COOKIE_OPTS);
+    res.json({ accessToken: tokens.accessToken });
   } catch (error) {
     next(error);
   }
 });
 
-authRouter.post("/logout", validate({ body: refreshSchema }), async (req, res, next) => {
+authRouter.post("/logout", async (req, res, next) => {
   try {
-    const { refreshToken } = req.body as z.infer<typeof refreshSchema>;
+    const refreshToken =
+      req.cookies?.[REFRESH_COOKIE_NAME] ??
+      (req.body as { refreshToken?: string }).refreshToken;
 
-    await revokeRefreshToken(refreshToken);
+    if (refreshToken) {
+      await revokeRefreshToken(refreshToken);
+    }
 
+    res.clearCookie(REFRESH_COOKIE_NAME, { path: '/api/v1/auth' });
     res.status(204).send();
   } catch (error) {
     next(error);

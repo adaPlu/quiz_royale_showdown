@@ -57,6 +57,7 @@ model User {
   purchaseReceipts       PurchaseReceipt[]
   sentFriendRequests     Friendship[]      @relation("FriendshipRequester")
   receivedFriendRequests Friendship[]      @relation("FriendshipAddressee")
+  pushSubscriptions      PushSubscription[]
 
   @@index([displayName])
 }
@@ -263,6 +264,18 @@ model PurchaseReceipt {
   status            String
   createdAt         DateTime @default(now())
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PushSubscription {
+  id        String   @id @db.VarChar(26)
+  userId    String   @db.VarChar(26)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Friendship {

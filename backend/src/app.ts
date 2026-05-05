@@ -1,3 +1,4 @@
+import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
 import helmet from "helmet";
@@ -6,6 +7,7 @@ import { env } from "./config/env";
 import { requireAuth } from "./middleware/auth";
 import { errorHandler } from "./middleware/errorHandler";
 import { apiLimiter, authLimiter } from "./middleware/rateLimiter";
+import { requestIdMiddleware } from "./middleware/requestId";
 import { authRouter } from "./routes/auth";
 import { healthRouter } from "./routes/health";
 import { roomsRouter } from "./routes/rooms";
@@ -22,9 +24,11 @@ import { NotFoundError } from "./utils/errors";
 export const createApp = () => {
   const app = express();
 
+  app.use(requestIdMiddleware);
   app.use(helmet());
   app.use(cors({ origin: env.corsOrigin, credentials: true }));
   app.use(express.json());
+  app.use(cookieParser());
 
   app.get("/", (_req, res) => {
     res.json({

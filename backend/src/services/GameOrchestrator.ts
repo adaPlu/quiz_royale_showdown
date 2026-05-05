@@ -579,6 +579,23 @@ export class GameOrchestrator {
       logger.info("No active season found, skipping SeasonScore upsert", { roomId });
     }
 
+    // Track challenge progress for human players only (skip bot: prefix)
+    const today = new Date().toISOString().slice(0, 10);
+    const winnerSet = new Set(winnerIds);
+    await Promise.allSettled(
+      finalStandings
+        .filter((s) => !s.playerId.startsWith('bot:'))
+        .flatMap((s) => [
+          winnerSet.has(s.playerId)
+            ? this.trackChallengeProgress(s.playerId, 'win_a_game', 1, 1, today)
+            : Promise.resolve(),
+          s.rank <= 3
+            ? this.trackChallengeProgress(s.playerId, 'top_3', 1, 1, today)
+            : Promise.resolve(),
+          this.trackChallengeProgress(s.playerId, 'play_3_games', 3, 1, today),
+        ])
+    );
+
     await prisma.room.update({
       where: { id: roomId },
       data: { status: "GAME_OVER", finishedAt: new Date() }
@@ -749,6 +766,27 @@ export class GameOrchestrator {
       .filter((standing) => (standing.totalScore ?? standing.roundScore) === highestScore)
       .sort((left, right) => left.playerId.localeCompare(right.playerId))
       .map((standing) => standing.playerId);
+  }
+
+  private async trackChallengeProgress(
+    playerId: string,
+    challengeId: string,
+    target: number,
+    increment: number,
+    today: string
+  ): Promise<void> {
+    const existing = await prisma.xpEvent.aggregate({
+      where: { userId: playerId, reason: { startsWith: `CHALLENGE:${challengeId}:` },
+               createdAt: { gte: new Date(`${today}T00:00:00Z`) } },
+      _sum: { amount: true },
+    });
+    const current = existing._sum.amount ?? 0;
+    if (current >= target) return; // already completed
+    const toAdd = Math.min(increment, target - current);
+    await prisma.xpEvent.create({
+      data: { id: generateId(), userId: playerId, reason: `CHALLENGE:${challengeId}:${today}`, amount: toAdd,
+              metadata: { source: 'game_over' } },
+    });
   }
 
   private async persistState(roomId: string, state: GameStateSnapshot): Promise<void> {
