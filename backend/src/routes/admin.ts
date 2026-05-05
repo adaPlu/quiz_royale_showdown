@@ -1,4 +1,6 @@
+import { timingSafeEqual, createHash } from "crypto";
 import { Router, type Request, type Response, type NextFunction } from "express";
+import rateLimit from "express-rate-limit";
 
 import { env } from "../config/env";
 import { prisma } from "../models/prismaClient";
@@ -6,15 +8,21 @@ import { questionGeneratorService } from "../services/QuestionGeneratorService";
 
 export const adminRouter = Router();
 
-function requireAdminSecret(req: Request, res: Response, next: NextFunction): void {
-  const key = req.headers["x-admin-key"] ?? req.query["adminKey"];
-  if (key !== env.adminSecret) {
-    res.status(401).json({ error: "Unauthorized" });
+const adminLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
+
+const requireAdminSecret = (req: Request, res: Response, next: NextFunction): void => {
+  const provided = String(req.headers["x-admin-secret"] ?? req.headers["x-admin-key"] ?? "");
+  const expected = env.adminSecret;
+  const a = Buffer.from(createHash("sha256").update(provided).digest());
+  const b = Buffer.from(createHash("sha256").update(expected).digest());
+  if (!timingSafeEqual(a, b)) {
+    res.status(403).json({ error: "Forbidden" });
     return;
   }
   next();
-}
+};
 
+adminRouter.use(adminLimiter);
 adminRouter.use(requireAdminSecret);
 
 // GET /api/v1/admin/questions/count

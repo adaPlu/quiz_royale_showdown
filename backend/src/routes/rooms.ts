@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import { Router } from "express";
 import { z } from "zod";
 
@@ -238,7 +239,7 @@ roomsRouter.post(
         throw new UnauthorizedError("Only the room host can generate an invite code");
       }
 
-      const inviteCode = Math.random().toString(36).slice(2, 8).toUpperCase();
+      const inviteCode = randomBytes(3).toString("hex").toUpperCase(); // always 6 chars
 
       await prisma.room.update({
         where: { id: roomId },

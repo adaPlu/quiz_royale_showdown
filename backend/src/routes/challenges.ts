@@ -1,9 +1,8 @@
+// NOTE: Challenge progress is incremented server-side from GameOrchestrator game events only.
+// The POST /:id/progress endpoint was removed (security: client-authoritative XP farming).
 import { Router } from "express";
-import { z } from "zod";
 import { requireAuth } from "../middleware/auth";
-import { validate } from "../middleware/validate";
 import { prisma } from "../models/prismaClient";
-import { generateId } from "../utils/ulid";
 
 const router = Router();
 
@@ -66,64 +65,6 @@ router.get("/daily", requireAuth, async (req, res, next) => {
         completed: (progressMap.get(c.id) ?? 0) >= c.target,
       })),
     );
-  } catch (err) {
-    next(err);
-  }
-});
-
-const progressBodySchema = z.object({ delta: z.number().int().min(1).max(100) });
-const challengeIdParamsSchema = z.object({ id: z.string().min(1).max(64) });
-
-// POST /challenges/:id/progress — record progress toward a challenge
-router.post("/:id/progress", requireAuth, validate({ params: challengeIdParamsSchema }), async (req, res, next) => {
-  try {
-    const userId = req.jwtClaims!.sub;
-    const challengeId = req.params.id;
-    const parsed = progressBodySchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: "Invalid delta", details: parsed.error.flatten() });
-    const delta = parsed.data.delta;
-    const today = todayKey();
-
-    const template = DAILY_CHALLENGE_TEMPLATES.find((c) => c.id === challengeId);
-    if (!template) return res.status(404).json({ error: "Challenge not found" });
-
-    const existing = await prisma.xpEvent.findFirst({
-      where: { userId, reason: `CHALLENGE:${challengeId}:${today}` },
-    });
-
-    const currentProgress = existing?.amount ?? 0;
-    const newProgress = Math.min(currentProgress + delta, template.target);
-    const justCompleted = currentProgress < template.target && newProgress >= template.target;
-
-    if (existing) {
-      await prisma.xpEvent.update({
-        where: { id: existing.id },
-        data: { amount: newProgress },
-      });
-    } else {
-      await prisma.xpEvent.create({
-        data: {
-          id: generateId(),
-          userId,
-          reason: `CHALLENGE:${challengeId}:${today}`,
-          amount: newProgress,
-        },
-      });
-    }
-
-    if (justCompleted) {
-      await prisma.xpEvent.create({
-        data: {
-          id: generateId(),
-          userId,
-          reason: `CHALLENGE_REWARD:${challengeId}:${today}`,
-          amount: template.xpReward,
-          metadata: { challengeId, today },
-        },
-      });
-    }
-
-    res.json({ progress: newProgress, target: template.target, completed: newProgress >= template.target, justCompleted });
   } catch (err) {
     next(err);
   }

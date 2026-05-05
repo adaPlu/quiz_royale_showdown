@@ -3,12 +3,16 @@ import { env } from "../config/env";
 import { logger } from "../utils/logger";
 import { redisService } from "./RedisService";
 
-const VAPID_PUBLIC_KEY = env.vapidPublicKey ||
-  "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U";
-const VAPID_PRIVATE_KEY = env.vapidPrivateKey ||
-  "UUxI4O8-FbRouAevSmBQ6co62GroYWmcOMkk7ujjZOQ";
+const VAPID_PUBLIC_KEY = env.vapidPublicKey;
+const VAPID_PRIVATE_KEY = env.vapidPrivateKey;
 
-webpush.setVapidDetails(env.vapidSubject, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+  logger.warn("VAPID keys not configured — push notifications disabled");
+}
+
+if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails(env.vapidSubject, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+}
 
 const pushSubKey = (userId: string) => `push:subs:${userId}`;
 const fcmTokenKey = (userId: string) => `fcm:token:${userId}`;

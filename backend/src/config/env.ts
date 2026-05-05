@@ -21,11 +21,19 @@ const envSchema = z.object({
   JWT_ACCESS_SECRET: z
     .string()
     .min(16, "JWT_ACCESS_SECRET must be at least 16 characters")
-    .default("dev-access-secret-change-in-production"),
+    .default("dev-access-secret-change-in-production")
+    .refine(
+      (val) => process.env.NODE_ENV !== "production" || !val.startsWith("dev-"),
+      { message: "JWT_ACCESS_SECRET must be changed from the dev default in production" }
+    ),
   JWT_REFRESH_SECRET: z
     .string()
     .min(16, "JWT_REFRESH_SECRET must be at least 16 characters")
-    .default("dev-refresh-secret-change-in-production"),
+    .default("dev-refresh-secret-change-in-production")
+    .refine(
+      (val) => process.env.NODE_ENV !== "production" || !val.startsWith("dev-"),
+      { message: "JWT_REFRESH_SECRET must be changed from the dev default in production" }
+    ),
   JWT_ACCESS_TTL: z.string().default("15m"),
   JWT_REFRESH_TTL: z.string().default("7d"),
 
@@ -49,7 +57,13 @@ const envSchema = z.object({
 
   // AI question generation
   OPENAI_API_KEY: z.string().optional(),
-  ADMIN_SECRET: z.string().default("change-me-in-production"),
+  ADMIN_SECRET: z
+    .string()
+    .default("change-me-in-production")
+    .refine(
+      (val) => process.env.NODE_ENV !== "production" || val !== "change-me-in-production",
+      { message: "ADMIN_SECRET must be changed from the default in production" }
+    ),
 });
 
 function parseEnv() {
