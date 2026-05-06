@@ -53,9 +53,7 @@ export const socketAuthMiddleware = async (
       socket.data.displayName = dbUser.displayName;
       socket.data.email = dbUser.email;
     } catch {
-      socket.data.userId = payload.sub;
-      socket.data.displayName = payload.displayName;
-      socket.data.email = payload.email;
+      return next(new Error("AUTH_DB_ERROR"));
     }
 
     logger.debug("Socket authenticated", {

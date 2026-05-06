@@ -191,6 +191,9 @@ model PowerUpUse {
   createdAt      DateTime @default(now())
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   powerUp        PowerUp  @relation(fields: [powerUpId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([roomId])
 }
 
 model Cosmetic {
@@ -251,6 +254,7 @@ model SeasonScore {
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([seasonId, userId])
+  @@index([userId])
 }
 
 model PurchaseReceipt {
@@ -279,7 +283,7 @@ model PushSubscription {
 }
 
 model Friendship {
-  id          String           @id
+  id          String           @id @db.VarChar(26)
   requesterId String
   addresseeId String
   status      FriendshipStatus @default(PENDING)

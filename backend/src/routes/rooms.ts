@@ -1,5 +1,6 @@
 import { randomBytes } from "crypto";
 import { Router } from "express";
+import { logger } from "../utils/logger";
 import { z } from "zod";
 
 import { requireAuth } from "../middleware/auth";
@@ -179,7 +180,7 @@ roomsRouter.post(
       ).catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
         // Logger is imported transitively via RoomService; use console as fallback here.
-        console.error("[rooms] GameOrchestrator.startGame failed", { roomId, message });
+        logger.error("[rooms] GameOrchestrator.startGame failed", { roomId, message });
       });
 
       res.json(formatRoomResponse(room));

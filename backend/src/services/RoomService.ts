@@ -5,6 +5,8 @@
  * Fast-changing lifecycle metadata lives in Redis.
  */
 
+import { randomInt } from "crypto";
+
 import { Prisma, type Room } from "@prisma/client";
 
 import { prisma } from "../models/prismaClient";
@@ -593,7 +595,7 @@ export class RoomService {
       let code = "";
 
       for (let index = 0; index < 6; index += 1) {
-        code += chars[Math.floor(Math.random() * chars.length)];
+        code += chars[randomInt(chars.length)];
       }
 
       const existing = await prisma.room.findUnique({ where: { code } });

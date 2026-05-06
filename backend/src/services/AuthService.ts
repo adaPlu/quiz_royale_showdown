@@ -164,6 +164,10 @@ export async function rotateRefreshToken(incomingRefreshToken: string): Promise<
     })
   ]);
 
+  await prisma.refreshToken.deleteMany({
+    where: { userId: user.id, expiresAt: { lt: new Date() } }
+  });
+
   return { accessToken, refreshToken };
 }
 

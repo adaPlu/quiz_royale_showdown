@@ -1,9 +1,11 @@
 import type { Server } from "socket.io";
 import { z } from "zod";
+import { prisma } from "../../models/prismaClient";
 import { powerUpService } from "../../services/PowerUpService";
 import { redisService } from "../../services/RedisService";
 import type { SocketErrorEvent } from "../../types/contracts";
 import { logger } from "../../utils/logger";
+import { generateId } from "../../utils/ulid";
 import type { AuthenticatedSocket } from "../middleware";
 
 const submitAnswerSchema = z.object({
@@ -13,7 +15,7 @@ const submitAnswerSchema = z.object({
   clientSentAt: z.string().datetime()
 });
 
-const ANSWER_LOCK_TTL_SECONDS = 3600;
+const ANSWER_LOCK_TTL_SECONDS = 300;
 const ANSWER_GRACE_MS = 500;
 
 type CurrentQuestionContext = {
@@ -138,6 +140,20 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
           submittedAt: new Date(receivedAtMs).toISOString()
         })
       );
+
+      const answerTimeMs = Math.max(0, receivedAtMs - questionContext.startTs);
+      await prisma.answer.upsert({
+        where: { roundId_userId: { roundId: questionContext.roundId, userId } },
+        update: { answerIndex, isCorrect, answerTimeMs },
+        create: {
+          id: generateId(),
+          roundId: questionContext.roundId,
+          userId,
+          answerIndex,
+          isCorrect,
+          answerTimeMs,
+        },
+      });
 
       logger.info("Answer submitted", {
         roomId,

@@ -57,6 +57,7 @@ const envSchema = z.object({
 
   // AI question generation
   OPENAI_API_KEY: z.string().optional(),
+  SENTRY_DSN: z.string().optional(),
   ADMIN_SECRET: z
     .string()
     .default("change-me-in-production")
@@ -98,6 +99,7 @@ export const env = {
   vapidPrivateKey: parsed.VAPID_PRIVATE_KEY,
   vapidSubject: parsed.VAPID_SUBJECT,
   openAiApiKey: parsed.OPENAI_API_KEY,
+  sentryDsn: parsed.SENTRY_DSN,
   adminSecret: parsed.ADMIN_SECRET,
   isProduction: parsed.NODE_ENV === "production",
   isDevelopment: parsed.NODE_ENV === "development",

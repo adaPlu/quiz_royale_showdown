@@ -112,25 +112,55 @@ router.get("/season", requireAuth, async (req, res, next) => {
   }
 });
 
-// GET /leaderboard/friends — authenticated user's friends by rating
+// GET /leaderboard/friends — authenticated user's friends leaderboard by total XP
 router.get("/friends", requireAuth, async (req, res, next) => {
   try {
-    const limit = Math.min(Number(req.query.limit ?? 50), 200);
-    // For now return top users by rating as friends leaderboard (friend graph not yet implemented)
-    const users = await prisma.user.findMany({
-      orderBy: { rating: "desc" },
-      take: limit,
-      select: { id: true, displayName: true, avatarUrl: true, rating: true },
+    const userId = req.jwtClaims!.sub;
+
+    const friendships = await prisma.friendship.findMany({
+      where: {
+        OR: [{ requesterId: userId }, { addresseeId: userId }],
+        status: "ACCEPTED",
+      },
+      select: { requesterId: true, addresseeId: true },
     });
-    res.json(
-      users.map((user, index) => ({
-        rank: index + 1,
-        userId: user.id,
-        displayName: user.displayName,
-        avatarUrl: user.avatarUrl,
-        rating: user.rating,
-      })),
+
+    const friendIds = friendships.map((f) =>
+      f.requesterId === userId ? f.addresseeId : f.requesterId,
     );
+    const allIds = [userId, ...friendIds];
+
+    const [users, xpSums] = await Promise.all([
+      prisma.user.findMany({
+        where: { id: { in: allIds } },
+        select: { id: true, displayName: true, avatarUrl: true },
+      }),
+      prisma.xpEvent.groupBy({
+        by: ["userId"],
+        where: { userId: { in: allIds } },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    const xpMap = new Map(xpSums.map((row) => [row.userId, row._sum.amount ?? 0]));
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    const ranked = allIds
+      .map((id) => {
+        const user = userMap.get(id);
+        const totalXp = xpMap.get(id) ?? 0;
+        return {
+          userId: id,
+          displayName: user?.displayName ?? id,
+          avatarUrl: user?.avatarUrl ?? null,
+          totalXp,
+          level: levelFromTotalXp(totalXp),
+        };
+      })
+      .sort((a, b) => b.totalXp - a.totalXp)
+      .map((entry, index) => ({ rank: index + 1, ...entry }));
+
+    res.json(ranked);
   } catch (err) {
     next(err);
   }

@@ -20,7 +20,7 @@ import { generateId } from "../utils/ulid";
 import { BadRequestError } from "../utils/errors";
 import { logger } from "../utils/logger";
 import type { PlayerSummary, ServerEvents } from "../types/contracts";
-import { levelFromTotalXp, xpToNextLevel } from "./XpService";
+import { awardMatchXp, levelFromTotalXp, xpToNextLevel } from "./XpService";
 
 const COUNTDOWN_MS = 5_000;
 const ROUND_RESULT_DISPLAY_MS = 4_000;
@@ -483,62 +483,46 @@ export class GameOrchestrator {
     logger.info("Game over", { roomId, winnerIds });
 
     const finalScores = await this.loadScores(roomId, finalistIds);
-    const finalStandings = finalScores
+    const sortedStandings = finalScores
       .sort((left, right) =>
         (right.totalScore ?? right.roundScore) - (left.totalScore ?? left.roundScore) ||
         left.playerId.localeCompare(right.playerId)
       )
       .map((standing, index) => {
         const score = standing.totalScore ?? standing.roundScore;
-
-        return {
-          playerId: standing.playerId,
-          rank: index + 1,
-          score,
-          xpAwarded: Math.max(10, Math.round(score / 10))
-        };
+        return { playerId: standing.playerId, rank: index + 1, score };
       });
 
-    // Fetch prevTotalXp for each finalist BEFORE inserting new events
-    const prevXpSums = await prisma.xpEvent.groupBy({
-      by: ["userId"],
-      where: { userId: { in: finalStandings.map((s) => s.playerId) } },
-      _sum: { amount: true }
-    });
-    const prevXpMap = new Map(prevXpSums.map((row) => [row.userId, row._sum.amount ?? 0]));
-
-    await Promise.all(
-      finalStandings.map((standing) =>
-        prisma.xpEvent.create({
-          data: {
-            id: generateId(),
-            userId: standing.playerId,
-            reason: "GAME_FINISH",
-            amount: standing.xpAwarded,
-            metadata: { roomId, rank: standing.rank }
-          }
-        })
-      )
+    const xpResults = await awardMatchXp(
+      roomId,
+      sortedStandings.map((s) => ({
+        playerId: s.playerId,
+        rank: s.rank,
+        totalPlayers: sortedStandings.length,
+        score: s.score,
+      }))
     );
+    const xpByPlayer = new Map(xpResults.map((r) => [r.playerId, r]));
 
-    // Emit game:level_up to any player who leveled up this game
-    for (const standing of finalStandings) {
-      const prevTotalXp = prevXpMap.get(standing.playerId) ?? 0;
-      const newTotalXp = prevTotalXp + standing.xpAwarded;
-      const prevLevel = levelFromTotalXp(prevTotalXp);
-      const newLevel = levelFromTotalXp(newTotalXp);
-      if (newLevel > prevLevel) {
-        io.to(standing.playerId).emit("message", {
+    const finalStandings = sortedStandings.map((s) => ({
+      ...s,
+      xpAwarded: xpByPlayer.get(s.playerId)?.xpAwarded ?? 0,
+    }));
+
+    // Emit game:level_up for any player who leveled up
+    for (const result of xpResults) {
+      if (result.didLevelUp) {
+        io.to(result.playerId).emit("message", {
           type: "game:level_up",
           version: "v1",
           payload: {
-            userId: standing.playerId,
-            newLevel,
-            xpAwarded: standing.xpAwarded,
-            xpToNextLevel: xpToNextLevel(newLevel)
+            userId: result.playerId,
+            newLevel: result.newLevel,
+            xpAwarded: result.xpAwarded,
+            xpToNextLevel: result.xpToNextLevel,
           }
         });
-        logger.info("Level up emitted", { roomId, userId: standing.playerId, prevLevel, newLevel });
+        logger.info("Level up emitted", { roomId, userId: result.playerId, prevLevel: result.prevLevel, newLevel: result.newLevel });
       }
     }
 
@@ -551,27 +535,30 @@ export class GameOrchestrator {
     if (season) {
       const winnerSet = new Set(winnerIds);
       await Promise.all(
-        finalStandings.map((standing) => {
+        finalStandings.map(async (standing) => {
           const isWinner = winnerSet.has(standing.playerId);
-          const mmrDelta = isWinner ? 25 : -10;
-          return prisma.seasonScore.upsert({
+          await prisma.seasonScore.upsert({
             where: { seasonId_userId: { seasonId: season.id, userId: standing.playerId } },
             create: {
               id: generateId(),
               seasonId: season.id,
               userId: standing.playerId,
-              mmr: Math.max(0, 1000 + mmrDelta),
+              mmr: Math.max(0, 1000 + (isWinner ? 25 : -10)),
               wins: isWinner ? 1 : 0,
               gamesPlayed: 1,
             },
             update: {
-              mmr: isWinner
-                ? { increment: 25 }
-                : { decrement: 10 },
+              mmr: isWinner ? { increment: 25 } : undefined,
               wins: isWinner ? { increment: 1 } : undefined,
               gamesPlayed: { increment: 1 },
             },
           });
+          if (!isWinner) {
+            await prisma.$executeRaw`
+              UPDATE "SeasonScore" SET mmr = GREATEST(mmr - 10, 0)
+              WHERE "userId" = ${standing.playerId} AND "seasonId" = ${season.id}
+            `;
+          }
         })
       );
       logger.info("SeasonScore upserted", { roomId, seasonId: season.id, count: finalStandings.length });
@@ -601,17 +588,7 @@ export class GameOrchestrator {
       data: { status: "GAME_OVER", finishedAt: new Date() }
     });
 
-    emitRoomEnvelope(io, roomId, {
-      type: "game:over",
-      version: "v1",
-      payload: {
-        roomId,
-        winnerId: winnerIds[0] ?? finalStandings[0]?.playerId ?? "",
-        finalStandings
-      }
-    });
-
-    // Persist final scores to RoomPlayer
+    // Persist final scores to RoomPlayer before emitting to clients
     try {
       await Promise.all(
         finalStandings.map((standing) =>
@@ -625,9 +602,20 @@ export class GameOrchestrator {
       logger.error("Failed to persist final scores", { roomId, error: err instanceof Error ? err.message : String(err) });
     }
 
+    emitRoomEnvelope(io, roomId, {
+      type: "game:over",
+      version: "v1",
+      payload: {
+        roomId,
+        winnerId: winnerIds[0] ?? finalStandings[0]?.playerId ?? "",
+        finalStandings
+      }
+    });
+
     const POWERUP_CODES = ["DOUBLE_DOWN", "FIFTY_FIFTY", "TIME_FREEZE", "SHIELD", "SABOTAGE"] as const;
 
     for (const playerId of finalistIds) {
+      if (playerId.startsWith('bot:')) continue;
       const randomPowerup = POWERUP_CODES[Math.floor(Math.random() * POWERUP_CODES.length)];
       io.to(playerId).emit("message", {
         type: "powerup:loot_drop",

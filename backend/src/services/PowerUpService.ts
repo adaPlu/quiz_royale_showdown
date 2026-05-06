@@ -203,15 +203,6 @@ export class PowerUpService {
     const code = normalizePowerUpCode(powerUp.code);
     this.validateActivationInput(input, code);
 
-    const used = await redisService.setnx(
-      usedKey(input.roomId, input.userId, powerUp.id),
-      "1",
-      POWERUP_STATE_TTL_SECONDS,
-    );
-    if (!used) {
-      throw new ForbiddenError("Power-up already used in this room");
-    }
-
     const inventory = await prisma.playerPowerUp.findUnique({
       where: {
         userId_powerUpId: {
@@ -222,8 +213,16 @@ export class PowerUpService {
       select: { quantity: true },
     });
     if (!inventory || inventory.quantity < 1) {
-      await redisService.del(usedKey(input.roomId, input.userId, powerUp.id));
       throw new ForbiddenError("Power-up is not available in inventory");
+    }
+
+    const used = await redisService.setnx(
+      usedKey(input.roomId, input.userId, powerUp.id),
+      "1",
+      POWERUP_STATE_TTL_SECONDS,
+    );
+    if (!used) {
+      throw new ForbiddenError("Power-up already used in this room");
     }
 
     await prisma.$transaction([
