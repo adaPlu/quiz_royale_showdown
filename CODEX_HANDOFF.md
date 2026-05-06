@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-05 — after Month 2 completion_
+_Last updated: 2026-05-06 — after audit remediation sweep_
 
 ---
 
@@ -79,6 +79,31 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **Challenge tracking (LR7)**: `GameOrchestrator.runGameOver` tracks `win_a_game`, `top_3`, `play_3_games` via XP events with duplicate-award guard. Bots excluded.
 - Webapp: `withCredentials: true`, refresh interceptor sends empty body, `authStore` and `apiClient` strip all `refreshToken` state.
 
+### Audit Remediation — Security + Correctness (`284c1c2` backend, `e282463` webapp, `21ed3a3` android)
+- **RoomService**: `generateRoomCode` now uses `crypto.randomInt` (was `Math.random`)
+- **socket/middleware**: DB error in `prisma.user.findUnique` now rejects connection with `AUTH_DB_ERROR` instead of falling back to unverified JWT payload fields
+- **requestId middleware**: always generates fresh UUID; no longer trusts caller-supplied `x-request-id` header
+- **app.ts**: `express.json({ limit: '64kb' })`; removed duplicate `requireAuth` at `/friends` mount level
+- **leaderboard GET /friends**: now filters by accepted friendships (was leaking global top-N by rating)
+- **PowerUpService**: checks Prisma inventory BEFORE setting Redis lock (eliminates permanent lock on Prisma failure)
+- **AuthService**: deletes expired `RefreshToken` rows after rotation (prevents unbounded accumulation)
+- **schema.prisma**: `Friendship.id @db.VarChar(26)`, `SeasonScore @@index([userId])`, `PowerUpUse @@index([userId],[roomId])`
+- **submitAnswer**: Answer rows now persisted to Postgres via upsert; `ANSWER_LOCK_TTL_SECONDS` 3600→300
+- **GameOrchestrator**: replaced inline `Math.max(10, score/10)` XP formula with `XpService.awardMatchXp` (proper placement + win bonus)
+- **GameOrchestrator**: `RoomPlayer.score` persisted BEFORE `game:over` emit
+- **GameOrchestrator**: bot players excluded from loot drops
+- **GameOrchestrator**: MMR floor via `GREATEST(mmr-10, 0)` raw SQL (was `{ decrement: 10 }` with no floor)
+- **socketService**: `LevelUpPayload.playerId` → `userId`; `powerup:loot_drop` schema `roomId` → `powerupId`
+- **apiClient**: access token migrated from `localStorage` to in-memory module variable (XSS hardening)
+- **authStore**: `initAuth()` action rehydrates session from HttpOnly cookie on app load; `accessToken` removed from persist
+- **useGameSocket**: passes 6-char `roomCode` to `room:join` (was passing ULID `roomId`); localStorage fallback removed
+- **gameStore.applyGameOver**: clears stale `question`/`result`/`countdownEndsAt`
+- **AppNavGraph**: `LaunchedEffect(roomCode)` — removed `state` key that caused repeated `joinRoom` calls
+- **HttpOnly cookies (LR3)**: `qrs.rt` cookie set on login/register, rotated on refresh, cleared on logout. Body fallback for Android. `formatAuthPayload` no longer leaks refresh token.
+- **Push subscription persistence (LR6)**: `PushSubscription` Prisma model added (applied via `db push`). Save/remove writes to Redis + DB. `sendToUser` falls back to DB when Redis unavailable.
+- **Challenge tracking (LR7)**: `GameOrchestrator.runGameOver` tracks `win_a_game`, `top_3`, `play_3_games` via XP events with duplicate-award guard. Bots excluded.
+- Webapp: `withCredentials: true`, refresh interceptor sends empty body, `authStore` and `apiClient` strip all `refreshToken` state.
+
 ---
 
 ## Remaining work
@@ -94,7 +119,7 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 
 ### Remaining challenge types
 - `answer_10` (correct answers) and `streak_5` need per-round answer data.
-- Currently round answers stored in Redis only — need `Answer` table writes before these can be tracked.
+- `Answer` rows now written to Postgres by `submitAnswer.ts` — these challenges can now be tracked at game-over by querying the `Answer` table.
 - `use_powerup`: can be tracked by querying `PowerUpUse` table at game-over (table exists, not yet wired to challenge tracking).
 
 ### Android improvements
@@ -106,7 +131,7 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - Leaderboard: `GET /leaderboard` (global) currently returns placeholder data
 - Season end: no cron job to close seasons and award season rewards
 - Question bank admin UI: currently questions added only via raw DB inserts or API
-- Answer persistence to Postgres (`Answer` table exists but `submitAnswer` handler only writes to Redis)
+- Answer persistence to Postgres: now done — `submitAnswer` upserts `Answer` rows. Enables `answer_10`/`streak_5` challenge tracking.
 
 ---
 
