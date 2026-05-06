@@ -88,7 +88,7 @@ fun AppNavGraph() {
       }
 
 
-      LaunchedEffect(roomCode, state) {
+      LaunchedEffect(roomCode) {
         if (state is GameUiState.Idle && roomCode.isNotBlank()) {
           viewModel.joinRoom(roomCode)
         }
