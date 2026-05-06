@@ -367,6 +367,9 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       phase: 'GAME_OVER',
       winnerId: payload.winnerId,
       finalScores: payload.finalStandings,
+      question: null,
+      result: null,
+      countdownEndsAt: null,
     });
   },
 

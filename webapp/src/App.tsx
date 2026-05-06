@@ -1,4 +1,4 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense, lazy, useEffect } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -30,6 +30,10 @@ const Spinner = () => (
 );
 
 export const App = () => {
+  useEffect(() => {
+    void useAuthStore.getState().initAuth();
+  }, []);
+
   return (
     <ErrorBoundary>
       <Suspense fallback={<Spinner />}>

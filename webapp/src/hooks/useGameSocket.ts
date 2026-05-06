@@ -26,16 +26,15 @@ export const useGameSocket = (roomId: string | undefined) => {
   const updateXp = useProfileStore((state) => state.updateXp);
 
   useEffect(() => {
-    const token = accessToken ?? localStorage.getItem('qrs.accessToken');
-    if (token) {
-      socketService.connect(token);
+    if (accessToken) {
+      socketService.connect(accessToken);
     }
 
     if (roomId && !joinedRef.current) {
       joinedRef.current = true;
       const roomCode = useGameStore.getState().code;
       socketService.setActiveRoom(roomId, roomCode ?? undefined);
-      socketService.emit('room:join', { roomCode: roomId });
+      socketService.emit('room:join', { roomCode: roomCode ?? roomId });
     }
 
     const unsubs = [

@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-import { clearStoredTokens, persistTokens } from '@/services/apiClient';
+import { apiClient } from '@/services/apiClient';
+import { setAccessToken as setApiAccessToken } from '@/services/apiClient';
 import { socketService } from '@/services/socketService';
 
 export type AuthUser = {
@@ -29,6 +30,7 @@ type AuthState = {
   setAccessToken: (token: string) => void;
   setTokens: (tokens: { accessToken: string }) => void;
   clearAuth: () => void;
+  initAuth: () => Promise<void>;
 };
 
 const normalizeUser = (user: AuthUserInput): AuthUser => {
@@ -45,35 +47,46 @@ const normalizeUser = (user: AuthUserInput): AuthUser => {
   };
 };
 
-const storedAccessToken = () => localStorage.getItem('qrs.accessToken');
-
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
       user: null,
-      accessToken: storedAccessToken(),
+      accessToken: null,
       setUser: (user) => set({ user: normalizeUser(user) }),
       setAccessToken: (token) => {
-        persistTokens({ accessToken: token });
+        setApiAccessToken(token);
         socketService.connect(token);
         set({ accessToken: token });
       },
       setTokens: (tokens) => {
-        persistTokens(tokens);
+        setApiAccessToken(tokens.accessToken);
         socketService.connect(tokens.accessToken);
         set({ accessToken: tokens.accessToken });
       },
       clearAuth: () => {
-        clearStoredTokens();
+        setApiAccessToken(null);
         socketService.disconnect();
         set({ user: null, accessToken: null });
+      },
+      initAuth: async () => {
+        try {
+          const response = await apiClient.post<{ accessToken: string }>(
+            '/auth/refresh',
+            {},
+            { withCredentials: true },
+          );
+          setApiAccessToken(response.data.accessToken);
+          socketService.connect(response.data.accessToken);
+          set({ accessToken: response.data.accessToken });
+        } catch {
+          // refresh failed — user must log in
+        }
       },
     }),
     {
       name: 'qr-auth',
       partialize: (state) => ({
         user: state.user,
-        accessToken: state.accessToken,
       }),
     },
   ),

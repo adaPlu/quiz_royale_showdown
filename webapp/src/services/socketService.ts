@@ -101,7 +101,7 @@ const GameOverPayload = z.object({
 });
 
 const LevelUpPayload = z.object({
-  playerId: z.string(),
+  userId: z.string(),
   newLevel: z.number(),
   xpAwarded: z.number(),
   xpToNextLevel: z.number(),
@@ -126,7 +126,7 @@ export const ServerEventSchemas = {
   'round:finale_started': FinaleStartedPayload,
   'powerup:activated': PowerupActivatedPayload,
   'powerup:effect': PowerupEffectPayload,
-  'powerup:loot_drop': z.object({ roomId: z.string(), powerupType: z.string(), quantity: z.number() }),
+  'powerup:loot_drop': z.object({ powerupId: z.string(), powerupType: z.string(), quantity: z.number() }),
   'game:over': GameOverPayload,
   'game:level_up': LevelUpPayload,
   error: ErrorPayload,
@@ -183,7 +183,7 @@ class SocketService {
     this.statusListeners.forEach((h) => h(status));
   }
 
-  connect(accessToken = localStorage.getItem('qrs.accessToken') ?? ''): void {
+  connect(accessToken = ''): void {
     if (!accessToken) return;
 
     if (this.socket?.connected && this.accessToken === accessToken) return;

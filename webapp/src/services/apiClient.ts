@@ -27,15 +27,15 @@ export class ApiError extends Error {
   }
 }
 
-const getStoredAccessToken = () => localStorage.getItem('qrs.accessToken');
+let _accessToken: string | null = null;
 
-const storeTokens = (tokens: { accessToken: string }) => {
-  localStorage.setItem('qrs.accessToken', tokens.accessToken);
-};
+export function setAccessToken(token: string | null): void {
+  _accessToken = token;
+}
 
-export const clearStoredTokens = () => {
-  localStorage.removeItem('qrs.accessToken');
-};
+export function getAccessToken(): string | null {
+  return _accessToken;
+}
 
 const toApiError = (error: AxiosError<ErrorBody>) => {
   const status = error.response?.status ?? 0;
@@ -55,9 +55,8 @@ export const apiClient: AxiosInstance = axios.create({
 });
 
 apiClient.interceptors.request.use((config) => {
-  const accessToken = getStoredAccessToken();
-  if (accessToken) {
-    config.headers.Authorization = `Bearer ${accessToken}`;
+  if (_accessToken) {
+    config.headers.Authorization = `Bearer ${_accessToken}`;
   }
   return config;
 });
@@ -87,7 +86,7 @@ apiClient.interceptors.response.use(
         { withCredentials: true },
       )
       .then((response) => {
-        storeTokens(response.data);
+        setAccessToken(response.data.accessToken);
         return response.data.accessToken;
       })
       .finally(() => {
@@ -102,7 +101,7 @@ apiClient.interceptors.response.use(
       };
       return apiClient.request(originalRequest);
     } catch (refreshError) {
-      clearStoredTokens();
+      setAccessToken(null);
       throw refreshError;
     }
   },
@@ -126,4 +125,4 @@ export const api = {
   },
 };
 
-export const persistTokens = storeTokens;
+export const persistTokens = (tokens: { accessToken: string }) => setAccessToken(tokens.accessToken);
