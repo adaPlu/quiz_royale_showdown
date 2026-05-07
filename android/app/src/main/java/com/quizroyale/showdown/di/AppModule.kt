@@ -9,6 +9,8 @@ import com.quizroyale.showdown.data.auth.TokenRefreshInterceptor
 import com.quizroyale.showdown.data.friends.FriendsApi
 import com.quizroyale.showdown.data.game.GameApi
 import com.quizroyale.showdown.data.local.AppDatabase
+import com.quizroyale.showdown.data.push.PushApi
+import com.quizroyale.showdown.data.user.UserApi
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -97,6 +99,14 @@ object AppModule {
   @Provides
   @Singleton
   fun provideFriendsApi(@ApiRetrofit retrofit: Retrofit): FriendsApi = retrofit.create(FriendsApi::class.java)
+
+  @Provides
+  @Singleton
+  fun provideUserApi(@ApiRetrofit retrofit: Retrofit): UserApi = retrofit.create(UserApi::class.java)
+
+  @Provides
+  @Singleton
+  fun providePushApi(@ApiRetrofit retrofit: Retrofit): PushApi = retrofit.create(PushApi::class.java)
 
   @Provides
   @Singleton

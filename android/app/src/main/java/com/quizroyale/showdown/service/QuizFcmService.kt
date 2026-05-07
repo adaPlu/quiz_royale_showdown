@@ -10,7 +10,13 @@ import androidx.core.app.NotificationCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.quizroyale.showdown.MainActivity
+import com.quizroyale.showdown.data.auth.AuthRepository
+import com.quizroyale.showdown.data.push.FcmTokenRequest
+import com.quizroyale.showdown.data.push.PushApi
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -19,22 +25,30 @@ class QuizFcmService : FirebaseMessagingService() {
     companion object {
         private const val CHANNEL_ID = "quiz_royale_game"
         private const val CHANNEL_NAME = "Quiz Royale"
+        const val PREF_FILE = "quiz_fcm"
+        const val PREF_TOKEN = "token"
     }
+
+    @Inject lateinit var authRepository: AuthRepository
+    @Inject lateinit var pushApi: PushApi
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        // Store token in shared prefs; background worker will upload on next launch
-        getSharedPreferences("quiz_fcm", Context.MODE_PRIVATE)
-            .edit()
-            .putString("token", token)
-            .apply()
+        getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
+            .edit().putString(PREF_TOKEN, token).apply()
+
+        // Upload immediately if the user is already logged in
+        if (authRepository.currentAccessToken() != null) {
+            CoroutineScope(Dispatchers.IO).launch {
+                runCatching { pushApi.registerFcmToken(FcmTokenRequest(token)) }
+            }
+        }
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
         val title = message.notification?.title ?: message.data["title"] ?: "Quiz Royale"
         val body = message.notification?.body ?: message.data["body"] ?: return
-
         showNotification(title, body)
     }
 
