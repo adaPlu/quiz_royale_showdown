@@ -569,6 +569,46 @@ export class GameOrchestrator {
     // Track challenge progress for human players only (skip bot: prefix)
     const today = new Date().toISOString().slice(0, 10);
     const winnerSet = new Set(winnerIds);
+    // Count per-player correct answers and power-up uses for this room
+    const humanIds = finalStandings.map((s) => s.playerId).filter((id) => !id.startsWith('bot:'));
+    const roomRounds = await prisma.round.findMany({ where: { roomId }, select: { id: true } });
+    const roundIds = roomRounds.map((r) => r.id);
+
+    const [correctAnswerCounts, powerUpUseCounts] = await Promise.all([
+      prisma.answer.groupBy({
+        by: ['userId'],
+        where: { roundId: { in: roundIds }, userId: { in: humanIds }, isCorrect: true },
+        _count: { id: true },
+      }),
+      prisma.powerUpUse.groupBy({
+        by: ['userId'],
+        where: { roomId, userId: { in: humanIds } },
+        _count: { id: true },
+      }),
+    ]);
+    const correctByPlayer = new Map(correctAnswerCounts.map((r) => [r.userId, r._count.id]));
+    const powerUpsByPlayer = new Map(powerUpUseCounts.map((r) => [r.userId, r._count.id]));
+
+    // streak_5: check for 5 consecutive correct answers in round order
+    const allAnswers = roundIds.length > 0
+      ? await prisma.answer.findMany({
+          where: { roundId: { in: roundIds }, userId: { in: humanIds } },
+          select: { userId: true, isCorrect: true, round: { select: { roundNumber: true } } },
+          orderBy: [{ userId: 'asc' }, { round: { roundNumber: 'asc' } }],
+        })
+      : [];
+    const streakByPlayer = new Map<string, number>();
+    for (const userId of humanIds) {
+      const playerAnswers = allAnswers.filter((a) => a.userId === userId);
+      let maxStreak = 0;
+      let streak = 0;
+      for (const a of playerAnswers) {
+        streak = a.isCorrect ? streak + 1 : 0;
+        if (streak > maxStreak) maxStreak = streak;
+      }
+      streakByPlayer.set(userId, maxStreak);
+    }
+
     await Promise.allSettled(
       finalStandings
         .filter((s) => !s.playerId.startsWith('bot:'))
@@ -580,6 +620,13 @@ export class GameOrchestrator {
             ? this.trackChallengeProgress(s.playerId, 'top_3', 1, 1, today)
             : Promise.resolve(),
           this.trackChallengeProgress(s.playerId, 'play_3_games', 3, 1, today),
+          this.trackChallengeProgress(s.playerId, 'answer_10', 10, correctByPlayer.get(s.playerId) ?? 0, today),
+          (streakByPlayer.get(s.playerId) ?? 0) >= 5
+            ? this.trackChallengeProgress(s.playerId, 'streak_5', 1, 1, today)
+            : Promise.resolve(),
+          (powerUpsByPlayer.get(s.playerId) ?? 0) > 0
+            ? this.trackChallengeProgress(s.playerId, 'use_powerup', 1, 1, today)
+            : Promise.resolve(),
         ])
     );
 
