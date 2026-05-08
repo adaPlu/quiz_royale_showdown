@@ -426,6 +426,9 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       case 'powerup:loot_drop':
         get().setLootDrop((event.payload as { powerupType: string }).powerupType);
         break;
+      case 'game:level_up':
+        get().applyLevelUp(event.payload as LevelUpPayload);
+        break;
     }
   },
 
