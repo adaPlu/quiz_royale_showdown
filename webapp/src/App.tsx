@@ -15,6 +15,7 @@ const HomePage        = lazy(() => import('@/pages/HomePage'));
 const ResultsPage     = lazy(() => import('@/pages/ResultsPage'));
 const ProfilePage     = lazy(() => import('@/pages/ProfilePage'));
 const LeaderboardPage = lazy(() => import('@/pages/LeaderboardPage'));
+const FriendsPage     = lazy(() => import('@/pages/FriendsPage'));
 const NotFoundPage    = lazy(() => import('@/pages/NotFoundPage'));
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -53,6 +54,7 @@ export const App = () => {
           <Route path="/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
           <Route path="/profile/:username" element={<RequireAuth><ProfilePage /></RequireAuth>} />
           <Route path="/leaderboard" element={<RequireAuth><LeaderboardPage /></RequireAuth>} />
+          <Route path="/friends" element={<RequireAuth><FriendsPage /></RequireAuth>} />
 
           {/* Root redirect */}
           <Route path="/" element={<Navigate to="/login" replace />} />

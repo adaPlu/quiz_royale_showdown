@@ -138,12 +138,20 @@ export default function HomePage() {
 
         {error && <p className="text-center text-sm text-answer-wrong">{error}</p>}
 
-        <button
-          onClick={() => navigate('/leaderboard')}
-          className="w-full rounded-xl border border-game-border py-2 text-sm text-game-muted hover:border-white/30 hover:text-white"
-        >
-          Leaderboard
-        </button>
+        <div className="flex w-full gap-2">
+          <button
+            onClick={() => navigate('/leaderboard')}
+            className="flex-1 rounded-xl border border-game-border py-2 text-sm text-game-muted hover:border-white/30 hover:text-white"
+          >
+            Leaderboard
+          </button>
+          <button
+            onClick={() => navigate('/friends')}
+            className="flex-1 rounded-xl border border-game-border py-2 text-sm text-game-muted hover:border-white/30 hover:text-white"
+          >
+            Friends
+          </button>
+        </div>
       </main>
     </div>
   );
