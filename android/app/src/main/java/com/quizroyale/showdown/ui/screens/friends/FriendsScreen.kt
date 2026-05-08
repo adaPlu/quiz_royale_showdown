@@ -104,6 +104,31 @@ fun FriendsScreen(
             }
         }
 
+        // Pending requests section
+        if (state.pendingRequests.isNotEmpty()) {
+            Spacer(Modifier.height(24.dp))
+            Text(
+                text = "Pending Requests (${state.pendingRequests.size})",
+                color = Color.White.copy(alpha = 0.7f),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 200.dp)
+            ) {
+                items(state.pendingRequests, key = { it.friendshipId }) { pending ->
+                    PendingRequestRow(
+                        pending = pending,
+                        onAccept = { viewModel.acceptRequest(pending.friendshipId) }
+                    )
+                }
+            }
+        }
+
         Spacer(Modifier.height(24.dp))
 
         // Friends list section
@@ -148,6 +173,36 @@ fun FriendsScreen(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PendingRequestRow(
+    pending: PendingFriendUser,
+    onAccept: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SurfaceCard, RoundedCornerShape(12.dp))
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = pending.displayName,
+            color = Color.White,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.weight(1f)
+        )
+        Button(
+            onClick = onAccept,
+            colors = ButtonDefaults.buttonColors(containerColor = Brand),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
+        ) {
+            Text(text = "Accept", fontSize = 13.sp, color = Color.White)
         }
     }
 }

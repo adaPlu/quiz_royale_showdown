@@ -26,8 +26,16 @@ data class SearchUser(
     val requestSent: Boolean = false
 )
 
+data class PendingFriendUser(
+    val friendshipId: String,
+    val id: String,
+    val displayName: String,
+    val avatarUrl: String?
+)
+
 data class FriendsUiState(
     val friends: List<FriendUser> = emptyList(),
+    val pendingRequests: List<PendingFriendUser> = emptyList(),
     val searchResults: List<SearchUser> = emptyList(),
     val searchQuery: String = "",
     val isLoading: Boolean = false,
@@ -44,6 +52,7 @@ class FriendsViewModel @Inject constructor(
 
     init {
         loadFriends()
+        loadPendingRequests()
     }
 
     fun loadFriends() {
@@ -102,6 +111,45 @@ class FriendsViewModel @Inject constructor(
                 }
             }.onFailure { e ->
                 _uiState.update { it.copy(error = e.message ?: "Failed to send request") }
+            }
+        }
+    }
+
+    fun loadPendingRequests() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val response = friendsApi.getPendingRequests()
+                val pending = response.pending.map { dto ->
+                    PendingFriendUser(
+                        friendshipId = dto.friendshipId,
+                        id = dto.requester.id,
+                        displayName = dto.requester.displayName,
+                        avatarUrl = dto.requester.avatarUrl
+                    )
+                }
+                _uiState.update { it.copy(pendingRequests = pending) }
+            }.onFailure { e ->
+                _uiState.update { it.copy(error = e.message ?: "Failed to load pending requests") }
+            }
+        }
+    }
+
+    fun acceptRequest(friendshipId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                friendsApi.acceptFriendRequest(friendshipId)
+                _uiState.update { state ->
+                    val accepted = state.pendingRequests.find { it.friendshipId == friendshipId }
+                    val newFriend = accepted?.let {
+                        FriendUser(friendshipId = it.friendshipId, id = it.id, displayName = it.displayName, avatarUrl = it.avatarUrl)
+                    }
+                    state.copy(
+                        pendingRequests = state.pendingRequests.filter { it.friendshipId != friendshipId },
+                        friends = if (newFriend != null) state.friends + newFriend else state.friends
+                    )
+                }
+            }.onFailure { e ->
+                _uiState.update { it.copy(error = e.message ?: "Failed to accept request") }
             }
         }
     }
