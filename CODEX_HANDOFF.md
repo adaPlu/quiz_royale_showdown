@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-08 — 172 backend tests; auth/rooms/powerups coverage; Android results handoff + friends pending; webapp level_up_
+_Last updated: 2026-05-08 — 191 backend tests; push route + usePowerup socket handler coverage; webapp 20 tests; webapp FriendsPage (frontend branch)_
 
 ---
 
@@ -122,6 +122,17 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - Total before cross-platform fixes: 143 tests / 25 files
 - **Total after: 172 tests, 27 test files, all passing**
 
+### Push Route + usePowerup Socket + Webapp GameStore Tests (`57e4d59` main)
+- **push.test.ts** (9 tests): GET vapid-public-key 200; POST subscribe 401/200/400; DELETE subscribe 401/200; POST fcm-token 401/200/400
+- **usePowerup.test.ts** (8 tests): handler registration; ignores non-powerup messages; VALIDATION_ERROR on bad payload; ROOM_MISMATCH guard; broadcasts public effect to room; sends private effect to socket; passes correctAnswerIndex from Redis to PowerUpService; POWERUP_ERROR / INTERNAL_ERROR handling
+- **webapp gameStore.test.ts** (5 new tests): applyLevelUp appends + accumulates; dismissLevelUp removes first / no-op; applyGameOver sets phase+winnerId+finalScores
+- **Backend total: 191 tests passing**; **Webapp (QuizGame-main) total: 20 tests passing**
+
+### Webapp FriendsPage (`a374e4e` frontend branch)
+- **FriendsPage.tsx**: search users (debounced GET /users/search), send friend requests (POST /friends/request), view + accept pending requests (GET /friends/pending + PUT /friends/:id/accept), view + remove friends (GET /friends + DELETE /friends/:id)
+- **App.tsx**: lazy-loaded `/friends` route added (auth-gated)
+- **HomePage.tsx**: Friends button added alongside Leaderboard button
+
 ### Challenge Tracking + Android Profile/FCM (`b4a8449` backend, `25d55c7` android)
 - **GameOrchestrator**: `answer_10` tracks correct answers from `Answer` table; `streak_5` detects max consecutive correct answers per player; `use_powerup` checks `PowerUpUse` table — all challenges now fully tracked at game-over
 - **GET /users/me**: enhanced to return `totalXp`, `level`, `xpToNextLevel`, `wins`, `gamesPlayed`, `mmr` alongside user fields
@@ -178,6 +189,7 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 ### Future / nice-to-have
 - **Leaderboard improvement**: global `GET /leaderboard` works (returns SeasonScore standings or XP fallback) — no changes needed unless a dedicated season-agnostic top-N view is wanted
 - **Season end cosmetic rewards**: `SeasonScheduler` awards XP; no cosmetic grant yet — extend `awardSeasonRewards` to upsert `UserCosmetic` rows if cosmetics are added for season milestones
+- **Webapp (frontend branch) test coverage**: no vitest config in QuizGame-webapp yet; to add: install vitest + jsdom + @testing-library/react as devDeps, `mergeConfig` the vite config, write authStore tests (setTokens, clearAuth, initAuth) and FriendsPage smoke tests
 
 ---
 
