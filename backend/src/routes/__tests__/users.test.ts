@@ -20,6 +20,12 @@ const { prismaMock } = vi.hoisted(() => {
       findFirst: vi.fn(),
       findMany: vi.fn(),
     },
+    xpEvent: {
+      aggregate: vi.fn(),
+    },
+    seasonScore: {
+      findFirst: vi.fn(),
+    },
   };
   return { prismaMock };
 });
@@ -27,6 +33,10 @@ const { prismaMock } = vi.hoisted(() => {
 vi.mock("../../models/prismaClient", () => ({ prisma: prismaMock }));
 vi.mock("../../utils/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+vi.mock("../../services/XpService", () => ({
+  levelFromTotalXp: vi.fn((xp: number) => Math.floor(Math.sqrt(xp / 150)) || 1),
+  xpToNextLevel: vi.fn((level: number) => (level + 1) * (level + 1) * 150),
 }));
 
 // We keep requireAuth as-is — it reads from env.jwtAccessSecret
@@ -101,6 +111,8 @@ function request(
 describe("GET /users/me", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    prismaMock.xpEvent.aggregate.mockResolvedValue({ _sum: { amount: 0 } });
+    prismaMock.seasonScore.findFirst.mockResolvedValue(null);
   });
 
   it("returns 401 when no Authorization header is provided", async () => {

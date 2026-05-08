@@ -14,6 +14,10 @@ const powerUpMock = {
   consumeScoreMultiplier: vi.fn().mockResolvedValue(1),
 };
 
+const prismaMock = {
+  answer: { upsert: vi.fn().mockResolvedValue({}) },
+};
+
 vi.mock("../../../services/RedisService", () => ({
   redisService: redisMock
 }));
@@ -21,6 +25,10 @@ vi.mock("../../../services/RedisService", () => ({
 vi.mock("../../../services/PowerUpService", () => ({
   powerUpService: powerUpMock
 }));
+
+vi.mock("../../../models/prismaClient", () => ({ prisma: prismaMock }));
+vi.mock("../../../utils/ulid", () => ({ generateId: vi.fn(() => "test-answer-id") }));
+vi.mock("../../../utils/logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 function createSocket(roomId?: string) {
   let messageHandler: ((message: unknown) => Promise<void>) | undefined;
@@ -115,7 +123,7 @@ describe("registerSubmitAnswerHandler", () => {
     });
 
     expect(emit).not.toHaveBeenCalled();
-    expect(redisMock.setnx).toHaveBeenCalledWith("answer_lock:room-1:round-1:user-1", "1", 3600);
+    expect(redisMock.setnx).toHaveBeenCalledWith("answer_lock:room-1:round-1:user-1", "1", 300);
     expect(redisMock.zincrby).toHaveBeenCalledWith("room:room-1:scores", 900, "user-1");
     expect(redisMock.hset).toHaveBeenCalledWith(
       "room:room-1:round:round-1:answers",

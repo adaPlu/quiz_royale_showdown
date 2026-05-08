@@ -818,6 +818,7 @@ export class GameOrchestrator {
     const current = existing._sum.amount ?? 0;
     if (current >= target) return; // already completed
     const toAdd = Math.min(increment, target - current);
+    if (toAdd <= 0) return;
     await prisma.xpEvent.create({
       data: { id: generateId(), userId: playerId, reason: `CHALLENGE:${challengeId}:${today}`, amount: toAdd,
               metadata: { source: 'game_over' } },

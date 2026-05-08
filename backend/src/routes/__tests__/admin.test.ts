@@ -101,31 +101,31 @@ function request(
 
 describe("Admin router — secret gating", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     prismaMock.questionBank.count.mockResolvedValue(42);
   });
 
-  it("returns 401 when the X-Admin-Key header is missing", async () => {
+  it("returns 403 when the X-Admin-Key header is missing", async () => {
     const app = buildApp();
     const res = await request(app, "GET", "/admin/questions/count");
 
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(403);
     const body = res.body as { error: string };
-    expect(body.error).toBe("Unauthorized");
+    expect(body.error).toBe("Forbidden");
   });
 
-  it("returns 401 when the X-Admin-Key header has the wrong value", async () => {
+  it("returns 403 when the X-Admin-Key header has the wrong value", async () => {
     const app = buildApp();
     const res = await request(app, "GET", "/admin/questions/count", {
       headers: { "x-admin-key": "definitely-wrong-secret" },
     });
 
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(403);
     const body = res.body as { error: string };
-    expect(body.error).toBe("Unauthorized");
+    expect(body.error).toBe("Forbidden");
   });
 
-  it("returns 401 when the adminKey query param has the wrong value", async () => {
+  it("returns 403 when no valid auth header is provided", async () => {
     const app = buildApp();
     const res = await request(
       app,
@@ -133,7 +133,7 @@ describe("Admin router — secret gating", () => {
       "/admin/questions/count?adminKey=wrong-key",
     );
 
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(403);
   });
 
   it("passes through with the correct X-Admin-Key header and returns question counts", async () => {
@@ -150,23 +150,6 @@ describe("Admin router — secret gating", () => {
     const body = res.body as { total: number; active: number };
     expect(body.total).toBe(100);
     expect(body.active).toBe(80);
-  });
-
-  it("passes through with the correct adminKey query param", async () => {
-    prismaMock.questionBank.count
-      .mockResolvedValueOnce(50)
-      .mockResolvedValueOnce(40);
-
-    const app = buildApp();
-    const res = await request(
-      app,
-      "GET",
-      `/admin/questions/count?adminKey=${encodeURIComponent(env.adminSecret)}`,
-    );
-
-    expect(res.status).toBe(200);
-    const body = res.body as { total: number; active: number };
-    expect(body.total).toBe(50);
   });
 
   it("returns 503 for POST /questions/generate when AI is unavailable", async () => {
@@ -201,7 +184,7 @@ describe("Admin router — secret gating", () => {
 
 describe("Admin router — x-admin-secret header and 403 gating", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     prismaMock.questionBank.count.mockResolvedValue(0);
   });
 

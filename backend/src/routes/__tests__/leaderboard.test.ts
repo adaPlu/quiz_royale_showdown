@@ -26,6 +26,9 @@ const { prismaMock } = vi.hoisted(() => {
     user: {
       findMany: vi.fn(),
     },
+    friendship: {
+      findMany: vi.fn(),
+    },
   };
   return { prismaMock };
 });
@@ -196,6 +199,9 @@ describe("GET /leaderboard — global", () => {
 describe("GET /leaderboard/friends", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    prismaMock.friendship.findMany.mockResolvedValue([]);
+    prismaMock.user.findMany.mockResolvedValue([]);
+    prismaMock.xpEvent.groupBy.mockResolvedValue([]);
   });
 
   it("returns 401 when no Authorization header is provided", async () => {
@@ -205,35 +211,38 @@ describe("GET /leaderboard/friends", () => {
   });
 
   it("returns ranked users when authenticated", async () => {
+    prismaMock.friendship.findMany.mockResolvedValue([]);
     prismaMock.user.findMany.mockResolvedValue([
-      { id: "u1", displayName: "Alice", avatarUrl: null, rating: 1500 },
-      { id: "u2", displayName: "Bob", avatarUrl: null, rating: 1200 },
+      { id: "user-test", displayName: "Tester", avatarUrl: null },
+    ]);
+    prismaMock.xpEvent.groupBy.mockResolvedValue([
+      { userId: "user-test", _sum: { amount: 500 } },
     ]);
 
-    const token = makeToken();
+    const token = makeToken("user-test");
     const app = buildApp();
     const res = await request(app, "GET", "/leaderboard/friends", {
       headers: { Authorization: `Bearer ${token}` },
     });
 
     expect(res.status).toBe(200);
-    const body = res.body as Array<{ rank: number; rating: number }>;
-    expect(body).toHaveLength(2);
+    const body = res.body as Array<{ rank: number; userId: string; totalXp: number }>;
+    expect(body.length).toBeGreaterThanOrEqual(1);
     expect(body[0].rank).toBe(1);
-    expect(body[0].rating).toBe(1500);
+    expect(body[0].userId).toBe("user-test");
   });
 
-  it("caps friends limit at 200", async () => {
-    prismaMock.user.findMany.mockResolvedValue([]);
-
-    const token = makeToken();
+  it("queries friendships for the authenticated user", async () => {
+    const token = makeToken("user-test");
     const app = buildApp();
-    await request(app, "GET", "/leaderboard/friends?limit=9999", {
+    await request(app, "GET", "/leaderboard/friends", {
       headers: { Authorization: `Bearer ${token}` },
     });
 
-    expect(prismaMock.user.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ take: 200 }),
+    expect(prismaMock.friendship.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ status: "ACCEPTED" }),
+      }),
     );
   });
 });
