@@ -1,10 +1,15 @@
 package com.quizroyale.showdown.ui.screens.home
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.quizroyale.showdown.data.auth.AuthRepository
 import com.quizroyale.showdown.data.game.GameRepository
+import com.quizroyale.showdown.data.push.FcmTokenRequest
+import com.quizroyale.showdown.data.push.PushApi
+import com.quizroyale.showdown.service.QuizFcmService
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,12 +26,26 @@ data class HomeUiState(
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val authRepository: AuthRepository,
     private val gameRepository: GameRepository,
+    private val pushApi: PushApi,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState(username = authRepository.currentUsername()))
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+
+    init {
+        uploadPendingFcmToken()
+    }
+
+    private fun uploadPendingFcmToken() {
+        val token = context.getSharedPreferences(QuizFcmService.PREF_FILE, Context.MODE_PRIVATE)
+            .getString(QuizFcmService.PREF_TOKEN, null) ?: return
+        viewModelScope.launch {
+            runCatching { pushApi.registerFcmToken(FcmTokenRequest(token)) }
+        }
+    }
 
     fun quickPlay() = createRoomInternal(isPrivate = false)
     fun createRoom() = createRoomInternal(isPrivate = true)
