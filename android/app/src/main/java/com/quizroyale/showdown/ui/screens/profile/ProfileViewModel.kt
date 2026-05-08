@@ -52,15 +52,7 @@ class ProfileViewModel @Inject constructor(
                     gamesPlayed = profile.gamesPlayed,
                 )
             } catch (e: Exception) {
-                _uiState.value = ProfileUiState.Success(
-                    displayName = authRepository.currentUsername() ?: "Player",
-                    avatarUrl = null,
-                    level = 1,
-                    xp = 0,
-                    xpToNextLevel = 150,
-                    wins = 0,
-                    gamesPlayed = 0,
-                )
+                _uiState.value = ProfileUiState.Error(e.message ?: "Failed to load profile")
             }
         }
     }

@@ -66,6 +66,16 @@ fun ProfileScreen(
         Spacer(Modifier.height(24.dp))
 
         Button(
+            onClick = onNavigateToCosmetics,
+            colors = ButtonDefaults.buttonColors(containerColor = Brand),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Cosmetics", color = Color.White, fontWeight = FontWeight.Bold)
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        Button(
             onClick = onNavigateToFriends,
             colors = ButtonDefaults.buttonColors(containerColor = Brand),
             modifier = Modifier.fillMaxWidth()

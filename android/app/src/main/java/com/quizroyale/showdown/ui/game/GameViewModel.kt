@@ -7,7 +7,9 @@ import com.quizroyale.showdown.data.game.GameEvent
 import com.quizroyale.showdown.data.game.GameRepository
 import com.quizroyale.showdown.data.game.RoomSnapshot
 import com.quizroyale.showdown.data.game.ScoreRanking
+import com.quizroyale.showdown.data.results.ResultsStore
 import com.quizroyale.showdown.domain.model.GamePlayer
+import com.quizroyale.showdown.domain.model.LeaderboardEntry
 import com.quizroyale.showdown.domain.model.PowerupType
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Duration
@@ -33,7 +35,8 @@ sealed class GameIntent {
 
 @HiltViewModel
 class GameViewModel @Inject constructor(
-  private val gameRepository: GameRepository
+  private val gameRepository: GameRepository,
+  private val resultsStore: ResultsStore,
 ) : ViewModel() {
   private val _uiState = MutableStateFlow<GameUiState>(GameUiState.Idle)
   val uiState: GameUiState get() = _uiState.value
@@ -226,12 +229,25 @@ class GameViewModel @Inject constructor(
     timerJob?.cancel()
     heartbeatJob?.cancel()
     val players = applyFinalStandings(currentPlayers(), event.finalStandings)
+    val xpEarned = event.finalStandings.sumOf { it.xpAwarded }
     _uiState.value = GameUiState.GameOver(
       roomId = event.roomId,
       winnerId = event.winnerId,
       players = players,
-      xpAwarded = event.finalStandings.sumOf { it.xpAwarded }
+      xpAwarded = xpEarned,
     )
+    val namesById = players.associate { it.id to it.displayName }
+    val leaderboard = event.finalStandings.map { standing ->
+      LeaderboardEntry(
+        rank = standing.rank,
+        playerId = standing.playerId,
+        displayName = namesById[standing.playerId] ?: standing.playerId,
+        score = standing.score,
+        correctAnswers = 0,
+        totalAnswers = 0,
+      )
+    }
+    resultsStore.setResults(leaderboard, xpEarned)
     _sideEffects.trySend(GameSideEffect.NavigateToResults(event.roomId))
   }
 
