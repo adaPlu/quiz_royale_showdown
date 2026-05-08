@@ -35,13 +35,12 @@ export default function RegisterPage() {
       const response = await api.post<{
         user: Parameters<typeof setUser>[0];
         accessToken: string;
-        refreshToken: string;
       }>('/auth/register', {
         displayName: data.username,
         email: data.email,
         password: data.password,
       });
-      setTokens({ accessToken: response.data.accessToken, refreshToken: response.data.refreshToken });
+      setTokens({ accessToken: response.data.accessToken });
       setUser({ ...response.data.user, username: data.username });
       navigate('/home', { replace: true });
     } catch (error: unknown) {

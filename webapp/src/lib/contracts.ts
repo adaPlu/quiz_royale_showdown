@@ -12,6 +12,7 @@ export const playerSummarySchema = z.object({
 export const roomSnapshotSchema = z.object({
   roomId: z.string(),
   code: z.string(),
+  hostId: z.string(),
   phase: z.enum([
     "WAITING",
     "COUNTDOWN",
@@ -113,7 +114,7 @@ export const serverEventSchema = z.discriminatedUnion("type", [
   envelope(
     "game:level_up",
     z.object({
-      playerId: z.string(),
+      userId: z.string(),
       newLevel: z.number(),
       xpAwarded: z.number(),
       xpToNextLevel: z.number()

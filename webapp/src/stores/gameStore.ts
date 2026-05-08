@@ -35,7 +35,7 @@ export type FinalStanding = {
 };
 
 export type LevelUpEntry = {
-  playerId: string;
+  userId: string;
   newLevel: number;
   xpAwarded: number;
   xpToNextLevel: number;
