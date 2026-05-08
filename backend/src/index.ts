@@ -19,6 +19,7 @@ import { Server } from "socket.io";
 import { createApp } from "./app";
 import { env } from "./config/env";
 import { initRedis } from "./services/RedisService";
+import { startSeasonScheduler } from "./services/SeasonScheduler";
 import { initSocketServer } from "./socket";
 import { logger } from "./utils/logger";
 
@@ -70,6 +71,9 @@ async function bootstrap(): Promise<void> {
     env: env.nodeEnv,
     wsPath: "/ws"
   });
+
+  // 5. Background schedulers
+  startSeasonScheduler();
 
   // ─── Graceful shutdown ────────────────────────────────────────────────────
 

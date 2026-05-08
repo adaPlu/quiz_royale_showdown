@@ -233,14 +233,15 @@ model XpEvent {
 }
 
 model Season {
-  id            String        @id @db.VarChar(26)
-  slug          String        @unique
-  name          String
-  startsAt      DateTime
-  endsAt        DateTime
-  createdAt     DateTime      @default(now())
-  rooms         Room[]
-  seasonScores  SeasonScore[]
+  id                String        @id @db.VarChar(26)
+  slug              String        @unique
+  name              String
+  startsAt          DateTime
+  endsAt            DateTime
+  rewardsAwardedAt  DateTime?
+  createdAt         DateTime      @default(now())
+  rooms             Room[]
+  seasonScores      SeasonScore[]
 }
 
 model SeasonScore {

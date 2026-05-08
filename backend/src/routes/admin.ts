@@ -1,10 +1,12 @@
 import { timingSafeEqual, createHash } from "crypto";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import rateLimit from "express-rate-limit";
+import { z } from "zod";
 
 import { env } from "../config/env";
 import { prisma } from "../models/prismaClient";
 import { questionGeneratorService } from "../services/QuestionGeneratorService";
+import { generateId } from "../utils/ulid";
 
 export const adminRouter = Router();
 
@@ -57,6 +59,101 @@ adminRouter.post("/questions/refill", async (_req, res, next) => {
   try {
     void questionGeneratorService.refillIfNeeded().catch(() => null);
     res.json({ message: "Refill check triggered" });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const questionSchema = z.object({
+  prompt: z.string().min(5),
+  optionA: z.string().min(1),
+  optionB: z.string().min(1),
+  optionC: z.string().min(1),
+  optionD: z.string().min(1),
+  correctIndex: z.number().int().min(0).max(3),
+  category: z.string().min(1),
+  difficulty: z.enum(["EASY", "MEDIUM", "HARD"]),
+});
+
+// GET /api/v1/admin/questions  — paginated list
+adminRouter.get("/questions", async (req, res, next) => {
+  try {
+    const page = Math.max(1, Number(req.query.page ?? 1));
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit ?? 50)));
+    const activeOnly = req.query.active === "true";
+    const where = activeOnly ? { isActive: true } : {};
+    const [total, questions] = await Promise.all([
+      prisma.questionBank.count({ where }),
+      prisma.questionBank.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+        select: { id: true, prompt: true, optionA: true, optionB: true, optionC: true, optionD: true, correctIndex: true, category: true, difficulty: true, isActive: true, lastUsedAt: true, createdAt: true },
+      }),
+    ]);
+    res.json({ total, page, limit, questions });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/v1/admin/questions  — manual create
+adminRouter.post("/questions", async (req, res, next) => {
+  try {
+    const parsed = questionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Validation failed", issues: parsed.error.issues });
+      return;
+    }
+    const question = await prisma.questionBank.create({
+      data: { id: generateId(), ...parsed.data, isActive: true },
+    });
+    res.status(201).json(question);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PUT /api/v1/admin/questions/:id  — update fields
+adminRouter.put("/questions/:id", async (req, res, next) => {
+  try {
+    const parsed = questionSchema.partial().safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Validation failed", issues: parsed.error.issues });
+      return;
+    }
+    const question = await prisma.questionBank.update({
+      where: { id: req.params.id },
+      data: parsed.data,
+    });
+    res.json(question);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/v1/admin/questions/:id  — soft-delete (isActive = false)
+adminRouter.delete("/questions/:id", async (req, res, next) => {
+  try {
+    await prisma.questionBank.update({
+      where: { id: req.params.id },
+      data: { isActive: false },
+    });
+    res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PATCH /api/v1/admin/questions/:id/activate  — restore soft-deleted question
+adminRouter.patch("/questions/:id/activate", async (req, res, next) => {
+  try {
+    const question = await prisma.questionBank.update({
+      where: { id: req.params.id },
+      data: { isActive: true },
+    });
+    res.json(question);
   } catch (err) {
     next(err);
   }

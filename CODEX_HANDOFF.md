@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-07 — FCM token DB persistence + HomeViewModel upload gap closed_
+_Last updated: 2026-05-08 — Season end cron + question bank admin CRUD + Railway deploy config_
 
 ---
 
@@ -84,6 +84,24 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **PushNotificationService.saveFcmToken**: now writes to both Redis (when available) and Postgres; no longer silently drops token when Redis is down
 - **Android HomeViewModel**: uploads pending FCM token from SharedPreferences on every home screen load; closes gap where fresh-install first-login token was never uploaded
 
+### Railway Deploy Config + Logger + Sentry (`e392a21` main)
+- **railway.toml**: `startCommand = "npx prisma db push && node dist/index.js"` — schema changes applied automatically on every Railway deploy
+- **logger.ts**: rewrote to wrap pino (NDJSON prod, pino-pretty dev) — same (msg, data?) API preserved
+- **sentry.ts**: `initSentry()` gated on `SENTRY_DSN` env var; errorHandler now calls `Sentry.captureException` on 5xx errors
+
+### Season End Cron (`main` branch)
+- **schema.prisma**: `Season.rewardsAwardedAt DateTime?` field added (requires `prisma db push`)
+- **SeasonScheduler.ts**: `processExpiredSeasons()` finds seasons where `endsAt < now && rewardsAwardedAt IS NULL`; awards top-3 players 500/300/150 XP via `XpEvent` rows with `reason: "SEASON_END:{seasonId}"`; marks season `rewardsAwardedAt = now`; bot-safe (only affects real season scores)
+- **index.ts**: `startSeasonScheduler()` called on boot — runs immediately then every hour
+
+### Question Bank Admin CRUD (`main` branch)
+- **GET /api/v1/admin/questions**: paginated list with `page`, `limit`, `active` query params
+- **POST /api/v1/admin/questions**: manual create with Zod validation (prompt, options, correctIndex, category, difficulty)
+- **PUT /api/v1/admin/questions/:id**: partial update (any subset of question fields)
+- **DELETE /api/v1/admin/questions/:id**: soft-delete (`isActive = false`)
+- **PATCH /api/v1/admin/questions/:id/activate**: restore soft-deleted question
+- All guarded by existing `requireAdminSecret` + `adminLimiter` middleware
+
 ### Challenge Tracking + Android Profile/FCM (`b4a8449` backend, `25d55c7` android)
 - **GameOrchestrator**: `answer_10` tracks correct answers from `Answer` table; `streak_5` detects max consecutive correct answers per player; `use_powerup` checks `PowerUpUse` table — all challenges now fully tracked at game-over
 - **GET /users/me**: enhanced to return `totalXp`, `level`, `xpToNextLevel`, `wins`, `gamesPlayed`, `mmr` alongside user fields
@@ -131,18 +149,15 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - All schema changes applied via `prisma db push` (safe for this project's Railway setup).
 - To fix: spin up a clean shadow DB and run `prisma migrate resolve --applied` for existing migrations, then squash. Low priority.
 
-### Android improvements (remaining)
-- Kotlin coroutines for WebSocket reconnect (currently OkHttp callbacks) — low priority, no known bugs
+### Android WebSocket reconnect coroutines (low priority — no known bugs)
+- App uses Socket.IO client (`io.socket:socket.io-client:2.1.1`) with built-in reconnect: `reconnectionAttempts = Int.MAX_VALUE`, `reconnectionDelay = 1s`, `reconnectionDelayMax = 16s` (exponential backoff).
+- `GameViewModel.isReconnecting` StateFlow already surfaces mid-reconnect state to UI.
+- Migration to explicit `callbackFlow` / coroutine retry loop would improve testability but is not needed for correctness.
+- Key files: `WebSocketManager.kt`, `GameRepository.kt`, `GameViewModel.kt`
 
 ### Future / nice-to-have
-- Leaderboard: `GET /leaderboard` (global) currently returns placeholder data
-- Season end: no cron job to close seasons and award season rewards
-- Question bank admin UI: currently questions added only via raw DB inserts or API
-### Future / nice-to-have
-- **Season end cron**: no job to close seasons and distribute end-of-season rewards
-- **Question bank admin UI**: questions added via raw DB inserts or API only
-- **WebSocket reconnect coroutines**: OkHttp callbacks work but Kotlin coroutines would be cleaner
 - **Leaderboard improvement**: global `GET /leaderboard` works (returns SeasonScore standings or XP fallback) — no changes needed unless a dedicated season-agnostic top-N view is wanted
+- **Season end cosmetic rewards**: `SeasonScheduler` awards XP; no cosmetic grant yet — extend `awardSeasonRewards` to upsert `UserCosmetic` rows if cosmetics are added for season milestones
 
 ---
 
