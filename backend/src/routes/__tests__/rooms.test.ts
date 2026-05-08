@@ -52,6 +52,7 @@ const { prismaMock, roomServiceMock, gameOrchestratorMock } = vi.hoisted(() => {
       startedAt: null,
     })),
     recoverStaleCountdown: vi.fn(),
+    resetStartFailure: vi.fn(),
     waitForPlayersOrFillBots: vi.fn(async () => ["user-1"]),
   };
 
@@ -322,5 +323,53 @@ describe("POST /rooms/:roomId/leave — leave room", () => {
     const body = res.body as { left: boolean };
     expect(body.left).toBe(true);
     expect(roomServiceMock.leaveRoom).toHaveBeenCalledWith(VALID_ULID, "user-1");
+  });
+});
+
+describe("POST /rooms/:roomId/start — start game", () => {
+  const VALID_ULID = "01HN9QXYZ1234567890ABCDEF1";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prismaMock.roomPlayer.findMany.mockResolvedValue([{ userId: "user-1" }]);
+  });
+
+  it("returns 401 when unauthenticated", async () => {
+    const app = buildApp();
+    const res = await request(app, "POST", `/rooms/${VALID_ULID}/start`);
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 200 with room payload and invokes startup chain", async () => {
+    const token = makeToken("user-1");
+    const app = buildApp();
+    const res = await request(app, "POST", `/rooms/${VALID_ULID}/start`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(200);
+    const body = res.body as { roomId: string };
+    expect(body.roomId).toBe("room-1");
+    expect(roomServiceMock.recoverStaleCountdown).toHaveBeenCalledWith(VALID_ULID, false);
+    expect(roomServiceMock.startGame).toHaveBeenCalledWith(VALID_ULID, "user-1");
+    expect(gameOrchestratorMock.assertQuestionBankReady).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls roomService.resetStartFailure and returns 500 when assertQuestionBankReady throws", async () => {
+    gameOrchestratorMock.assertQuestionBankReady.mockRejectedValueOnce(
+      new Error("Question bank empty"),
+    );
+
+    const token = makeToken("user-1");
+    const app = buildApp();
+    const res = await request(app, "POST", `/rooms/${VALID_ULID}/start`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(500);
+    expect(roomServiceMock.resetStartFailure).toHaveBeenCalledWith(
+      VALID_ULID,
+      "Question bank empty",
+    );
   });
 });
