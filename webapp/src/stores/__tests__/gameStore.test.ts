@@ -99,3 +99,67 @@ describe('applyRoomState', () => {
     expect(state.players[0].displayName).toBe('Alice');
   });
 });
+
+describe('applyLevelUp', () => {
+  it('appends a level-up entry to levelUpQueue', () => {
+    act(() =>
+      useGameStore.getState().applyLevelUp({
+        playerId: 'p1',
+        newLevel: 5,
+        xp: 200,
+        xpToNextLevel: 800,
+      }),
+    );
+    const { levelUpQueue } = useGameStore.getState();
+    expect(levelUpQueue).toHaveLength(1);
+    expect(levelUpQueue[0].newLevel).toBe(5);
+  });
+
+  it('accumulates multiple level-ups in order', () => {
+    act(() => {
+      useGameStore.getState().applyLevelUp({ playerId: 'p1', newLevel: 2, xp: 100, xpToNextLevel: 900 });
+      useGameStore.getState().applyLevelUp({ playerId: 'p1', newLevel: 3, xp: 150, xpToNextLevel: 850 });
+    });
+    expect(useGameStore.getState().levelUpQueue).toHaveLength(2);
+    expect(useGameStore.getState().levelUpQueue[0].newLevel).toBe(2);
+    expect(useGameStore.getState().levelUpQueue[1].newLevel).toBe(3);
+  });
+});
+
+describe('dismissLevelUp', () => {
+  it('removes the first entry from levelUpQueue', () => {
+    act(() => {
+      useGameStore.getState().applyLevelUp({ playerId: 'p1', newLevel: 2, xp: 100, xpToNextLevel: 900 });
+      useGameStore.getState().applyLevelUp({ playerId: 'p1', newLevel: 3, xp: 150, xpToNextLevel: 850 });
+    });
+    act(() => useGameStore.getState().dismissLevelUp());
+    const { levelUpQueue } = useGameStore.getState();
+    expect(levelUpQueue).toHaveLength(1);
+    expect(levelUpQueue[0].newLevel).toBe(3);
+  });
+
+  it('is a no-op on an empty queue', () => {
+    act(() => useGameStore.getState().dismissLevelUp());
+    expect(useGameStore.getState().levelUpQueue).toHaveLength(0);
+  });
+});
+
+describe('applyGameOver', () => {
+  it('sets phase to GAME_OVER with winnerId and finalScores', () => {
+    act(() =>
+      useGameStore.getState().applyGameOver({
+        roomId: 'room-1',
+        winnerId: 'p1',
+        finalStandings: [
+          { playerId: 'p1', rank: 1, score: 1200, xpAwarded: 500 },
+          { playerId: 'p2', rank: 2, score: 800,  xpAwarded: 300 },
+        ],
+      }),
+    );
+    const state = useGameStore.getState();
+    expect(state.phase).toBe('GAME_OVER');
+    expect(state.winnerId).toBe('p1');
+    expect(state.finalScores).toHaveLength(2);
+    expect(state.finalScores[0].xpAwarded).toBe(500);
+  });
+});
