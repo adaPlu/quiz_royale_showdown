@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-06 — after audit remediation sweep_
+_Last updated: 2026-05-07 — after challenge tracking + Android profile/FCM_
 
 ---
 
@@ -79,6 +79,15 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **Challenge tracking (LR7)**: `GameOrchestrator.runGameOver` tracks `win_a_game`, `top_3`, `play_3_games` via XP events with duplicate-award guard. Bots excluded.
 - Webapp: `withCredentials: true`, refresh interceptor sends empty body, `authStore` and `apiClient` strip all `refreshToken` state.
 
+### Challenge Tracking + Android Profile/FCM (`b4a8449` backend, `25d55c7` android)
+- **GameOrchestrator**: `answer_10` tracks correct answers from `Answer` table; `streak_5` detects max consecutive correct answers per player; `use_powerup` checks `PowerUpUse` table — all challenges now fully tracked at game-over
+- **GET /users/me**: enhanced to return `totalXp`, `level`, `xpToNextLevel`, `wins`, `gamesPlayed`, `mmr` alongside user fields
+- **Android `UserApi`**: new Retrofit interface for `GET users/me` with `UserMeResponse` model
+- **Android `ProfileViewModel`**: replaced hardcoded stubs with real API call; falls back to local auth data on error
+- **Android `PushApi`**: new Retrofit interface for `POST push/fcm-token` with `FcmTokenRequest`
+- **Android `QuizFcmService`**: uploads FCM token to backend on `onNewToken` if user is already logged in; stores locally as fallback
+- **AppModule**: provides `UserApi` and `PushApi` via `@ApiRetrofit`
+
 ### Audit Remediation — Security + Correctness (`284c1c2` backend, `e282463` webapp, `21ed3a3` android)
 - **RoomService**: `generateRoomCode` now uses `crypto.randomInt` (was `Math.random`)
 - **socket/middleware**: DB error in `prisma.user.findUnique` now rejects connection with `AUTH_DB_ERROR` instead of falling back to unverified JWT payload fields
@@ -117,21 +126,17 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - All schema changes applied via `prisma db push` (safe for this project's Railway setup).
 - To fix: spin up a clean shadow DB and run `prisma migrate resolve --applied` for existing migrations, then squash. Low priority.
 
-### Remaining challenge types
-- `answer_10` (correct answers) and `streak_5` need per-round answer data.
-- `Answer` rows now written to Postgres by `submitAnswer.ts` — these challenges can now be tracked at game-over by querying the `Answer` table.
-- `use_powerup`: can be tracked by querying `PowerUpUse` table at game-over (table exists, not yet wired to challenge tracking).
-
-### Android improvements
-- Kotlin coroutines for WebSocket reconnect (currently OkHttp callbacks)
-- Profile screen: fetch real data from `GET /users/:id/profile`
-- Push notification registration on Android (`saveFcmToken` endpoint exists)
+### Android improvements (remaining)
+- Kotlin coroutines for WebSocket reconnect (currently OkHttp callbacks) — low priority
+- FCM token upload on login success: `QuizFcmService.onNewToken` uploads if already logged in, but a fresh install + first login won't upload until the next token refresh. Fix: call `PushApi.registerFcmToken` from `AuthRepository.persistSession` or after login in the LoginViewModel.
 
 ### Future / nice-to-have
 - Leaderboard: `GET /leaderboard` (global) currently returns placeholder data
 - Season end: no cron job to close seasons and award season rewards
 - Question bank admin UI: currently questions added only via raw DB inserts or API
-- Answer persistence to Postgres: now done — `submitAnswer` upserts `Answer` rows. Enables `answer_10`/`streak_5` challenge tracking.
+- Answer persistence to Postgres: done. Challenge tracking for `answer_10`, `streak_5`, `use_powerup`: done.
+- Season end: no cron job to close seasons and award season rewards
+- Question bank admin UI: currently questions added only via raw DB inserts or API
 
 ---
 
