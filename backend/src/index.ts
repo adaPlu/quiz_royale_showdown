@@ -10,6 +10,9 @@
  *  6. Register graceful shutdown handlers
  */
 
+import { initSentry } from "./utils/sentry";
+initSentry();
+
 import http from "http";
 import { Server } from "socket.io";
 
