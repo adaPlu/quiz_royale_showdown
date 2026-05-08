@@ -52,8 +52,14 @@ class PushNotificationService {
   }
 
   async saveFcmToken(userId: string, token: string): Promise<void> {
-    if (!redisService) return;
-    await redisService.set(fcmTokenKey(userId), token);
+    if (redisService) {
+      await redisService.set(fcmTokenKey(userId), token);
+    }
+    await prisma.fcmToken.upsert({
+      where: { token },
+      update: { userId },
+      create: { id: generateId(), userId, token },
+    }).catch(() => undefined);
   }
 
   async sendToUser(userId: string, payload: WebPushPayload): Promise<void> {
