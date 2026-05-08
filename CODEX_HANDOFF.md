@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-08 — Season end cron + question bank admin CRUD + Railway deploy config_
+_Last updated: 2026-05-08 — All tests passing (143 total); SeasonScheduler + admin CRUD tests added_
 
 ---
 
@@ -101,6 +101,13 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **DELETE /api/v1/admin/questions/:id**: soft-delete (`isActive = false`)
 - **PATCH /api/v1/admin/questions/:id/activate**: restore soft-deleted question
 - All guarded by existing `requireAdminSecret` + `adminLimiter` middleware
+
+### Test Suite — Full Green (`a6290db`, `58aca2b`)
+- Fixed 31 previously-failing tests across 6 files (admin, challenges, leaderboard, users, GameOrchestrator, submitAnswer)
+- Key fixes: `vi.clearAllMocks()` → `vi.resetAllMocks()` for stale queued mocks; status code 401→403; removed deleted `/progress` endpoint tests; added missing prisma mock entries; fixed loser seasonScore upsert assertion to match `$executeRaw` MMR floor; added `toAdd <= 0` guard in `trackChallengeProgress` to prevent 0-amount XP events
+- Added 7 SeasonScheduler tests (`backend/src/services/__tests__/SeasonScheduler.test.ts`)
+- Added 7 admin CRUD tests (`backend/src/routes/__tests__/admin.test.ts` — `Admin router — question CRUD` describe block)
+- **Total: 143 tests, 25 test files, all passing**
 
 ### Challenge Tracking + Android Profile/FCM (`b4a8449` backend, `25d55c7` android)
 - **GameOrchestrator**: `answer_10` tracks correct answers from `Answer` table; `streak_5` detects max consecutive correct answers per player; `use_powerup` checks `PowerUpUse` table — all challenges now fully tracked at game-over
