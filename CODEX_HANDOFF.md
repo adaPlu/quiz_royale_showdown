@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-08 — All tests passing (143 total); SeasonScheduler + admin CRUD tests added_
+_Last updated: 2026-05-08 — 172 backend tests; auth/rooms/powerups coverage; Android results handoff + friends pending; webapp level_up_
 
 ---
 
@@ -102,12 +102,25 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **PATCH /api/v1/admin/questions/:id/activate**: restore soft-deleted question
 - All guarded by existing `requireAdminSecret` + `adminLimiter` middleware
 
+### Cross-Platform Bug Fixes (`42fff1f` backend, `bcfa9bd` webapp, `be59635` android)
+- **Webapp gameStore**: wired `game:level_up` server event to `applyLevelUp` action (action existed but switch had no case; level-up toasts were never shown)
+- **Android ResultsScreen**: was always empty because `ResultsViewModel.setResults()` was never called. Created `ResultsStore` (@Singleton) as handoff channel: GameViewModel writes final standings + XP on `game:over`, ResultsViewModel collects from it on navigation
+- **Android ProfileScreen**: wired `onNavigateToCosmetics` callback to a Cosmetics button (callback was accepted but unused)
+- **Android ProfileViewModel**: API failure now emits `Error` state instead of silently substituting hardcoded fallback data
+- **Android FriendsScreen**: added Pending Requests section + Accept flow; FriendsApi now has `getPendingRequests()` and `acceptFriendRequest()`; FriendsViewModel loads pending on init and moves accepted users to friends list optimistically
+
+### Backend Route Tests — Full Coverage (`42fff1f`)
+- **auth.test.ts** (12 tests): register 201/409/400, login 200/401, logout 204, GET /me 401/200
+- **rooms.test.ts** (14 tests): create 401/201, join 401/200, GET by code 200/404, invite code 401/404/401(non-host)/200, leave 401/200
+- **powerups.test.ts** (3 tests): GET /inventory 401/200/empty
+
 ### Test Suite — Full Green (`a6290db`, `58aca2b`)
 - Fixed 31 previously-failing tests across 6 files (admin, challenges, leaderboard, users, GameOrchestrator, submitAnswer)
 - Key fixes: `vi.clearAllMocks()` → `vi.resetAllMocks()` for stale queued mocks; status code 401→403; removed deleted `/progress` endpoint tests; added missing prisma mock entries; fixed loser seasonScore upsert assertion to match `$executeRaw` MMR floor; added `toAdd <= 0` guard in `trackChallengeProgress` to prevent 0-amount XP events
 - Added 7 SeasonScheduler tests (`backend/src/services/__tests__/SeasonScheduler.test.ts`)
 - Added 7 admin CRUD tests (`backend/src/routes/__tests__/admin.test.ts` — `Admin router — question CRUD` describe block)
-- **Total: 143 tests, 25 test files, all passing**
+- Total before cross-platform fixes: 143 tests / 25 files
+- **Total after: 172 tests, 27 test files, all passing**
 
 ### Challenge Tracking + Android Profile/FCM (`b4a8449` backend, `25d55c7` android)
 - **GameOrchestrator**: `answer_10` tracks correct answers from `Answer` table; `streak_5` detects max consecutive correct answers per player; `use_powerup` checks `PowerUpUse` table — all challenges now fully tracked at game-over
