@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-07 — after challenge tracking + Android profile/FCM_
+_Last updated: 2026-05-07 — FCM token DB persistence + HomeViewModel upload gap closed_
 
 ---
 
@@ -79,6 +79,11 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **Challenge tracking (LR7)**: `GameOrchestrator.runGameOver` tracks `win_a_game`, `top_3`, `play_3_games` via XP events with duplicate-award guard. Bots excluded.
 - Webapp: `withCredentials: true`, refresh interceptor sends empty body, `authStore` and `apiClient` strip all `refreshToken` state.
 
+### FCM Token DB Persistence (`819a406` backend, `e9c25bb` android)
+- **schema.prisma**: `FcmToken` model added (`id`, `userId`, `token @unique`, timestamps, `@@index([userId])`); requires `prisma db push` on Railway to apply
+- **PushNotificationService.saveFcmToken**: now writes to both Redis (when available) and Postgres; no longer silently drops token when Redis is down
+- **Android HomeViewModel**: uploads pending FCM token from SharedPreferences on every home screen load; closes gap where fresh-install first-login token was never uploaded
+
 ### Challenge Tracking + Android Profile/FCM (`b4a8449` backend, `25d55c7` android)
 - **GameOrchestrator**: `answer_10` tracks correct answers from `Answer` table; `streak_5` detects max consecutive correct answers per player; `use_powerup` checks `PowerUpUse` table — all challenges now fully tracked at game-over
 - **GET /users/me**: enhanced to return `totalXp`, `level`, `xpToNextLevel`, `wins`, `gamesPlayed`, `mmr` alongside user fields
@@ -127,16 +132,17 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - To fix: spin up a clean shadow DB and run `prisma migrate resolve --applied` for existing migrations, then squash. Low priority.
 
 ### Android improvements (remaining)
-- Kotlin coroutines for WebSocket reconnect (currently OkHttp callbacks) — low priority
-- FCM token upload on login success: `QuizFcmService.onNewToken` uploads if already logged in, but a fresh install + first login won't upload until the next token refresh. Fix: call `PushApi.registerFcmToken` from `AuthRepository.persistSession` or after login in the LoginViewModel.
+- Kotlin coroutines for WebSocket reconnect (currently OkHttp callbacks) — low priority, no known bugs
 
 ### Future / nice-to-have
 - Leaderboard: `GET /leaderboard` (global) currently returns placeholder data
 - Season end: no cron job to close seasons and award season rewards
 - Question bank admin UI: currently questions added only via raw DB inserts or API
-- Answer persistence to Postgres: done. Challenge tracking for `answer_10`, `streak_5`, `use_powerup`: done.
-- Season end: no cron job to close seasons and award season rewards
-- Question bank admin UI: currently questions added only via raw DB inserts or API
+### Future / nice-to-have
+- **Season end cron**: no job to close seasons and distribute end-of-season rewards
+- **Question bank admin UI**: questions added via raw DB inserts or API only
+- **WebSocket reconnect coroutines**: OkHttp callbacks work but Kotlin coroutines would be cleaner
+- **Leaderboard improvement**: global `GET /leaderboard` works (returns SeasonScore standings or XP fallback) — no changes needed unless a dedicated season-agnostic top-N view is wanted
 
 ---
 
