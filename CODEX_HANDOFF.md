@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-08 — 191 backend tests; push route + usePowerup socket handler coverage; webapp 20 tests; webapp FriendsPage (frontend branch)_
+_Last updated: 2026-05-08 — 191 backend tests; push route + usePowerup socket handler coverage; QuizGame-main webapp 20 tests; QuizGame-webapp 18 tests (authStore + FriendsPage); webapp FriendsPage shipped_
 
 ---
 
@@ -128,10 +128,14 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **webapp gameStore.test.ts** (5 new tests): applyLevelUp appends + accumulates; dismissLevelUp removes first / no-op; applyGameOver sets phase+winnerId+finalScores
 - **Backend total: 191 tests passing**; **Webapp (QuizGame-main) total: 20 tests passing**
 
-### Webapp FriendsPage (`a374e4e` frontend branch)
+### Webapp FriendsPage + Test Infrastructure (`a374e4e`, `7343cb6`, `570f70d` frontend branch)
 - **FriendsPage.tsx**: search users (debounced GET /users/search), send friend requests (POST /friends/request), view + accept pending requests (GET /friends/pending + PUT /friends/:id/accept), view + remove friends (GET /friends + DELETE /friends/:id)
 - **App.tsx**: lazy-loaded `/friends` route added (auth-gated)
 - **HomePage.tsx**: Friends button added alongside Leaderboard button
+- **Test infrastructure**: vitest 3.x + jsdom + @testing-library/react + jest-dom; vite.config.ts uses `vitest/config`; setup.ts imports jest-dom matchers; `npm test` script wired up
+- **authStore.test.ts** (12 tests): setUser normalization, setTokens side-effects, clearAuth wipe, initAuth refresh success + silent failure
+- **FriendsPage.test.tsx** (6 tests): render, empty-state, friends list, pending requests, send-request optimistic, remove-friend optimistic
+- **QuizGame-webapp total: 18 tests passing**
 
 ### Challenge Tracking + Android Profile/FCM (`b4a8449` backend, `25d55c7` android)
 - **GameOrchestrator**: `answer_10` tracks correct answers from `Answer` table; `streak_5` detects max consecutive correct answers per player; `use_powerup` checks `PowerUpUse` table — all challenges now fully tracked at game-over
@@ -189,7 +193,7 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 ### Future / nice-to-have
 - **Leaderboard improvement**: global `GET /leaderboard` works (returns SeasonScore standings or XP fallback) — no changes needed unless a dedicated season-agnostic top-N view is wanted
 - **Season end cosmetic rewards**: `SeasonScheduler` awards XP; no cosmetic grant yet — extend `awardSeasonRewards` to upsert `UserCosmetic` rows if cosmetics are added for season milestones
-- **Webapp (frontend branch) test coverage**: no vitest config in QuizGame-webapp yet; to add: install vitest + jsdom + @testing-library/react as devDeps, `mergeConfig` the vite config, write authStore tests (setTokens, clearAuth, initAuth) and FriendsPage smoke tests
+- **Webapp (frontend branch) test coverage**: vitest + jsdom + testing-library fully configured; 18 tests passing (authStore x12, FriendsPage x6). No further test gaps.
 
 ---
 
