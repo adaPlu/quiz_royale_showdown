@@ -59,27 +59,47 @@ fun CosmeticsScreen(
                 CircularProgressIndicator(color = Brand)
             }
             is CosmeticsUiState.Error -> Text(s.message, color = Color.Red, modifier = Modifier.padding(16.dp))
-            is CosmeticsUiState.Success -> CosmeticsGrid(s, viewModel::equip)
+            is CosmeticsUiState.Success -> CosmeticsGrid(s, viewModel::equip, viewModel::clearEquipError)
         }
     }
 }
 
 @Composable
-private fun CosmeticsGrid(state: CosmeticsUiState.Success, onEquip: (String) -> Unit) {
-    if (state.cosmetics.isEmpty()) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("No cosmetics available yet.", color = Color.White.copy(alpha = 0.4f))
+private fun CosmeticsGrid(
+    state: CosmeticsUiState.Success,
+    onEquip: (String) -> Unit,
+    onDismissError: () -> Unit,
+) {
+    Column {
+        state.equipError?.let { error ->
+            Text(
+                text = error,
+                color = Color(0xFFFF6B6B),
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF2A1A1A), RoundedCornerShape(8.dp))
+                    .clickable { onDismissError() }
+                    .padding(12.dp)
+            )
+            Spacer(Modifier.height(8.dp))
         }
-        return
-    }
 
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(3),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        items(state.cosmetics) { item ->
-            CosmeticCard(item = item, onClick = { if (item.owned) onEquip(item.id) })
+        if (state.cosmetics.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("No cosmetics available yet.", color = Color.White.copy(alpha = 0.4f))
+            }
+            return@Column
+        }
+
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(3),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            items(state.cosmetics) { item ->
+                CosmeticCard(item = item, onClick = { if (item.owned) onEquip(item.id) })
+            }
         }
     }
 }

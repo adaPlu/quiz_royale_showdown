@@ -2,14 +2,14 @@ package com.quizroyale.showdown.ui.screens.cosmetics
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.quizroyale.showdown.data.auth.AuthRepository
+import com.quizroyale.showdown.data.cosmetics.ApiCosmetic
+import com.quizroyale.showdown.data.cosmetics.CosmeticsApi
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import retrofit2.Retrofit
-import retrofit2.http.*
 import javax.inject.Inject
 
 data class CosmeticItem(
@@ -24,24 +24,7 @@ data class CosmeticItem(
 sealed interface CosmeticsUiState {
     data object Loading : CosmeticsUiState
     data class Error(val message: String) : CosmeticsUiState
-    data class Success(val cosmetics: List<CosmeticItem>) : CosmeticsUiState
-}
-
-private data class ApiCosmetic(
-    val id: String = "",
-    val name: String = "",
-    val type: String = "",
-    val imageUrl: String? = null,
-    val isOwned: Boolean = false,
-    val isEquipped: Boolean = false
-)
-
-private interface CosmeticsApi {
-    @GET("cosmetics")
-    suspend fun getAll(@Header("Authorization") auth: String): List<ApiCosmetic>
-
-    @POST("cosmetics/{id}/equip")
-    suspend fun equip(@Header("Authorization") auth: String, @Path("id") id: String): Map<String, Any>
+    data class Success(val cosmetics: List<CosmeticItem>, val equipError: String? = null) : CosmeticsUiState
 }
 
 private fun ApiCosmetic.toUiItem() = CosmeticItem(
@@ -61,7 +44,6 @@ private fun ApiCosmetic.toUiItem() = CosmeticItem(
 
 @HiltViewModel
 class CosmeticsViewModel @Inject constructor(
-    private val authRepository: AuthRepository,
     retrofit: Retrofit
 ) : ViewModel() {
 
@@ -74,8 +56,7 @@ class CosmeticsViewModel @Inject constructor(
     private fun load() {
         viewModelScope.launch {
             try {
-                val token = "Bearer ${authRepository.currentAccessToken() ?: ""}"
-                val items = api.getAll(token).map { it.toUiItem() }
+                val items = api.getAll().map { it.toUiItem() }
                 _uiState.value = CosmeticsUiState.Success(items)
             } catch (e: Exception) {
                 _uiState.value = CosmeticsUiState.Error(e.message ?: "Failed to load cosmetics")
@@ -86,8 +67,7 @@ class CosmeticsViewModel @Inject constructor(
     fun equip(cosmeticId: String) {
         viewModelScope.launch {
             try {
-                val token = "Bearer ${authRepository.currentAccessToken() ?: ""}"
-                api.equip(token, cosmeticId)
+                api.equip(cosmeticId)
                 // Optimistic update — mark equipped, unequip others of same type
                 _uiState.update { state ->
                     if (state !is CosmeticsUiState.Success) return@update state
@@ -100,7 +80,19 @@ class CosmeticsViewModel @Inject constructor(
                         }
                     })
                 }
-            } catch (_: Exception) { /* silently ignore equip errors */ }
+            } catch (e: Exception) {
+                _uiState.update { state ->
+                    if (state !is CosmeticsUiState.Success) return@update state
+                    state.copy(equipError = e.message ?: "Failed to equip cosmetic")
+                }
+            }
+        }
+    }
+
+    fun clearEquipError() {
+        _uiState.update { state ->
+            if (state !is CosmeticsUiState.Success) return@update state
+            state.copy(equipError = null)
         }
     }
 }
