@@ -15,6 +15,9 @@ const { prismaMock, questionGeneratorMock } = vi.hoisted(() => {
   const prismaMock = {
     questionBank: {
       count: vi.fn(),
+      findMany: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
     },
   };
 
@@ -34,6 +37,7 @@ vi.mock("../../utils/logger", () => ({
 vi.mock("../../services/QuestionGeneratorService", () => ({
   questionGeneratorService: questionGeneratorMock,
 }));
+vi.mock("../../utils/ulid", () => ({ generateId: vi.fn(() => "new-question-id") }));
 
 // Expose env so we know what the secret is without hard-coding it
 import { env } from "../../config/env";
@@ -215,5 +219,130 @@ describe("Admin router — x-admin-secret header and 403 gating", () => {
     expect(res.status).toBe(200);
     const body = res.body as { total: number; active: number };
     expect(body.total).toBe(10);
+  });
+});
+
+const VALID_QUESTION = {
+  prompt: "What is 2 + 2?",
+  optionA: "3",
+  optionB: "4",
+  optionC: "5",
+  optionD: "6",
+  correctIndex: 1,
+  category: "Math",
+  difficulty: "EASY" as const,
+};
+
+describe("Admin router — question CRUD", () => {
+  const adminHeaders = { "x-admin-secret": env.adminSecret };
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    prismaMock.questionBank.count.mockResolvedValue(0);
+    prismaMock.questionBank.findMany.mockResolvedValue([]);
+    prismaMock.questionBank.create.mockResolvedValue({ id: "new-question-id", ...VALID_QUESTION, isActive: true });
+    prismaMock.questionBank.update.mockResolvedValue({ id: "q-1", ...VALID_QUESTION, isActive: true });
+  });
+
+  it("GET /questions returns paginated list with total, page, limit, questions", async () => {
+    prismaMock.questionBank.count.mockResolvedValue(5);
+    prismaMock.questionBank.findMany.mockResolvedValue([
+      { id: "q-1", prompt: "Q1?", optionA: "A", optionB: "B", optionC: "C", optionD: "D", correctIndex: 0, category: "Gen", difficulty: "EASY", isActive: true, lastUsedAt: null, createdAt: new Date().toISOString() },
+    ]);
+
+    const app = buildApp();
+    const res = await request(app, "GET", "/admin/questions?page=1&limit=10", {
+      headers: adminHeaders,
+    });
+
+    expect(res.status).toBe(200);
+    const body = res.body as { total: number; page: number; limit: number; questions: unknown[] };
+    expect(body.total).toBe(5);
+    expect(body.page).toBe(1);
+    expect(body.limit).toBe(10);
+    expect(body.questions).toHaveLength(1);
+  });
+
+  it("GET /questions with active=true filters to active questions only", async () => {
+    const app = buildApp();
+    await request(app, "GET", "/admin/questions?active=true", {
+      headers: adminHeaders,
+    });
+
+    expect(prismaMock.questionBank.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { isActive: true } }),
+    );
+    expect(prismaMock.questionBank.count).toHaveBeenCalledWith({ where: { isActive: true } });
+  });
+
+  it("POST /questions creates a question and returns 201", async () => {
+    const app = buildApp();
+    const res = await request(app, "POST", "/admin/questions", {
+      headers: adminHeaders,
+      body: VALID_QUESTION,
+    });
+
+    expect(res.status).toBe(201);
+    const body = res.body as { id: string };
+    expect(body.id).toBe("new-question-id");
+    expect(prismaMock.questionBank.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ prompt: VALID_QUESTION.prompt, isActive: true }),
+      }),
+    );
+  });
+
+  it("POST /questions returns 400 when body fails Zod validation", async () => {
+    const app = buildApp();
+    const res = await request(app, "POST", "/admin/questions", {
+      headers: adminHeaders,
+      body: { prompt: "hi" }, // missing required fields
+    });
+
+    expect(res.status).toBe(400);
+    const body = res.body as { error: string };
+    expect(body.error).toMatch(/validation/i);
+  });
+
+  it("PUT /questions/:id updates and returns the question", async () => {
+    const app = buildApp();
+    const res = await request(app, "PUT", "/admin/questions/q-1", {
+      headers: adminHeaders,
+      body: { prompt: "Updated prompt?" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.questionBank.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "q-1" },
+        data: expect.objectContaining({ prompt: "Updated prompt?" }),
+      }),
+    );
+  });
+
+  it("DELETE /questions/:id soft-deletes (isActive=false) and returns 204", async () => {
+    const app = buildApp();
+    const res = await request(app, "DELETE", "/admin/questions/q-1", {
+      headers: adminHeaders,
+    });
+
+    expect(res.status).toBe(204);
+    expect(prismaMock.questionBank.update).toHaveBeenCalledWith({
+      where: { id: "q-1" },
+      data: { isActive: false },
+    });
+  });
+
+  it("PATCH /questions/:id/activate restores a soft-deleted question", async () => {
+    const app = buildApp();
+    const res = await request(app, "PATCH", "/admin/questions/q-1/activate", {
+      headers: adminHeaders,
+    });
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.questionBank.update).toHaveBeenCalledWith({
+      where: { id: "q-1" },
+      data: { isActive: true },
+    });
   });
 });
