@@ -61,6 +61,7 @@ model User {
   fcmTokens              FcmToken[]
 
   @@index([displayName])
+  @@index([email])
 }
 
 model RefreshToken {
@@ -90,6 +91,10 @@ model Room {
   rounds         Round[]
   players        RoomPlayer[]
   season         Season?      @relation(fields: [seasonId], references: [id])
+
+  @@index([hostUserId])
+  @@index([status])
+  @@index([seasonId])
 }
 
 model RoomPlayer {
@@ -106,6 +111,8 @@ model RoomPlayer {
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([roomId, userId])
+  @@index([userId])
+  @@index([roomId])
 }
 
 model Round {
@@ -122,6 +129,7 @@ model Round {
   answers        Answer[]
 
   @@unique([roomId, roundNumber])
+  @@index([roomId])
 }
 
 model Answer {
@@ -136,6 +144,8 @@ model Answer {
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([roundId, userId])
+  @@index([roundId])
+  @@index([userId])
 }
 
 model QuestionBank {
@@ -303,9 +313,11 @@ model Friendship {
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
-  requester User @relation("FriendshipRequester", fields: [requesterId], references: [id])
-  addressee User @relation("FriendshipAddressee", fields: [addresseeId], references: [id])
+  requester User @relation("FriendshipRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee User @relation("FriendshipAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
 
   @@unique([requesterId, addresseeId])
   @@index([addresseeId])
+  @@index([requesterId])
+  @@index([addresseeId, status])
 }

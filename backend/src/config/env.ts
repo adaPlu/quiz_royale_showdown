@@ -53,7 +53,7 @@ const envSchema = z.object({
   // Web Push (VAPID)
   VAPID_PUBLIC_KEY: z.string().default(""),
   VAPID_PRIVATE_KEY: z.string().default(""),
-  VAPID_SUBJECT: z.string().default("mailto:adapluguez@gmail.com"),
+  VAPID_SUBJECT: z.string().default("mailto:admin@example.com"),
 
   // AI question generation
   OPENAI_API_KEY: z.string().optional(),

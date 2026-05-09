@@ -59,7 +59,7 @@ export async function awardMatchXp(
     const newTotalXp = prevTotalXp + xpAwarded;
     const prevLevel = levelFromTotalXp(prevTotalXp);
     const newLevel = levelFromTotalXp(newTotalXp);
-    const nextThreshold = xpToNextLevel(newLevel);
+    const nextLevelThreshold = (newLevel + 1) * (newLevel + 1) * 150;
 
     await prisma.xpEvent.create({
       data: {
@@ -78,7 +78,7 @@ export async function awardMatchXp(
       newLevel,
       prevLevel,
       didLevelUp: newLevel > prevLevel,
-      xpToNextLevel: nextThreshold,
+      xpToNextLevel: Math.max(0, nextLevelThreshold - newTotalXp),
     });
   }
 

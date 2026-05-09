@@ -4,6 +4,7 @@ import { logger } from "../utils/logger";
 import { z } from "zod";
 
 import { requireAuth } from "../middleware/auth";
+import { apiLimiter } from "../middleware/rateLimiter";
 import { validate } from "../middleware/validate";
 import { prisma } from "../models/prismaClient";
 import { gameOrchestrator } from "../services/GameOrchestrator";
@@ -191,7 +192,7 @@ roomsRouter.post(
 );
 
 // GET /rooms/join/:inviteCode — look up a room by invite code (no auth required)
-roomsRouter.get("/join/:inviteCode", validate({ params: inviteCodeParamsSchema }), async (req, res, next) => {
+roomsRouter.get("/join/:inviteCode", apiLimiter, validate({ params: inviteCodeParamsSchema }), async (req, res, next) => {
   try {
     const { inviteCode } = req.params as z.infer<typeof inviteCodeParamsSchema>;
     const room = await prisma.room.findFirst({
