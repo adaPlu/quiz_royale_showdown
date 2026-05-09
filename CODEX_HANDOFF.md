@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-08 — 194 backend tests; rooms start-game coverage added; Android CosmeticsApi refactored + equip errors surfaced_
+_Last updated: 2026-05-08 — 202 backend tests; season cosmetic grants implemented; QuestionGeneratorService tested; webapp 31 tests (LeaderboardPage, ResultsPage, LobbyPage added)_
 
 ---
 
@@ -121,6 +121,18 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **Android CosmeticsScreen**: dismissible red error banner shown in CosmeticsGrid when equip fails (previously silently swallowed)
 - **Backend total: 194 tests passing**
 
+### Season Cosmetic Grants + QuestionGeneratorService Tests (`b04bb98` main)
+- **SeasonScheduler.awardSeasonRewards**: after awarding XP to top-3, now also looks up `Cosmetic` by code (`season:rank_1/2/3`) and upserts `UserCosmetic` rows; skips gracefully with `logger.warn` if cosmetic not seeded in DB
+- **SeasonScheduler.test.ts**: +2 new tests (upserts cosmetics for top-3; skips+warns when code not found)
+- **QuestionGeneratorService.test.ts**: new file, 6 tests — `isAvailable` flag, `generateAndStore` no-op without API key, `refillIfNeeded` threshold gate, dedup check in `storeQuestion`
+- **Backend total: 202 tests passing**
+
+### Webapp Page Tests (`32da594` frontend branch)
+- **LeaderboardPage.test.tsx** (5 tests): tabs render, loading state, season entries, friends tab API endpoint, empty-list graceful
+- **ResultsPage.test.tsx** (4 tests): no-results fallback, player rows, winner highlight, home navigation
+- **LobbyPage.test.tsx** (4 tests): Live Lobby heading, room-code input, < 6 char validation error, valid code triggers socket emit
+- **Webapp (frontend branch) total: 31 tests passing**
+
 ### Test Suite — Full Green (`a6290db`, `58aca2b`)
 - Fixed 31 previously-failing tests across 6 files (admin, challenges, leaderboard, users, GameOrchestrator, submitAnswer)
 - Key fixes: `vi.clearAllMocks()` → `vi.resetAllMocks()` for stale queued mocks; status code 401→403; removed deleted `/progress` endpoint tests; added missing prisma mock entries; fixed loser seasonScore upsert assertion to match `$executeRaw` MMR floor; added `toAdd <= 0` guard in `trackChallengeProgress` to prevent 0-amount XP events
@@ -199,8 +211,8 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 
 ### Future / nice-to-have
 - **Leaderboard improvement**: global `GET /leaderboard` works (returns SeasonScore standings or XP fallback) — no changes needed unless a dedicated season-agnostic top-N view is wanted
-- **Season end cosmetic rewards**: `SeasonScheduler` awards XP; no cosmetic grant yet — extend `awardSeasonRewards` to upsert `UserCosmetic` rows if cosmetics are added for season milestones
-- **Webapp (frontend branch) test coverage**: vitest + jsdom + testing-library fully configured; 18 tests passing (authStore x12, FriendsPage x6). No further test gaps.
+- **Season end cosmetic rewards**: ✅ DONE — `awardSeasonRewards` now upserts `UserCosmetic` rows for top-3 using codes `season:rank_1/2/3`. Requires cosmetics to be seeded in DB to grant; skips gracefully if not.
+- **Webapp (frontend branch) test coverage**: ✅ 31 tests passing — authStore (12), FriendsPage (6), LeaderboardPage (5), ResultsPage (4), LobbyPage (4). No remaining page test gaps.
 - **Backend route coverage**: all 11 route test files present; rooms (17 tests) and leaderboard (12 tests) now fully cover their endpoints including start-game chain and season/XP-fallback paths. No remaining route gaps.
 
 ---
