@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-08 — Iteration 2 sprint: 208 backend tests green (+6), 49 webapp tests green (+18), Android unit test bootstrap (7 tests); UX fixes; CI webapp step added_
+_Last updated: 2026-05-08 — Iteration 3 sprint: 4 CRITICAL + 8 HIGH fixes across backend/webapp/Android; distributed lock, bot FK crash, double-submit guard, stale closure, Android reconnect_
 
 ---
 
@@ -214,6 +214,31 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **Challenge tracking (LR7)**: `GameOrchestrator.runGameOver` tracks `win_a_game`, `top_3`, `play_3_games` via XP events with duplicate-award guard. Bots excluded.
 - Webapp: `withCredentials: true`, refresh interceptor sends empty body, `authStore` and `apiClient` strip all `refreshToken` state.
 
+### Iteration 3 Sprint — Critical/High Audit Remediations (`d6bbac7` main, `31464e1` frontend, `e920d7d` android)
+
+**Backend (`d6bbac7` main)**
+- **SeasonScheduler.ts**: atomic `$executeRaw` UPDATE-with-RETURNING claim per season — prevents double-award across multiple Railway instances (no distributed lock existed before)
+- **GameOrchestrator.ts**: `$transaction` wraps `seasonScore.upsert` + `$executeRaw` MMR decrement — eliminates concurrent race where two game-over calls could double-decrement MMR
+- **GameOrchestrator.ts**: filter `bot:` IDs before `awardMatchXp`, `seasonScore.upsert`, and final-score persistence — bot IDs caused FK violation crash in single-player games
+- **GameStateMachine.ts**: added `COUNTDOWN → FINALE` transition — fixes crash when game ends on an even round (rounds 2/4/6/8/10) with ≤2 players remaining
+- **submitAnswer.ts**: `finally` block deletes Redis lock key if `answerWritten = false` — player was previously locked out 5 minutes on DB error after Redis setnx succeeded
+- **ci.yml**: `npm install` → `npm ci` for lockfile integrity; `timeout-minutes: 10` on both test steps
+
+**Webapp (`31464e1` frontend branch)**
+- **useGameSocket.ts**: `navigateRef` pattern — navigate reference updated each render, preventing stale router context in long-lived socket callbacks
+- **GamePage.tsx**: `isLockedRef` synced each render — keyboard handler now reads current lock state, blocking double-answer-submission via keyboard
+- **apiClient.ts**: refresh failure re-throws as `ApiError` (not raw `AxiosError`); `Promise.race` with 10s timeout prevents infinite `refreshPromise` hang on network drop
+- **socketService.ts**: `console.warn` on Zod parse failures and unknown event types — previously swallowed silently, making production debugging impossible
+- **gameStore.ts**: `applyCountdown` now stores `startsAt + seconds*1000` as `countdownEndsAt` — was storing start time so all countdown timers were already expired on arrival
+- **ResultsPage.test.tsx**: added `players` to mock state; assertions now verify `displayName` values render (not just raw player IDs)
+
+**Android (`e920d7d` feature/android branch)**
+- **AppNavGraph.kt**: `it.ifBlank { roomCode }` (was inverted to `roomCode.ifBlank { it }`) — deep-link roomCode was always used regardless of UI-typed code; blank guard pops back stack instead of navigating to empty roomId
+- **GameViewModel.kt**: `observeGameEvents()` wrapped in `while(isActive)` loop — events flow now restarts after socket close/reconnect; previously a closed flow permanently stopped all event delivery
+- **GameViewModel.kt**: `startHeartbeat()` cancels previous job before launching new one — prevents duplicate heartbeat loops when `handleRoomState` fires rapidly
+- **AuthRepository.kt**: `Mutex` + `withLock` around `refreshIfPossible()` — prevents concurrent double-refresh race where both calls consume the single-use refresh token
+- **HomeViewModel.kt**: clears FCM pref on successful upload; logs failure to logcat — was silently re-uploading every app launch
+
 ### Iteration 2 Sprint — Tests + UX Polish (`f18dc39` main, `38b8f89` frontend, `f676bdf` android)
 
 **Backend (`f18dc39` main)**
@@ -262,8 +287,16 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **Season end cosmetic rewards**: ✅ DONE — `awardSeasonRewards` upserts `UserCosmetic` rows for top-3 using codes `season:rank_1/2/3`. Requires cosmetics to be seeded in DB; skips gracefully if not.
 - **Webapp (frontend branch) test coverage**: ✅ 31 tests passing — authStore (12), FriendsPage (6), LeaderboardPage (5), ResultsPage (4), LobbyPage (4). No remaining page test gaps.
 - **Backend route coverage**: ✅ all 11 route test files present; 202 tests passing. No remaining route gaps.
-- **Android test coverage**: ✅ Bootstrap done — 7 tests (TokenRefreshAuthenticator × 4, LeaderboardViewModel × 3). Remaining coverage gaps: `CosmeticsViewModel`, `HomeViewModel`, `GameViewModel`, `AuthRepository`. Also need instrumented (Compose UI) tests.
-- **CI webapp tests**: ✅ DONE — `npm run test -w webapp` step added to `.github/workflows/ci.yml`.
+- **Android test coverage**: ✅ Bootstrap done — 7 tests (TokenRefreshAuthenticator × 4, LeaderboardViewModel × 3). Remaining gaps: `CosmeticsViewModel`, `HomeViewModel`, `GameViewModel`, `AuthRepository`. Need instrumented (Compose UI) tests. Also: Android CI job (gradlew testDebugUnitTest) still missing.
+- **CI webapp tests**: ✅ DONE — `npm run test -w webapp` step added with `timeout-minutes: 10`. Note: webapp tests may need `VITE_*` env vars as GitHub Actions secrets if Vite build-time env vars are consumed during tests.
+- **Android CI/CD**: No automated APK builds or `testDebugUnitTest` run in CI. Should add a `Build Android` job with `actions/setup-java` + Gradle running `./gradlew testDebugUnitTest`.
+- **LeaderboardApi `@SerializedName` mismatch**: Uses Gson `@SerializedName` annotations but Retrofit is configured with `kotlinx.serialization`. Works currently because server field names match Kotlin property names. Replace with `@SerialName` + `@Serializable` for correctness.
+- **XpService.ts**: exported `xpToNextLevel(level)` returns absolute cumulative threshold, not relative remaining XP. Misleadingly named. Rename to `xpThresholdForLevel` or change signature to include `currentTotalXp`.
+- **GamePage.tsx timer**: `durationSec` shows total question duration, not remaining seconds (static label). Needs a `useInterval` counter derived from `question.startedAt` + `timeLimitMs`.
+- **authStore.ts**: `initAuth()` doesn't call `GET /users/me` after refresh — stale persisted user object until next profile-visiting page.
+- **vite.config.ts**: `sourcemap: true` in production exposes full source. Change to `sourcemap: 'hidden'` or gate on `NODE_ENV`.
+- **schema.prisma**: `PurchaseReceipt` has no `@@index([userId])` — purchase history queries require full table scan.
+- **XpEvent index**: missing `@@index([userId, reason])` for challenge tracking queries that filter by `reason: { startsWith: ... }`.
 - **Android CI/CD**: No automated APK builds on PR or Play Store pipeline. Should add Gradle CI workflow.
 - **DB schema migration**: `prisma migrate dev` fails with P3006 shadow DB conflict — always use `prisma db push` for Railway. To fix permanently: spin up clean shadow DB and run `prisma migrate resolve --applied` then squash.
 - **XpEvent/Answer archival**: Both tables grow forever. At scale needs a background archival job.
