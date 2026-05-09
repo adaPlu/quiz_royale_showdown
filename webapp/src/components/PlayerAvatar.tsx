@@ -29,7 +29,7 @@ const SIZE_CLASSES: Record<string, string> = {
   xl: 'h-20 w-20 text-xl',
 };
 
-export const PlayerAvatar = (props: PlayerAvatarProps) => {
+export const PlayerAvatar = React.memo(function PlayerAvatar(props: PlayerAvatarProps) {
   // ── New API ──
   if ('username' in props && props.username !== undefined) {
     const { username, avatarUrl, size = 'md', showTitle } = props;
@@ -76,4 +76,4 @@ export const PlayerAvatar = (props: PlayerAvatarProps) => {
       <div className="text-lg font-bold text-gold">{player.score.toLocaleString()} pts</div>
     </div>
   );
-};
+});
