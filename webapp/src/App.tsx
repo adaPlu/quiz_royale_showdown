@@ -24,6 +24,18 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function AuthErrorBanner() {
+  const authError = useAuthStore((s) => s.authError);
+  const clearAuthError = useAuthStore((s) => s.clearAuthError);
+  if (!authError) return null;
+  return (
+    <div className="fixed top-0 left-0 right-0 z-50 bg-answer-wrong px-4 py-2 text-center text-sm text-white">
+      {authError}
+      <button className="ml-3 underline" onClick={clearAuthError}>Dismiss</button>
+    </div>
+  );
+}
+
 const Spinner = () => (
   <div className="min-h-screen bg-game-bg flex items-center justify-center">
     <div className="w-8 h-8 border-2 border-brand border-t-transparent rounded-full animate-spin" />
@@ -38,6 +50,7 @@ export const App = () => {
   return (
     <ErrorBoundary>
       <Suspense fallback={<Spinner />}>
+        <AuthErrorBanner />
         <OfflineBanner />
         <SocketReconnectBanner />
         <ToastManager />

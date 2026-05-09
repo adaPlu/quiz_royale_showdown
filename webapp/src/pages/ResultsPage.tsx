@@ -33,10 +33,13 @@ export default function ResultsPage() {
   const finalScores = useGameStore((state) => state.finalScores);
   const winnerId = useGameStore((state) => state.winnerId);
   const resetRoom = useGameStore((state) => state.resetRoom);
+  const players = useGameStore((state) => state.players) ?? [];
 
   useEffect(() => {
     return () => resetRoom();
   }, [resetRoom]);
+
+  const nameMap = new Map(players.map((p) => [p.id, p.displayName]));
 
   if (finalScores.length === 0) {
     return (
@@ -73,7 +76,7 @@ export default function ResultsPage() {
           <h1 className="mt-2 text-3xl font-black text-white">
             {myScore?.rank === 1 ? 'Victory' : 'Final Results'}
           </h1>
-          {winner && <p className="mt-1 font-semibold text-gold">Winner: {winner.playerId}</p>}
+          {winner && <p className="mt-1 font-semibold text-gold">Winner: {nameMap.get(winner.playerId) ?? winner.playerId}</p>}
           {myScore && <p className="text-sm text-game-muted">Your rank: #{myScore.rank}</p>}
         </motion.div>
 
@@ -107,7 +110,7 @@ export default function ResultsPage() {
                 <span className="w-8 text-center font-bold text-game-muted">#{score.rank}</span>
                 <PlayerAvatar username={score.playerId} size="xs" />
                 <span className="flex-1 truncate text-sm font-medium text-white">
-                  {score.playerId}{score.playerId === user?.id ? ' (you)' : ''}
+                  {nameMap.get(score.playerId) ?? score.playerId}{score.playerId === user?.id ? ' (you)' : ''}
                 </span>
                 <span className="text-sm font-bold tabular-nums text-white">
                   {score.score.toLocaleString()}

@@ -26,10 +26,12 @@ type AuthUserInput = Partial<AuthUser> & {
 type AuthState = {
   user: AuthUser | null;
   accessToken: string | null;
+  authError: string | null;
   setUser: (user: AuthUserInput) => void;
   setAccessToken: (token: string) => void;
   setTokens: (tokens: { accessToken: string }) => void;
   clearAuth: () => void;
+  clearAuthError: () => void;
   initAuth: () => Promise<void>;
 };
 
@@ -52,6 +54,7 @@ export const useAuthStore = create<AuthState>()(
     (set) => ({
       user: null,
       accessToken: null,
+      authError: null,
       setUser: (user) => set({ user: normalizeUser(user) }),
       setAccessToken: (token) => {
         setApiAccessToken(token);
@@ -68,6 +71,7 @@ export const useAuthStore = create<AuthState>()(
         socketService.disconnect();
         set({ user: null, accessToken: null });
       },
+      clearAuthError: () => set({ authError: null }),
       initAuth: async () => {
         try {
           const response = await apiClient.post<{ accessToken: string }>(
@@ -80,6 +84,7 @@ export const useAuthStore = create<AuthState>()(
           set({ accessToken: response.data.accessToken });
         } catch {
           // refresh failed — user must log in
+          set({ authError: 'Your session expired. Please sign in again.' });
         }
       },
     }),

@@ -126,7 +126,7 @@ export const ServerEventSchemas = {
   'round:finale_started': FinaleStartedPayload,
   'powerup:activated': PowerupActivatedPayload,
   'powerup:effect': PowerupEffectPayload,
-  'powerup:loot_drop': z.object({ powerupId: z.string(), powerupType: z.string(), quantity: z.number() }),
+  'powerup:loot_drop': z.object({ roomId: z.string(), powerupType: z.string(), quantity: z.number() }),
   'game:over': GameOverPayload,
   'game:level_up': LevelUpPayload,
   error: ErrorPayload,
