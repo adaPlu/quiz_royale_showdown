@@ -69,7 +69,7 @@ export const useAuthStore = create<AuthState>()(
       clearAuth: () => {
         setApiAccessToken(null);
         socketService.disconnect();
-        set({ user: null, accessToken: null });
+        set({ user: null, accessToken: null, authError: null });
       },
       clearAuthError: () => set({ authError: null }),
       initAuth: async () => {
@@ -82,6 +82,12 @@ export const useAuthStore = create<AuthState>()(
           setApiAccessToken(response.data.accessToken);
           socketService.connect(response.data.accessToken);
           set({ accessToken: response.data.accessToken });
+          try {
+            const profileResp = await apiClient.get<AuthUserInput>('/users/me');
+            set({ user: normalizeUser(profileResp.data) });
+          } catch {
+            // keep cached user if profile fetch fails
+          }
         } catch {
           // refresh failed — user must log in
           set({ authError: 'Your session expired. Please sign in again.' });

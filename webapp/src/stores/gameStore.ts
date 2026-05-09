@@ -197,6 +197,7 @@ const resetRoundInteraction: Pick<
   | 'revealedOptionIndex'
   | 'timeBoostActive'
   | 'activePowerupEffect'
+  | 'countdownEndsAt'
 > = {
   result: null,
   myAnswerIndex: null,
@@ -204,6 +205,7 @@ const resetRoundInteraction: Pick<
   revealedOptionIndex: null,
   timeBoostActive: false,
   activePowerupEffect: null,
+  countdownEndsAt: null,
 };
 
 export const useGameStore = create<GameState & GameActions>((set, get) => ({

@@ -5,9 +5,10 @@ type CountdownBarProps = {
   duration: number;
   animationKey?: string | number;
   onExpire?: () => void;
+  startedAt?: string;
 };
 
-export const CountdownBar = ({ duration, animationKey, onExpire }: CountdownBarProps) => {
+export const CountdownBar = ({ duration, animationKey, onExpire, startedAt }: CountdownBarProps) => {
   const controls = useAnimationControls();
   const onExpireRef = useRef(onExpire);
   onExpireRef.current = onExpire;
@@ -15,11 +16,15 @@ export const CountdownBar = ({ duration, animationKey, onExpire }: CountdownBarP
   useEffect(() => {
     let cancelled = false;
 
-    controls.set({ scaleX: 1 });
+    const elapsed = startedAt ? (Date.now() - new Date(startedAt).getTime()) / 1000 : 0;
+    const remaining = Math.max(0, duration - elapsed);
+    const initialScale = duration > 0 ? remaining / duration : 0;
+
+    controls.set({ scaleX: initialScale });
     controls
       .start({
         scaleX: 0,
-        transition: { duration, ease: 'linear' },
+        transition: { duration: remaining, ease: 'linear' },
       })
       .then(() => {
         if (!cancelled) onExpireRef.current?.();
@@ -29,7 +34,7 @@ export const CountdownBar = ({ duration, animationKey, onExpire }: CountdownBarP
       cancelled = true;
       controls.stop();
     };
-  }, [animationKey, controls, duration]);
+  }, [animationKey, controls, duration, startedAt]);
 
   return (
     <div className="relative h-3 w-full overflow-hidden rounded-full bg-white/10">

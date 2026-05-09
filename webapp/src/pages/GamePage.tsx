@@ -119,6 +119,16 @@ export const GamePage = () => {
   const isLockedRef = useRef(isLocked);
   useEffect(() => { isLockedRef.current = isLocked; }, [isLocked]);
   const durationSec = question ? Math.max(1, question.timeLimitMs / 1000) : 20;
+
+  const [remainingSec, setRemainingSec] = useState<number>(0);
+  useEffect(() => {
+    if (!question) return;
+    const endTime = new Date(question.startedAt).getTime() + question.timeLimitMs;
+    const update = () => setRemainingSec(Math.max(0, Math.ceil((endTime - Date.now()) / 1000)));
+    update();
+    const id = setInterval(update, 500);
+    return () => clearInterval(id);
+  }, [question]);
   const activeRoomId = roomId ?? storedRoomId ?? '';
 
   const powerUpSlots: PowerUpSlot[] = [
@@ -217,14 +227,14 @@ export const GamePage = () => {
             ) : (
               <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-center">
                 <p className="text-xs uppercase tracking-[0.2em] text-white/45">Timer</p>
-                <p className="text-2xl font-black text-gold">{question ? `${Math.round(durationSec)}s` : '--'}</p>
+                <p className="text-2xl font-black text-gold">{question ? `${remainingSec}s` : '--'}</p>
               </div>
             )}
           </div>
 
           {isQuestionActive && (
             <div className="mb-6">
-              <CountdownBar duration={durationSec} animationKey={question.questionId} />
+              <CountdownBar duration={durationSec} animationKey={question.questionId} startedAt={question.startedAt} />
             </div>
           )}
 
