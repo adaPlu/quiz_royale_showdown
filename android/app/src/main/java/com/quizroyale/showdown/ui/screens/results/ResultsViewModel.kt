@@ -44,4 +44,8 @@ class ResultsViewModel @Inject constructor(
     fun setResults(leaderboard: List<LeaderboardEntry>, xpEarned: Int) {
         resultsStore.setResults(leaderboard, xpEarned)
     }
+
+    fun clearResults() {
+        resultsStore.clear()
+    }
 }

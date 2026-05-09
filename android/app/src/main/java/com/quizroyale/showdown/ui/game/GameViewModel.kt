@@ -41,8 +41,7 @@ class GameViewModel @Inject constructor(
   private val resultsStore: ResultsStore,
 ) : ViewModel() {
   private val _uiState = MutableStateFlow<GameUiState>(GameUiState.Idle)
-  val uiState: GameUiState get() = _uiState.value
-  val uiStateFlow: StateFlow<GameUiState> = _uiState.asStateFlow()
+  val uiState: StateFlow<GameUiState> = _uiState.asStateFlow()
 
   private val _sideEffects = Channel<GameSideEffect>(Channel.BUFFERED)
   val sideEffects = _sideEffects.receiveAsFlow()

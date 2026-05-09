@@ -72,7 +72,7 @@ fun AppNavGraph() {
     ) { backStackEntry ->
       val roomCode = backStackEntry.arguments?.getString("roomId").orEmpty()
       val viewModel: GameViewModel = hiltViewModel()
-      val state by viewModel.uiStateFlow.collectAsState()
+      val state by viewModel.uiState.collectAsState()
       val snackbarHostState = remember { SnackbarHostState() }
 
       // Consume side effects

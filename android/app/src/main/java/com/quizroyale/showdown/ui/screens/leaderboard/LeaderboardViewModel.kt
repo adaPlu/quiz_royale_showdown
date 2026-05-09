@@ -26,7 +26,8 @@ data class LeaderboardEntry(
 data class LeaderboardUiState(
     val activeTab: LeaderboardTab = LeaderboardTab.Season,
     val entries: List<LeaderboardEntry> = emptyList(),
-    val loading: Boolean = false
+    val loading: Boolean = false,
+    val error: String? = null
 )
 
 @HiltViewModel
@@ -75,7 +76,7 @@ class LeaderboardViewModel @Inject constructor(
                     )
                 }
             } catch (e: Exception) {
-                _uiState.update { it.copy(loading = false, entries = emptyList()) }
+                _uiState.update { it.copy(loading = false, entries = emptyList(), error = e.message ?: "Failed to load leaderboard") }
             }
         }
     }

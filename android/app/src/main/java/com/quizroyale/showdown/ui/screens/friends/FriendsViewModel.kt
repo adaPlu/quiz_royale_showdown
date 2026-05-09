@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 data class FriendUser(
@@ -56,10 +57,10 @@ class FriendsViewModel @Inject constructor(
     }
 
     fun loadFriends() {
-        viewModelScope.launch(Dispatchers.IO) {
-            _uiState.update { it.copy(isLoading = true, error = null) }
-            runCatching {
-                val response = friendsApi.getFriends()
+        _uiState.update { it.copy(isLoading = true, error = null) }
+        viewModelScope.launch {
+            try {
+                val response = withContext(Dispatchers.IO) { friendsApi.getFriends() }
                 val friends = response.friends.map { dto ->
                     FriendUser(
                         friendshipId = dto.friendshipId,
@@ -69,7 +70,7 @@ class FriendsViewModel @Inject constructor(
                     )
                 }
                 _uiState.update { it.copy(friends = friends, isLoading = false) }
-            }.onFailure { e ->
+            } catch (e: Exception) {
                 _uiState.update { it.copy(isLoading = false, error = e.message ?: "Failed to load friends") }
             }
         }
@@ -81,9 +82,9 @@ class FriendsViewModel @Inject constructor(
             _uiState.update { it.copy(searchResults = emptyList()) }
             return
         }
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                val results = friendsApi.searchUsers(query)
+        viewModelScope.launch {
+            try {
+                val results = withContext(Dispatchers.IO) { friendsApi.searchUsers(query) }
                 val searchUsers = results.map { dto ->
                     SearchUser(
                         id = dto.id,
@@ -92,16 +93,18 @@ class FriendsViewModel @Inject constructor(
                     )
                 }
                 _uiState.update { it.copy(searchResults = searchUsers) }
-            }.onFailure { e ->
+            } catch (e: Exception) {
                 _uiState.update { it.copy(error = e.message ?: "Search failed") }
             }
         }
     }
 
     fun sendRequest(userId: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                friendsApi.sendFriendRequest(SendFriendRequestBody(addresseeId = userId))
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    friendsApi.sendFriendRequest(SendFriendRequestBody(addresseeId = userId))
+                }
                 _uiState.update { state ->
                     state.copy(
                         searchResults = state.searchResults.map { user ->
@@ -109,16 +112,16 @@ class FriendsViewModel @Inject constructor(
                         }
                     )
                 }
-            }.onFailure { e ->
+            } catch (e: Exception) {
                 _uiState.update { it.copy(error = e.message ?: "Failed to send request") }
             }
         }
     }
 
     fun loadPendingRequests() {
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                val response = friendsApi.getPendingRequests()
+        viewModelScope.launch {
+            try {
+                val response = withContext(Dispatchers.IO) { friendsApi.getPendingRequests() }
                 val pending = response.pending.map { dto ->
                     PendingFriendUser(
                         friendshipId = dto.friendshipId,
@@ -128,16 +131,16 @@ class FriendsViewModel @Inject constructor(
                     )
                 }
                 _uiState.update { it.copy(pendingRequests = pending) }
-            }.onFailure { e ->
+            } catch (e: Exception) {
                 _uiState.update { it.copy(error = e.message ?: "Failed to load pending requests") }
             }
         }
     }
 
     fun acceptRequest(friendshipId: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                friendsApi.acceptFriendRequest(friendshipId)
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { friendsApi.acceptFriendRequest(friendshipId) }
                 _uiState.update { state ->
                     val accepted = state.pendingRequests.find { it.friendshipId == friendshipId }
                     val newFriend = accepted?.let {
@@ -148,20 +151,20 @@ class FriendsViewModel @Inject constructor(
                         friends = if (newFriend != null) state.friends + newFriend else state.friends
                     )
                 }
-            }.onFailure { e ->
+            } catch (e: Exception) {
                 _uiState.update { it.copy(error = e.message ?: "Failed to accept request") }
             }
         }
     }
 
     fun removeFriend(friendshipId: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                friendsApi.removeFriend(friendshipId)
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { friendsApi.removeFriend(friendshipId) }
                 _uiState.update { state ->
                     state.copy(friends = state.friends.filter { it.friendshipId != friendshipId })
                 }
-            }.onFailure { e ->
+            } catch (e: Exception) {
                 _uiState.update { it.copy(error = e.message ?: "Failed to remove friend") }
             }
         }
