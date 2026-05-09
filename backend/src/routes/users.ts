@@ -36,7 +36,7 @@ router.get("/me", requireAuth, async (req, res, next) => {
       ...user,
       totalXp,
       level,
-      xpToNextLevel: xpToNextLevel(level),
+      xpToNextLevel: Math.max(0, xpToNextLevel(level) - totalXp),
       wins: seasonScore?.wins ?? 0,
       gamesPlayed: seasonScore?.gamesPlayed ?? 0,
       mmr: seasonScore?.mmr ?? 1000,

@@ -240,6 +240,7 @@ model XpEvent {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+  @@index([userId, reason])
 }
 
 model Season {

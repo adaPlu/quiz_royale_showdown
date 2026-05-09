@@ -225,27 +225,32 @@ export class PowerUpService {
       throw new ForbiddenError("Power-up already used in this room");
     }
 
-    await prisma.$transaction([
-      prisma.playerPowerUp.update({
-        where: {
-          userId_powerUpId: {
+    try {
+      await prisma.$transaction([
+        prisma.playerPowerUp.update({
+          where: {
+            userId_powerUpId: {
+              userId: input.userId,
+              powerUpId: powerUp.id,
+            },
+          },
+          data: { quantity: { decrement: 1 } },
+        }),
+        prisma.powerUpUse.create({
+          data: {
+            id: generateId(),
+            roomId: input.roomId,
+            roundId: input.roundId ?? null,
             userId: input.userId,
             powerUpId: powerUp.id,
+            targetPlayerId: input.targetPlayerId ?? null,
           },
-        },
-        data: { quantity: { decrement: 1 } },
-      }),
-      prisma.powerUpUse.create({
-        data: {
-          id: generateId(),
-          roomId: input.roomId,
-          roundId: input.roundId ?? null,
-          userId: input.userId,
-          powerUpId: powerUp.id,
-          targetPlayerId: input.targetPlayerId ?? null,
-        },
-      }),
-    ]);
+        }),
+      ]);
+    } catch (err) {
+      await redisService.del(usedKey(input.roomId, input.userId, powerUp.id));
+      throw err;
+    }
 
     const result = await this.applyEffect({ ...input, powerUpId: powerUp.id }, code, io);
 

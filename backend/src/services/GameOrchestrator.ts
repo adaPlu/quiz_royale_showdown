@@ -545,7 +545,7 @@ export class GameOrchestrator {
                 id: generateId(),
                 seasonId: season.id,
                 userId: standing.playerId,
-                mmr: Math.max(0, 1000 + (isWinner ? 25 : -10)),
+                mmr: isWinner ? 1025 : 1000,
                 wins: isWinner ? 1 : 0,
                 gamesPlayed: 1,
               },

@@ -33,3 +33,23 @@ jobs:
       - name: Web tests
         timeout-minutes: 10
         run: npm run test -w webapp
+
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: adaPlu/quiz_royale_showdown
+          ref: feature/android
+          path: android-repo
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Android unit tests
+        run: cd android-repo/android && ./gradlew testDebugUnitTest
