@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-08 — Iteration 3 sprint: 4 CRITICAL + 8 HIGH fixes across backend/webapp/Android; distributed lock, bot FK crash, double-submit guard, stale closure, Android reconnect_
+_Last updated: 2026-05-08 — Iteration 4 sprint: 5 CRITICAL + 6 HIGH fixes; MMR first-game double-deduct, LeaderboardApi serializer mismatch, sourcemap exposure, live countdown timer, SharedFlow replay_
 
 ---
 
@@ -213,6 +213,28 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **Push subscription persistence (LR6)**: `PushSubscription` Prisma model added (applied via `db push`). Save/remove writes to Redis + DB. `sendToUser` falls back to DB when Redis unavailable.
 - **Challenge tracking (LR7)**: `GameOrchestrator.runGameOver` tracks `win_a_game`, `top_3`, `play_3_games` via XP events with duplicate-award guard. Bots excluded.
 - Webapp: `withCredentials: true`, refresh interceptor sends empty body, `authStore` and `apiClient` strip all `refreshToken` state.
+
+### Iteration 4 Sprint — Critical/High Audit Remediations (`4f5cac9` main, `2171796` frontend, `88ee071` android)
+
+**Backend (`4f5cac9` main)**
+- **GameOrchestrator.ts**: first-game losers `seasonScore.upsert` `create.mmr` changed from `Math.max(0,1000-10)=990` to `1000`; `$executeRaw` now applies the single -10, eliminating double-deduction
+- **PowerUpService.ts**: `$transaction` wrapped in try/catch; Redis dedup lock deleted in catch before re-throw — was permanently burning power-up on transient DB error
+- **users.ts**: `GET /users/me` `xpToNextLevel` now returns `Math.max(0, threshold - totalXp)` (relative remaining); was absolute cumulative threshold
+- **schema.prisma**: `@@index([userId, reason])` added to `XpEvent` for challenge-tracking `reason LIKE 'CHALLENGE:...'` queries
+- **ci.yml**: Android CI job added (`actions/checkout feature/android` → `actions/setup-java 17` → `gradlew testDebugUnitTest`)
+
+**Webapp (`2171796` frontend branch)**
+- **vite.config.ts**: `sourcemap: false` in production (was `true`, exposing full source tree via DevTools)
+- **GamePage.tsx**: `remainingSec` state with 500ms `setInterval` from `question.startedAt + timeLimitMs` — timer now counts down correctly instead of showing static total duration
+- **authStore.ts**: `clearAuth` includes `authError: null`; `initAuth` fetches `GET /users/me` after successful refresh to rehydrate stale persisted user
+- **gameStore.ts**: `resetRoundInteraction` includes `countdownEndsAt: null` so stale end-time doesn't persist into next question
+- **CountdownBar.tsx**: accepts `startedAt` prop; computes elapsed time to start animation at correct offset for late-joining players
+
+**Android (`88ee071` feature/android branch)**
+- **LeaderboardApi.kt**: replaced `@SerializedName` (Gson) with `@SerialName` + `@Serializable` (kotlinx); all leaderboard fields were silently `null`/`0` at runtime due to serializer mismatch
+- **AuthRepository.kt**: `persistTokens` uses `.commit()` (sync) instead of `.apply()` (async); closes race window where concurrent `currentAccessToken()` reads stale token mid-write
+- **WebSocketManager.kt**: `_events` `MutableSharedFlow` now `replay=1, extraBufferCapacity=64, DROP_OLDEST`; events during 1s reconnect gap no longer silently dropped
+- **QuizFcmService.kt**: `serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)` replaces per-call bare scope; cancelled in `onDestroy`
 
 ### Iteration 3 Sprint — Critical/High Audit Remediations (`d6bbac7` main, `31464e1` frontend, `e920d7d` android)
 
