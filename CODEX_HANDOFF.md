@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-09 — Iteration 6 sprint: 2 CRITICAL + 5 HIGH + 3 MEDIUM fixes; runGameOver idempotency, double-score prevention, register rate limit, XP rename, RefreshToken index, CSP unsafe-inline, CountdownBar dual controls, Android replay corruption_
+_Last updated: 2026-05-09 — Iteration 7 sprint: 4 CRITICAL + 9 HIGH fixes; startGame race, login brute-force, profileStore XP delta bug, ResultsStore stale data, usePowerup enforcement, joinedRef double-join, challenges accumulation, XP N+1, reconnect state clear_
 
 ---
 
@@ -214,6 +214,30 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **Challenge tracking (LR7)**: `GameOrchestrator.runGameOver` tracks `win_a_game`, `top_3`, `play_3_games` via XP events with duplicate-award guard. Bots excluded.
 - Webapp: `withCredentials: true`, refresh interceptor sends empty body, `authStore` and `apiClient` strip all `refreshToken` state.
 
+### Iteration 7 Sprint — Critical/High Audit Remediations (`4cbf016` main, `f6e8e23` frontend, `bd2ef66` android)
+
+**Backend (`4cbf016` main)**
+- **RoomService.startGame**: `prisma.room.update` → `prisma.room.updateMany({ where: { id, status:'WAITING' } })`; throws `ConflictError` if `count===0` — eliminates double-start race condition
+- **auth.ts**: dedicated `loginLimiter` (5/15min) on `/login` route; prevents brute-force on targeted accounts
+- **usePowerup.ts**: `socket.data.roomId` check changed from optional guard to hard requirement — sockets with no `roomId` can no longer use power-ups in arbitrary rooms
+- **challenges.ts GET /daily**: replaced `new Map(progressRows.map(...))` (last-write wins) with accumulator `for...of` loop summing `row.amount` per challenge key
+- **XpService.awardMatchXp**: serial `for...of prisma.xpEvent.create` → `Promise.all([...creates])` — N sequential DB round-trips reduced to 1 batch
+- **ci.yml**: android job checks out `${{ github.ref }}` instead of hardcoded `feature/android`
+
+**Webapp (`f6e8e23` frontend branch)**
+- **profileStore.ts**: `updateXp(newXp, newLevel)` now accumulates delta `s.xp + xpDelta` (was setting `xp = xpAwarded` — showing only delta earned instead of cumulative); also updates `xpToNextLevel`
+- **PowerUpActivationFx.tsx**: `setTimeout(onComplete, 1400)` moved into `useRef` + `useEffect` cleanup — was leaking timer and cutting second powerup animation short
+- **useGameSocket.ts**: removed `joinedRef.current = false` from cleanup (was resetting flag, causing double `room:join` on every reconnect)
+- **ProfilePage.tsx**: `isOwnProfile` now compares against `currentUser.username` not `currentUser.displayName` (was exposing cosmetics/push settings to other users with same display name)
+- **LootDropToast.tsx**: `key` uses `lootDrop.ts` timestamp (stable, set once in store action); was `Date.now()` per-render, forcing AnimatePresence remount and dropping exit animations
+- **gameStore.ts applyRoomState**: spreads `resetRoundInteraction` and clears `question` after syncing fields — reconnect no longer shows stale round data from previous session
+
+**Android (`bd2ef66` feature/android branch)**
+- **ResultsScreen.kt**: `DisposableEffect(Unit) { onDispose { viewModel.clearResults() } }` — prevents first-game results being shown at start of second game
+- **GameViewModel.kt**: removed raw `val uiState: GameUiState get() = _uiState.value` (non-reactive); `uiStateFlow` renamed to `uiState: StateFlow<GameUiState>`; `AppNavGraph.kt` updated
+- **FriendsViewModel.kt**: all 6 `launch(Dispatchers.IO)` blocks refactored — network calls use `withContext(IO)`, `_uiState.update` runs on Main dispatcher
+- **LeaderboardViewModel.kt**: `LeaderboardUiState` now has `val error: String? = null`; catch block sets error message instead of silently showing empty list
+
 ### Iteration 6 Sprint — Critical/High Audit Remediations (`102eea0` main, `e05333f` frontend, `047589f` android)
 
 **Backend (`102eea0` main)**
@@ -340,7 +364,18 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **CSP unsafe-inline**: ✅ DONE — removed from `script-src`.
 - **schema.prisma RefreshToken index**: ✅ DONE — `@@index([userId])` added.
 - **AuthRepository currentAccessToken mutex**: Document that `currentAccessToken()` is intentionally non-suspending read-only; callers needing consistency should go through `refreshIfPossible()` which holds the mutex.
-- **useGameSocket stale closures**: `updateXp`/`applyLevelUp` captured by stale closure — use `useGameStore.getState().applyLevelUp(payload)` pattern inside socket callbacks.
+- **GameSoundManager**: `SoundPool` never released; if used in Compose must be wrapped in `DisposableEffect { onDispose { soundManager.release() } }`.
+- **LobbyViewModel dead code**: `observeGameEvents()` flow result is computed but LobbyScreen never observes LobbyViewModel — wire it up or remove the dead collection.
+- **GamePage keyboard handler**: stale closure over `eliminated` array — add `eliminated`/`question`/`activeRoomId` to keydown effect deps or move `submitAnswer` to a ref.
+- **PowerUpTray accessibility**: buttons use `title` not `aria-label` — add `aria-label={meta.label}` to each power-up button.
+- **Answer button accessibility**: missing `aria-pressed`/`aria-disabled` on answer buttons in GamePage.
+- **Backend SABOTAGE power-up**: targetPlayerId not verified to be in the room — verify against `room:${roomId}:players` Redis set before writing sabotage key.
+- **Schema PowerUpUse FK**: missing `@relation` to `Room` — rows orphan on room delete; add `room Room @relation(...)` and `onDelete: Cascade`.
+- **Schema Friendship VarChar**: `requesterId`/`addresseeId` missing `@db.VarChar(26)` — Prisma generates TEXT instead of VARCHAR(26).
+- **Schema QuestionBank uniqueness**: no `@@unique([prompt])` — duplicate questions can appear in same session.
+- **Schema User.displayName uniqueness**: no unique constraint — two users with same display name cannot be distinguished in leaderboard/friends UI.
+- **useWebPush test coverage**: zero tests for subscribe/unsubscribe/VAPID flow.
+- **socketService test coverage**: zero tests for payload dispatch and Zod validation loop.
 - **auth.ts dummy hash**: Replace `bcrypt.hash` dummy path with pre-computed `DUMMY_HASH` + `bcrypt.compare` to prevent timing oracle on register (low priority).
 - **DB schema migration**: `prisma migrate dev` fails with P3006 shadow DB conflict — always use `prisma db push` for Railway. To fix permanently: spin up clean shadow DB and run `prisma migrate resolve --applied` then squash.
 - **XpEvent/Answer archival**: Both tables grow forever. At scale needs a background archival job.
