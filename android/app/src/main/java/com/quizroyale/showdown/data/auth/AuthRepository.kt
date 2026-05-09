@@ -77,7 +77,7 @@ class AuthRepository @Inject constructor(
 
     tokenClaim(tokens.accessToken, "sub")?.let { editor.putString(KEY_USER_ID, it) }
     tokenClaim(tokens.accessToken, "displayName")?.let { editor.putString(KEY_USERNAME, it) }
-    editor.apply()
+    editor.commit()
   }
 
   private fun tokenClaim(token: String, key: String): String? {

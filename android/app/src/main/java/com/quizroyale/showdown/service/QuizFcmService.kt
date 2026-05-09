@@ -16,6 +16,8 @@ import com.quizroyale.showdown.data.push.PushApi
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -33,6 +35,13 @@ class QuizFcmService : FirebaseMessagingService() {
     @Inject lateinit var authRepository: AuthRepository
     @Inject lateinit var pushApi: PushApi
 
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    override fun onDestroy() {
+        super.onDestroy()
+        serviceScope.cancel()
+    }
+
     override fun onNewToken(token: String) {
         super.onNewToken(token)
         getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
@@ -40,7 +49,7 @@ class QuizFcmService : FirebaseMessagingService() {
 
         // Upload immediately if the user is already logged in
         if (authRepository.currentAccessToken() != null) {
-            CoroutineScope(Dispatchers.IO).launch {
+            serviceScope.launch {
                 runCatching { pushApi.registerFcmToken(FcmTokenRequest(token)) }
             }
         }

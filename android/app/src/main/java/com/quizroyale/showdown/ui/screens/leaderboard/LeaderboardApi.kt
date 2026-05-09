@@ -1,15 +1,17 @@
 package com.quizroyale.showdown.ui.screens.leaderboard
 
-import com.google.gson.annotations.SerializedName
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import retrofit2.http.GET
 import retrofit2.http.Header
 
+@Serializable
 data class LeaderboardRow(
-    @SerializedName("userId") val userId: String,
-    @SerializedName("displayName") val displayName: String,
-    @SerializedName("mmr") val mmr: Int?,
-    @SerializedName("totalXp") val totalXp: Int?,
-    @SerializedName("level") val level: Int?
+    @SerialName("userId") val userId: String,
+    @SerialName("displayName") val displayName: String,
+    @SerialName("mmr") val mmr: Int,
+    @SerialName("totalXp") val totalXp: Int,
+    @SerialName("level") val level: Int
 )
 
 interface LeaderboardApi {

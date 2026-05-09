@@ -3,6 +3,7 @@ package com.quizroyale.showdown.data.socket
 import io.socket.client.IO
 import io.socket.client.Socket
 import java.net.URI
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -23,7 +24,11 @@ data class SocketEnvelope(
 @Singleton
 class WebSocketManager @Inject constructor(
 ) {
-  private val _events = MutableSharedFlow<String>(extraBufferCapacity = 32)
+  private val _events = MutableSharedFlow<String>(
+    replay = 1,
+    extraBufferCapacity = 64,
+    onBufferOverflow = BufferOverflow.DROP_OLDEST,
+  )
   val events: SharedFlow<String> = _events
 
   private val _isConnected = MutableStateFlow(false)
