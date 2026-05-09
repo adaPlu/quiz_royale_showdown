@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-08 — 202 backend tests; season cosmetic grants implemented; QuestionGeneratorService tested; webapp 31 tests (LeaderboardPage, ResultsPage, LobbyPage added)_
+_Last updated: 2026-05-08 — Comprehensive audit remediation: 15 critical/high fixes across backend, webapp, Android; 202 backend tests green; 31 webapp tests green_
 
 ---
 
@@ -121,6 +121,30 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **Android CosmeticsScreen**: dismissible red error banner shown in CosmeticsGrid when equip fails (previously silently swallowed)
 - **Backend total: 194 tests passing**
 
+### Audit Remediation — Full Sprint (`92d4f85` main, `cde03e6` frontend, `071112a` android)
+
+**Backend (`92d4f85`)**
+- **XpService.awardMatchXp**: `xpToNextLevel` result now returns relative XP remaining (was absolute cumulative threshold) — clients now get correct progress-bar value
+- **env.ts**: `VAPID_SUBJECT` default changed from hardcoded personal email to `"mailto:admin@example.com"`; documented in `.env.example`
+- **rooms.ts**: `GET /rooms/join/:inviteCode` now guarded by `apiLimiter` (was rate-limit-free, brute-forceable)
+- **start.sh**: Created missing file (`#!/bin/sh; npx prisma db push --skip-generate; exec node dist/index.js`) — Dockerfile was referencing a nonexistent script
+- **schema.prisma**: Added 12 missing indexes (`User.email`, `Room[hostUserId/status/seasonId]`, `RoomPlayer[userId/roomId]`, `Round[roomId]`, `Answer[roundId/userId]`, `Friendship[requesterId]`, `Friendship[addresseeId,status]`); added `onDelete: Cascade` to both `Friendship` relation fields (prevents orphaned rows on user delete)
+
+**Webapp (`cde03e6` frontend branch)**
+- **socketService.ts**: Aligned `powerup:loot_drop` schema (`powerupId` → `roomId`) to match `contracts.ts` — was silently mismatched
+- **vercel.json**: CSP `connect-src` widened from hardcoded production Railway hostname to `*.railway.app` and `*.quizroyale.gg` wildcards — staging/preview deploys now work
+- **ResultsPage.tsx**: Final standings now resolve player display names via `useGameStore.players` lookup map — was showing raw player IDs
+- **authStore.ts + App.tsx**: `initAuth()` failure now sets `authError` state; `App.tsx` renders `AuthErrorBanner` so users see "Your session expired" instead of a silent redirect to login
+
+**Android (`071112a` feature/android branch)**
+- **TokenRefreshInterceptor.kt**: Stripped 401/`runBlocking` logic — now only adds Bearer header
+- **TokenRefreshAuthenticator.kt**: New file; implements OkHttp `Authenticator` for 401 refresh with `X-Auth-Retry` guard to prevent infinite loops (eliminates ANR risk)
+- **AppModule.kt**: Wired `TokenRefreshAuthenticator` into API OkHttpClient; added `provideCosmeticsApi` DI binding
+- **AndroidManifest.xml**: `allowBackup="true"` → `allowBackup="false"`
+- **LeaderboardViewModel.kt**: Null token → early return with empty state instead of sending unauthenticated request
+- **CosmeticsViewModel.kt**: Injects `CosmeticsApi` directly (was recreating Retrofit per ViewModel)
+- **QuizFcmService.kt**: Notification ID uses `AtomicInteger` (was `currentTimeMillis().toInt()` which overflows)
+
 ### Season Cosmetic Grants + QuestionGeneratorService Tests (`b04bb98` main)
 - **SeasonScheduler.awardSeasonRewards**: after awarding XP to top-3, now also looks up `Cosmetic` by code (`season:rank_1/2/3`) and upserts `UserCosmetic` rows; skips gracefully with `logger.warn` if cosmetic not seeded in DB
 - **SeasonScheduler.test.ts**: +2 new tests (upserts cosmetics for top-3; skips+warns when code not found)
@@ -210,10 +234,16 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - Key files: `WebSocketManager.kt`, `GameRepository.kt`, `GameViewModel.kt`
 
 ### Future / nice-to-have
-- **Leaderboard improvement**: global `GET /leaderboard` works (returns SeasonScore standings or XP fallback) — no changes needed unless a dedicated season-agnostic top-N view is wanted
-- **Season end cosmetic rewards**: ✅ DONE — `awardSeasonRewards` now upserts `UserCosmetic` rows for top-3 using codes `season:rank_1/2/3`. Requires cosmetics to be seeded in DB to grant; skips gracefully if not.
+- **Leaderboard improvement**: global `GET /leaderboard` works — no changes needed unless a dedicated season-agnostic top-N view is wanted
+- **Season end cosmetic rewards**: ✅ DONE — `awardSeasonRewards` upserts `UserCosmetic` rows for top-3 using codes `season:rank_1/2/3`. Requires cosmetics to be seeded in DB; skips gracefully if not.
 - **Webapp (frontend branch) test coverage**: ✅ 31 tests passing — authStore (12), FriendsPage (6), LeaderboardPage (5), ResultsPage (4), LobbyPage (4). No remaining page test gaps.
-- **Backend route coverage**: all 11 route test files present; rooms (17 tests) and leaderboard (12 tests) now fully cover their endpoints including start-game chain and season/XP-fallback paths. No remaining route gaps.
+- **Backend route coverage**: ✅ all 11 route test files present; 202 tests passing. No remaining route gaps.
+- **Android test coverage**: Zero tests — no unit/UI test suite exists. Adding JUnit + Turbine + MockK for ViewModels is the next highest-value work item.
+- **CI webapp tests**: `.github/workflows/ci.yml` only typechecks webapp — does not run `vitest`. Should add `npm test -w webapp` step.
+- **Android CI/CD**: No automated APK builds on PR or Play Store pipeline. Should add Gradle CI workflow.
+- **DB schema migration**: `prisma migrate dev` fails with P3006 shadow DB conflict — always use `prisma db push` for Railway. To fix permanently: spin up clean shadow DB and run `prisma migrate resolve --applied` then squash.
+- **XpEvent/Answer archival**: Both tables grow forever. At scale needs a background archival job.
+- **Season cosmetic seeding**: `season:rank_1/2/3` `Cosmetic` rows must be seeded in the DB for `SeasonScheduler` cosmetic grants to have any effect.
 
 ---
 
@@ -226,3 +256,6 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - `feature/backend` branch diverged from `main` — do not merge without careful conflict resolution of `RoomService.ts` and `registerHandlers.ts`.
 - Cookie `sameSite: 'strict'` + `path: '/api/v1/auth'` — the refresh cookie is only sent to auth routes. Non-auth requests use the Bearer access token only.
 - CORS is configured with `credentials: true` and a specific origin (`CORS_ORIGIN` env var). Wildcard `*` will not work with `withCredentials: true`.
+- `start.sh` at `backend/start.sh` is the Docker entrypoint; Railway's `railway.toml` `startCommand` overrides it but the file must exist for Docker builds outside Railway.
+- Vercel CSP now uses `*.railway.app` / `*.quizroyale.gg` wildcards — staging preview deploys work without modifying `vercel.json`.
+- Android `TokenRefreshAuthenticator` uses `X-Auth-Retry` header to prevent infinite 401 retry loops; `TokenRefreshInterceptor` now only adds the Bearer header.
