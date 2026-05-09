@@ -28,3 +28,6 @@ jobs:
 
       - name: Web typecheck
         run: npm run typecheck -w webapp
+
+      - name: Web tests
+        run: npm run test -w webapp

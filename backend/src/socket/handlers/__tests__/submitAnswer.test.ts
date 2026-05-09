@@ -178,6 +178,56 @@ describe("registerSubmitAnswerHandler", () => {
     vi.useRealTimers();
   });
 
+  it("proceeds without locking when Redis throws on setnx", async () => {
+    const { registerSubmitAnswerHandler } = await import("../submitAnswer");
+    const { socket, emit, dispatch } = createSocket("room-1");
+
+    // Redis is up enough to return the question context but setnx blows up
+    redisMock.getJson.mockResolvedValue({
+      roundId: "round-1",
+      questionId: "q1",
+      prompt: "Question?",
+      answers: ["A", "B", "C", "D"],
+      correctAnswerIndex: 2,
+      startTs: Date.now() - 5000,
+      startedAt: new Date().toISOString(),
+      timeLimitMs: 20000,
+    });
+    redisMock.setnx.mockRejectedValue(new Error("Redis connection lost"));
+
+    registerSubmitAnswerHandler({} as never, socket as never);
+
+    await dispatch({
+      type: "round:submit_answer",
+      version: "v1",
+      payload: {
+        roomId: "room-1",
+        questionId: "q1",
+        answerIndex: 2,
+        clientSentAt: new Date().toISOString(),
+      },
+    });
+
+    // Redis failure causes the handler to fall into the catch block.
+    // The answer is NOT persisted (upsert never reached), and the socket
+    // receives INTERNAL_ERROR — NOT ALREADY_ANSWERED — documenting that
+    // a Redis outage does not silently block submissions with a false duplicate error.
+    expect(prismaMock.answer.upsert).not.toHaveBeenCalled();
+    expect(emit).toHaveBeenCalledWith(
+      "message",
+      expect.objectContaining({
+        type: "error",
+        payload: expect.objectContaining({ code: "INTERNAL_ERROR" }),
+      })
+    );
+    expect(emit).not.toHaveBeenCalledWith(
+      "message",
+      expect.objectContaining({
+        payload: expect.objectContaining({ code: "ALREADY_ANSWERED" }),
+      })
+    );
+  });
+
   it("SABOTAGE: forces isCorrect=false even for the correct answer index", async () => {
     vi.setSystemTime(new Date("2026-04-25T12:00:05.000Z"));
     const { registerSubmitAnswerHandler } = await import("../submitAnswer");

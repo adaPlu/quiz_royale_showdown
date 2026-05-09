@@ -99,3 +99,103 @@ describe("levelFromTotalXp / xpToNextLevel boundary consistency", () => {
     expect(levelFromTotalXp(threshold - 1)).toBe(2);
   });
 });
+
+describe("awardMatchXp", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prismaMock.xpEvent.create.mockResolvedValue({});
+  });
+
+  it("creates one XpEvent per player", async () => {
+    const { awardMatchXp } = await import("../XpService");
+
+    prismaMock.xpEvent.groupBy.mockResolvedValue([
+      { userId: "u1", _sum: { amount: 0 } },
+      { userId: "u2", _sum: { amount: 0 } },
+    ]);
+
+    await awardMatchXp("room-1", [
+      { playerId: "u1", rank: 1, totalPlayers: 2, score: 0 },
+      { playerId: "u2", rank: 2, totalPlayers: 2, score: 0 },
+    ]);
+
+    expect(prismaMock.xpEvent.create).toHaveBeenCalledTimes(2);
+  });
+
+  it("rank-1 player receives win bonus (500) + base (100) + placement XP", async () => {
+    const { awardMatchXp } = await import("../XpService");
+
+    // totalPlayers=1, rank=1, score=0
+    // placementRatio = 1 (since totalPlayers <= 1)
+    // placementXp = round(1 * 200) = 200
+    // winBonus = 500
+    // scoreXp = max(0, round(0/10)) = 0
+    // xpAwarded = 100 + 200 + 500 + 0 = 800
+    prismaMock.xpEvent.groupBy.mockResolvedValue([
+      { userId: "u1", _sum: { amount: 0 } },
+    ]);
+
+    const results = await awardMatchXp("room-1", [
+      { playerId: "u1", rank: 1, totalPlayers: 1, score: 0 },
+    ]);
+
+    expect(results[0].xpAwarded).toBe(800);
+  });
+
+  it("xpToNextLevel in result is relative (remaining XP), not absolute threshold", async () => {
+    const { awardMatchXp } = await import("../XpService");
+
+    // Player starts at 0 XP. Awards 800 XP (rank=1, totalPlayers=1, score=0).
+    // newTotalXp = 800
+    // newLevel = floor(sqrt(800/150)) = floor(sqrt(5.333)) = floor(2.309) = 2
+    // nextLevelThreshold = (2+1)² × 150 = 9 × 150 = 1350
+    // xpToNextLevel = max(0, 1350 - 800) = 550
+    prismaMock.xpEvent.groupBy.mockResolvedValue([
+      { userId: "u1", _sum: { amount: 0 } },
+    ]);
+
+    const results = await awardMatchXp("room-1", [
+      { playerId: "u1", rank: 1, totalPlayers: 1, score: 0 },
+    ]);
+
+    expect(results[0].xpToNextLevel).toBe(550);
+  });
+
+  it("xpToNextLevel is always non-negative (max-0 guard holds at a level boundary)", async () => {
+    const { awardMatchXp } = await import("../XpService");
+
+    // Player starts at 550 XP. Awards 800 XP (rank=1, totalPlayers=1, score=0).
+    // newTotalXp = 550 + 800 = 1350 = 3² × 150 — exactly at the level-3 threshold.
+    // newLevel = floor(sqrt(1350/150)) = floor(sqrt(9)) = floor(3) = 3
+    // nextLevelThreshold = (3+1)² × 150 = 2400
+    // xpToNextLevel = max(0, 2400-1350) = 1050 (always non-negative)
+    prismaMock.xpEvent.groupBy.mockResolvedValue([
+      { userId: "u1", _sum: { amount: 550 } },
+    ]);
+
+    const results = await awardMatchXp("room-1", [
+      { playerId: "u1", rank: 1, totalPlayers: 1, score: 0 },
+    ]);
+
+    expect(results[0].xpToNextLevel).toBeGreaterThanOrEqual(0);
+    expect(results[0].xpToNextLevel).toBe(1050);
+  });
+
+  it("sets didLevelUp true when player crosses a level boundary", async () => {
+    const { awardMatchXp } = await import("../XpService");
+
+    // Start at 599 XP → level 1 (floor(sqrt(599/150)) = floor(1.998) = 1)
+    // Award 800 XP → newTotalXp = 1399
+    // newLevel = floor(sqrt(1399/150)) = floor(sqrt(9.327)) = floor(3.054) = 3
+    // prevLevel=1, newLevel=3 → didLevelUp=true
+    prismaMock.xpEvent.groupBy.mockResolvedValue([
+      { userId: "u1", _sum: { amount: 599 } },
+    ]);
+
+    const results = await awardMatchXp("room-1", [
+      { playerId: "u1", rank: 1, totalPlayers: 1, score: 0 },
+    ]);
+
+    expect(results[0].didLevelUp).toBe(true);
+  });
+});
