@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-08 — Comprehensive audit remediation: 15 critical/high fixes across backend, webapp, Android; 202 backend tests green; 31 webapp tests green_
+_Last updated: 2026-05-08 — Iteration 2 sprint: 208 backend tests green (+6), 49 webapp tests green (+18), Android unit test bootstrap (7 tests); UX fixes; CI webapp step added_
 
 ---
 
@@ -214,6 +214,30 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **Challenge tracking (LR7)**: `GameOrchestrator.runGameOver` tracks `win_a_game`, `top_3`, `play_3_games` via XP events with duplicate-award guard. Bots excluded.
 - Webapp: `withCredentials: true`, refresh interceptor sends empty body, `authStore` and `apiClient` strip all `refreshToken` state.
 
+### Iteration 2 Sprint — Tests + UX Polish (`f18dc39` main, `38b8f89` frontend, `f676bdf` android)
+
+**Backend (`f18dc39` main)**
+- **XpService.test.ts** (+5 tests): `awardMatchXp` — relative `xpToNextLevel` (remaining, not cumulative); rank-1 win bonus; level-up detection; non-negative guard
+- **submitAnswer.test.ts** (+1 test): Redis-down path — `setnx` throws → `INTERNAL_ERROR` emitted (not `ALREADY_ANSWERED`), documents actual error-path behavior
+- **ci.yml**: Added `Web tests` step (`npm run test -w webapp`) after typecheck — webapp vitest now runs in CI
+- **Backend total: 208 tests passing**
+
+**Webapp (`38b8f89` frontend branch)**
+- **gameStore.test.ts** (10 new tests): full `applyServerEvent` pipeline from `room:state_sync` through `game:over`; `setMyAnswer` + `resetRoom`
+- **GamePage.test.tsx** (4 new tests): uses `vi.hoisted` mutable state so per-test phase overrides work — smoke tests for WAITING, QUESTION_ACTIVE, ROUND_RESULT, level-up toast
+- **apiClient.test.ts** (4 new tests): token injection, 401 triggers `/auth/refresh`, retry with new token, clear token on refresh failure
+- **PlayerAvatar.tsx**: wrapped in `React.memo` to prevent unnecessary re-renders during game loop
+- **vite.config.ts**: `registerType: "autoUpdate"` → `"prompt"` — user-controlled SW updates (was silently auto-replacing)
+- **ResultsPage.tsx**: "Play Again" → "Back to Home" (no quick-play route exists; button navigated to `/home` but was labelled incorrectly)
+- **Webapp total: 49 tests passing** (31 → 49, +18)
+
+**Android (`f676bdf` feature/android branch)**
+- **build.gradle.kts**: Added `testImplementation` for JUnit 4.13.2, MockK 1.13.10, `kotlinx-coroutines-test:1.8.0`, Turbine 1.1.0; `testOptions { unitTests { isReturnDefaultValues = true } }`
+- **TokenRefreshAuthenticatorTest.kt** (4 tests): `X-Auth-Retry` prevents infinite loop; null refresh returns null; successful refresh returns new request; retry header set on new request
+- **LeaderboardViewModelTest.kt** (3 tests): `StandardTestDispatcher` + Turbine — null token early-return, empty list on API error, populated entries on success
+- **ProfileViewModel.kt**: catch block now emits `"Unable to load profile. Please try again."` instead of raw `e.message`
+- **Android unit test total: 7 tests** (bootstrap from zero)
+
 ---
 
 ## Remaining work
@@ -238,8 +262,8 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **Season end cosmetic rewards**: ✅ DONE — `awardSeasonRewards` upserts `UserCosmetic` rows for top-3 using codes `season:rank_1/2/3`. Requires cosmetics to be seeded in DB; skips gracefully if not.
 - **Webapp (frontend branch) test coverage**: ✅ 31 tests passing — authStore (12), FriendsPage (6), LeaderboardPage (5), ResultsPage (4), LobbyPage (4). No remaining page test gaps.
 - **Backend route coverage**: ✅ all 11 route test files present; 202 tests passing. No remaining route gaps.
-- **Android test coverage**: Zero tests — no unit/UI test suite exists. Adding JUnit + Turbine + MockK for ViewModels is the next highest-value work item.
-- **CI webapp tests**: `.github/workflows/ci.yml` only typechecks webapp — does not run `vitest`. Should add `npm test -w webapp` step.
+- **Android test coverage**: ✅ Bootstrap done — 7 tests (TokenRefreshAuthenticator × 4, LeaderboardViewModel × 3). Remaining coverage gaps: `CosmeticsViewModel`, `HomeViewModel`, `GameViewModel`, `AuthRepository`. Also need instrumented (Compose UI) tests.
+- **CI webapp tests**: ✅ DONE — `npm run test -w webapp` step added to `.github/workflows/ci.yml`.
 - **Android CI/CD**: No automated APK builds on PR or Play Store pipeline. Should add Gradle CI workflow.
 - **DB schema migration**: `prisma migrate dev` fails with P3006 shadow DB conflict — always use `prisma db push` for Railway. To fix permanently: spin up clean shadow DB and run `prisma migrate resolve --applied` then squash.
 - **XpEvent/Answer archival**: Both tables grow forever. At scale needs a background archival job.
