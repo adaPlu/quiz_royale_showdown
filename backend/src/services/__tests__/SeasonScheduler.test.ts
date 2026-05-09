@@ -23,6 +23,12 @@ const { prismaMock } = vi.hoisted(() => {
       create: vi.fn(),
       groupBy: vi.fn(),
     },
+    cosmetic: {
+      findFirst: vi.fn(),
+    },
+    userCosmetic: {
+      upsert: vi.fn(),
+    },
   };
   return { prismaMock };
 });
@@ -45,6 +51,8 @@ describe("processExpiredSeasons", () => {
     prismaMock.xpEvent.create.mockResolvedValue({});
     prismaMock.xpEvent.groupBy.mockResolvedValue([]);
     prismaMock.seasonScore.findMany.mockResolvedValue([]);
+    prismaMock.cosmetic.findFirst.mockResolvedValue(null);
+    prismaMock.userCosmetic.upsert.mockResolvedValue({});
   });
 
   it("does nothing when no expired seasons exist", async () => {
@@ -178,6 +186,48 @@ describe("processExpiredSeasons", () => {
         orderBy: { mmr: "desc" },
         take: 3,
       }),
+    );
+  });
+
+  it("upserts UserCosmetic for top-3 when cosmetics exist", async () => {
+    prismaMock.season.findMany.mockResolvedValue([
+      { id: "season-c", name: "Season C" },
+    ]);
+    prismaMock.seasonScore.findMany.mockResolvedValue([
+      { userId: "u1", mmr: 2000 },
+      { userId: "u2", mmr: 1500 },
+      { userId: "u3", mmr: 1200 },
+    ]);
+    prismaMock.cosmetic.findFirst.mockResolvedValue({ id: "cos-id" });
+    prismaMock.userCosmetic.upsert.mockResolvedValue({});
+
+    await processExpiredSeasons();
+
+    expect(prismaMock.userCosmetic.upsert).toHaveBeenCalledTimes(3);
+    expect(prismaMock.userCosmetic.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ userId: "u1", cosmeticId: "cos-id" }),
+      }),
+    );
+  });
+
+  it("skips cosmetic grant when cosmetic code not found in DB", async () => {
+    prismaMock.season.findMany.mockResolvedValue([
+      { id: "season-d", name: "Season D" },
+    ]);
+    prismaMock.seasonScore.findMany.mockResolvedValue([
+      { userId: "u1", mmr: 1000 },
+    ]);
+    prismaMock.cosmetic.findFirst.mockResolvedValue(null);
+
+    const { logger } = await import("../../utils/logger");
+
+    await processExpiredSeasons();
+
+    expect(prismaMock.userCosmetic.upsert).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining("Season cosmetic not found"),
+      expect.anything(),
     );
   });
 });

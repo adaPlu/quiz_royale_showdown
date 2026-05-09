@@ -79,6 +79,22 @@ async function awardSeasonRewards(seasonId: string, seasonName: string): Promise
       logger.info("Season end level-up", { userId: event.userId, oldLevel, newLevel });
     }
   }
+
+  // Grant season cosmetics to top-3 finishers
+  for (const event of events) {
+    const { userId, rank } = event;
+    const code = `season:rank_${rank}`;
+    const cosmetic = await prisma.cosmetic.findFirst({ where: { code } });
+    if (cosmetic) {
+      await prisma.userCosmetic.upsert({
+        where: { userId_cosmeticId: { userId, cosmeticId: cosmetic.id } },
+        update: {},
+        create: { id: generateId(), userId, cosmeticId: cosmetic.id },
+      });
+    } else {
+      logger.warn("Season cosmetic not found", { code });
+    }
+  }
 }
 
 export function startSeasonScheduler(): void {
