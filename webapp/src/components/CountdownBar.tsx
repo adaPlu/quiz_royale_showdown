@@ -10,6 +10,7 @@ type CountdownBarProps = {
 
 export const CountdownBar = ({ duration, animationKey, onExpire, startedAt }: CountdownBarProps) => {
   const controls = useAnimationControls();
+  const blurControls = useAnimationControls();
   const onExpireRef = useRef(onExpire);
   onExpireRef.current = onExpire;
 
@@ -21,6 +22,7 @@ export const CountdownBar = ({ duration, animationKey, onExpire, startedAt }: Co
     const initialScale = duration > 0 ? remaining / duration : 0;
 
     controls.set({ scaleX: initialScale });
+    blurControls.set({ scaleX: initialScale });
     controls
       .start({
         scaleX: 0,
@@ -29,12 +31,14 @@ export const CountdownBar = ({ duration, animationKey, onExpire, startedAt }: Co
       .then(() => {
         if (!cancelled) onExpireRef.current?.();
       });
+    blurControls.start({ scaleX: 0, transition: { duration: remaining, ease: 'linear' } });
 
     return () => {
       cancelled = true;
       controls.stop();
+      blurControls.stop();
     };
-  }, [animationKey, controls, duration, startedAt]);
+  }, [animationKey, controls, blurControls, duration, startedAt]);
 
   return (
     <div className="relative h-3 w-full overflow-hidden rounded-full bg-white/10">
@@ -44,7 +48,7 @@ export const CountdownBar = ({ duration, animationKey, onExpire, startedAt }: Co
         className="absolute inset-y-0 left-0 w-full origin-left rounded-full bg-gradient-to-r from-answer-correct via-gold to-answer-wrong"
       />
       <motion.div
-        animate={controls}
+        animate={blurControls}
         className="absolute inset-y-0 left-0 w-full origin-left rounded-full bg-gradient-to-r from-answer-correct via-gold to-answer-wrong opacity-40 blur-sm"
       />
     </div>

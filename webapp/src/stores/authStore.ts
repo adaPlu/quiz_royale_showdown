@@ -73,6 +73,7 @@ export const useAuthStore = create<AuthState>()(
       },
       clearAuthError: () => set({ authError: null }),
       initAuth: async () => {
+        set({ authError: null });
         try {
           const response = await apiClient.post<{ accessToken: string }>(
             '/auth/refresh',
@@ -85,8 +86,8 @@ export const useAuthStore = create<AuthState>()(
           try {
             const profileResp = await apiClient.get<AuthUserInput>('/users/me');
             set({ user: normalizeUser(profileResp.data) });
-          } catch {
-            // keep cached user if profile fetch fails
+          } catch (e) {
+            console.warn('[authStore] /users/me fetch failed, using cached user', e);
           }
         } catch {
           // refresh failed — user must log in
