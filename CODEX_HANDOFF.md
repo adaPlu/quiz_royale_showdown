@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-08 — Iteration 4 sprint: 5 CRITICAL + 6 HIGH fixes; MMR first-game double-deduct, LeaderboardApi serializer mismatch, sourcemap exposure, live countdown timer, SharedFlow replay_
+_Last updated: 2026-05-09 — Iteration 6 sprint: 2 CRITICAL + 5 HIGH + 3 MEDIUM fixes; runGameOver idempotency, double-score prevention, register rate limit, XP rename, RefreshToken index, CSP unsafe-inline, CountdownBar dual controls, Android replay corruption_
 
 ---
 
@@ -214,6 +214,26 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **Challenge tracking (LR7)**: `GameOrchestrator.runGameOver` tracks `win_a_game`, `top_3`, `play_3_games` via XP events with duplicate-award guard. Bots excluded.
 - Webapp: `withCredentials: true`, refresh interceptor sends empty body, `authStore` and `apiClient` strip all `refreshToken` state.
 
+### Iteration 6 Sprint — Critical/High Audit Remediations (`102eea0` main, `e05333f` frontend, `047589f` android)
+
+**Backend (`102eea0` main)**
+- **GameOrchestrator.ts**: idempotency guard at top of `runGameOver` — reads `room.status`, returns early if already `GAME_OVER`; prevents double XP/MMR/challenge writes on crash+retry
+- **submitAnswer.ts**: `answerWritten = true` moved to immediately after `redisService.hset` (before `prisma.answer.upsert`) — Redis treated as authoritative; lock no longer held if DB fails after Redis write
+- **auth.ts**: dedicated `registerLimiter` (5 req/hr per IP) on `/auth/register`; separate from shared `authLimiter` (20/15min) that covers login/refresh/logout
+- **XpService.ts**: renamed `xpToNextLevel` → `xpThresholdForLevel`; updated all call sites in `users.ts`
+- **schema.prisma**: `@@index([userId])` added to `RefreshToken` model
+- **ci.yml**: removed wasted first bare `actions/checkout@v4` from android job; added `cache: 'gradle'` to `actions/setup-java@v4`
+
+**Webapp (`e05333f` frontend branch)**
+- **vercel.json**: removed `'unsafe-inline'` from `script-src` CSP (Vite produces hashed bundles; inline scripts not needed; was defeating XSS protection)
+- **authStore.ts**: `set({ authError: null })` added as first line of `initAuth` body; `/users/me` catch now `console.warn`s with error (was bare catch)
+- **CountdownBar.tsx**: separate `useAnimationControls()` instances for solid bar and blur overlay (`blurControls`); both driven in same `useEffect`
+
+**Android (`047589f` feature/android branch)**
+- **LeaderboardViewModel.kt**: removed dead null-checks on `mmr`/`totalXp` (now `Int`, not `Int?`); replaced three-branch `when` with direct `"${row.mmr} MMR"` expression
+- **WebSocketManager.kt**: `replay = 1` → `replay = 0` — eliminates stale `room:state_sync` from room A being replayed when subscribing after joining room B
+- **GameViewModel.kt**: exponential backoff (1s→30s ceiling) in `observeGameEvents` catch loop; `backoffMs` reset to `1_000L` at start of each successful try block
+
 ### Iteration 4 Sprint — Critical/High Audit Remediations (`4f5cac9` main, `2171796` frontend, `88ee071` android)
 
 **Backend (`4f5cac9` main)**
@@ -307,19 +327,21 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 ### Future / nice-to-have
 - **Leaderboard improvement**: global `GET /leaderboard` works — no changes needed unless a dedicated season-agnostic top-N view is wanted
 - **Season end cosmetic rewards**: ✅ DONE — `awardSeasonRewards` upserts `UserCosmetic` rows for top-3 using codes `season:rank_1/2/3`. Requires cosmetics to be seeded in DB; skips gracefully if not.
-- **Webapp (frontend branch) test coverage**: ✅ 31 tests passing — authStore (12), FriendsPage (6), LeaderboardPage (5), ResultsPage (4), LobbyPage (4). No remaining page test gaps.
-- **Backend route coverage**: ✅ all 11 route test files present; 202 tests passing. No remaining route gaps.
-- **Android test coverage**: ✅ Bootstrap done — 7 tests (TokenRefreshAuthenticator × 4, LeaderboardViewModel × 3). Remaining gaps: `CosmeticsViewModel`, `HomeViewModel`, `GameViewModel`, `AuthRepository`. Need instrumented (Compose UI) tests. Also: Android CI job (gradlew testDebugUnitTest) still missing.
-- **CI webapp tests**: ✅ DONE — `npm run test -w webapp` step added with `timeout-minutes: 10`. Note: webapp tests may need `VITE_*` env vars as GitHub Actions secrets if Vite build-time env vars are consumed during tests.
-- **Android CI/CD**: No automated APK builds or `testDebugUnitTest` run in CI. Should add a `Build Android` job with `actions/setup-java` + Gradle running `./gradlew testDebugUnitTest`.
-- **LeaderboardApi `@SerializedName` mismatch**: Uses Gson `@SerializedName` annotations but Retrofit is configured with `kotlinx.serialization`. Works currently because server field names match Kotlin property names. Replace with `@SerialName` + `@Serializable` for correctness.
-- **XpService.ts**: exported `xpToNextLevel(level)` returns absolute cumulative threshold, not relative remaining XP. Misleadingly named. Rename to `xpThresholdForLevel` or change signature to include `currentTotalXp`.
-- **GamePage.tsx timer**: `durationSec` shows total question duration, not remaining seconds (static label). Needs a `useInterval` counter derived from `question.startedAt` + `timeLimitMs`.
-- **authStore.ts**: `initAuth()` doesn't call `GET /users/me` after refresh — stale persisted user object until next profile-visiting page.
-- **vite.config.ts**: `sourcemap: true` in production exposes full source. Change to `sourcemap: 'hidden'` or gate on `NODE_ENV`.
-- **schema.prisma**: `PurchaseReceipt` has no `@@index([userId])` — purchase history queries require full table scan.
-- **XpEvent index**: missing `@@index([userId, reason])` for challenge tracking queries that filter by `reason: { startsWith: ... }`.
-- **Android CI/CD**: No automated APK builds on PR or Play Store pipeline. Should add Gradle CI workflow.
+- **Webapp (frontend branch) test coverage**: ✅ 49 tests passing — authStore (12), FriendsPage (6), LeaderboardPage (5), ResultsPage (4), LobbyPage (4) + game/api/store tests. No remaining page test gaps.
+- **Backend route coverage**: ✅ all 11 route test files present; 208 tests passing. No remaining route gaps.
+- **Android test coverage**: ✅ Bootstrap done — 7 tests (TokenRefreshAuthenticator × 4, LeaderboardViewModel × 3). Remaining gaps: `CosmeticsViewModel`, `HomeViewModel`, `GameViewModel`, `AuthRepository`. Need instrumented (Compose UI) tests.
+- **CI webapp tests**: ✅ DONE — `npm run test -w webapp` step added with `timeout-minutes: 10`.
+- **Android CI/CD**: ✅ DONE — android job added to ci.yml (`actions/checkout feature/android` → `actions/setup-java 17` + `cache:gradle` → `gradlew testDebugUnitTest`).
+- **LeaderboardApi serializer mismatch**: ✅ DONE — replaced `@SerializedName` with `@SerialName`+`@Serializable`.
+- **XpService rename**: ✅ DONE — `xpToNextLevel` → `xpThresholdForLevel` in all files.
+- **GamePage.tsx live timer**: ✅ DONE — 500ms interval counting down from `question.startedAt + timeLimitMs`.
+- **authStore.ts stale user**: ✅ DONE — `initAuth` fetches `/users/me` after refresh.
+- **vite.config.ts sourcemap**: ✅ DONE — `sourcemap: false` in production.
+- **CSP unsafe-inline**: ✅ DONE — removed from `script-src`.
+- **schema.prisma RefreshToken index**: ✅ DONE — `@@index([userId])` added.
+- **AuthRepository currentAccessToken mutex**: Document that `currentAccessToken()` is intentionally non-suspending read-only; callers needing consistency should go through `refreshIfPossible()` which holds the mutex.
+- **useGameSocket stale closures**: `updateXp`/`applyLevelUp` captured by stale closure — use `useGameStore.getState().applyLevelUp(payload)` pattern inside socket callbacks.
+- **auth.ts dummy hash**: Replace `bcrypt.hash` dummy path with pre-computed `DUMMY_HASH` + `bcrypt.compare` to prevent timing oracle on register (low priority).
 - **DB schema migration**: `prisma migrate dev` fails with P3006 shadow DB conflict — always use `prisma db push` for Railway. To fix permanently: spin up clean shadow DB and run `prisma migrate resolve --applied` then squash.
 - **XpEvent/Answer archival**: Both tables grow forever. At scale needs a background archival job.
 - **Season cosmetic seeding**: `season:rank_1/2/3` `Cosmetic` rows must be seeded in the DB for `SeasonScheduler` cosmetic grants to have any effect.
