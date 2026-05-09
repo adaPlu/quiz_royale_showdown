@@ -47,12 +47,11 @@ router.get("/daily", requireAuth, async (req, res, next) => {
       },
     });
 
-    const progressMap = new Map(
-      progressRows.map((row) => {
-        const parts = row.reason.split(":");
-        return [parts[1], row.amount];
-      }),
-    );
+    const progressMap = new Map<string, number>();
+    for (const row of progressRows) {
+      const key = row.reason.split(":")[1];
+      progressMap.set(key, (progressMap.get(key) ?? 0) + row.amount);
+    }
 
     res.json(
       challenges.map((c) => ({

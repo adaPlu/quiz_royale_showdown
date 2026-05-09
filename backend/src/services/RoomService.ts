@@ -279,13 +279,17 @@ export class RoomService {
       throw new BadRequestError("At least 2 players are required to start");
     }
 
-    await prisma.room.update({
-      where: { id: roomId },
+    const result = await prisma.room.updateMany({
+      where: { id: roomId, status: "WAITING" },
       data: {
         status: "COUNTDOWN",
         startedAt: new Date(),
       },
     });
+
+    if (result.count === 0) {
+      throw new ConflictError("Game has already started");
+    }
 
     logger.info("Game started", { roomId, hostUserId: requesterId });
 

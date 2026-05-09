@@ -53,6 +53,8 @@ export async function awardMatchXp(
   });
   const currentXpMap = new Map(xpSums.map((row) => [row.userId, row._sum.amount ?? 0]));
 
+  const xpEventData: Parameters<typeof prisma.xpEvent.create>[0]["data"][] = [];
+
   for (const player of players) {
     const xpAwarded = computeXpAward(player.rank, player.totalPlayers, player.score);
     const prevTotalXp = currentXpMap.get(player.playerId) ?? 0;
@@ -61,14 +63,12 @@ export async function awardMatchXp(
     const newLevel = levelFromTotalXp(newTotalXp);
     const nextLevelThreshold = (newLevel + 1) * (newLevel + 1) * 150;
 
-    await prisma.xpEvent.create({
-      data: {
-        id: generateId(),
-        userId: player.playerId,
-        reason: "GAME_FINISH",
-        amount: xpAwarded,
-        metadata: { roomId, rank: player.rank },
-      },
+    xpEventData.push({
+      id: generateId(),
+      userId: player.playerId,
+      reason: "GAME_FINISH",
+      amount: xpAwarded,
+      metadata: { roomId, rank: player.rank },
     });
 
     results.push({
@@ -81,6 +81,8 @@ export async function awardMatchXp(
       xpToNextLevel: Math.max(0, nextLevelThreshold - newTotalXp),
     });
   }
+
+  await Promise.all(xpEventData.map((data) => prisma.xpEvent.create({ data })));
 
   return results;
 }

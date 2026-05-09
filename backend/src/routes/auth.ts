@@ -63,6 +63,14 @@ const registerLimiter = rateLimit({
   message: { error: 'Too many registration attempts, please try again later.' },
 });
 
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts, please try again later.' },
+});
+
 export const authRouter = Router();
 
 function isUniqueConstraintError(error: unknown): error is Prisma.PrismaClientKnownRequestError {
@@ -133,7 +141,7 @@ authRouter.post("/register", registerLimiter, validate({ body: registerSchema })
   }
 });
 
-authRouter.post("/login", validate({ body: loginSchema }), async (req, res, next) => {
+authRouter.post("/login", loginLimiter, validate({ body: loginSchema }), async (req, res, next) => {
   try {
     const { email, password } = req.body as z.infer<typeof loginSchema>;
     const normalizedEmail = email.toLowerCase().trim();

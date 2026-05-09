@@ -52,7 +52,7 @@ export function registerUsePowerupHandler(io: Server, socket: AuthenticatedSocke
     const userId = socket.data.userId;
 
     try {
-      if (socket.data.roomId && socket.data.roomId !== roomId) {
+      if (!socket.data.roomId || socket.data.roomId !== roomId) {
         emitError(socket, "ROOM_MISMATCH", "Socket is not joined to the requested room");
         return;
       }

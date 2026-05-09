@@ -38,10 +38,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # Android source lives in a separate repository (adaPlu/quiz_royale_showdown).
+      # We check out the same ref that triggered this workflow so CI always
+      # tests the branch under review rather than a hardcoded branch.
       - uses: actions/checkout@v4
         with:
           repository: adaPlu/quiz_royale_showdown
-          ref: feature/android
+          ref: ${{ github.ref }}
           path: android-repo
 
       - uses: actions/setup-java@v4
