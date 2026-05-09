@@ -100,8 +100,10 @@ class GameViewModel @Inject constructor(
 
   private fun observeGameEvents() {
     viewModelScope.launch {
+      var backoffMs = 1_000L
       while (isActive) {
         try {
+          backoffMs = 1_000L
           gameRepository.events.collect { event ->
             when (event) {
               is GameEvent.RoomState -> handleRoomState(event.room)
@@ -136,7 +138,8 @@ class GameViewModel @Inject constructor(
           throw e
         } catch (e: Exception) {
           android.util.Log.w("GameViewModel", "events flow closed, restarting: ${e.message}")
-          delay(1_000)
+          delay(minOf(backoffMs, 30_000L))
+          backoffMs = minOf(backoffMs * 2, 30_000L)
         }
       }
     }

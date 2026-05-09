@@ -25,7 +25,7 @@ data class SocketEnvelope(
 class WebSocketManager @Inject constructor(
 ) {
   private val _events = MutableSharedFlow<String>(
-    replay = 1,
+    replay = 0,
     extraBufferCapacity = 64,
     onBufferOverflow = BufferOverflow.DROP_OLDEST,
   )

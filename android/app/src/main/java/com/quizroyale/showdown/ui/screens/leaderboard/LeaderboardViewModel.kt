@@ -69,11 +69,7 @@ class LeaderboardViewModel @Inject constructor(
                             LeaderboardEntry(
                                 userId = row.userId,
                                 displayName = row.displayName,
-                                scoreLabel = when {
-                                    row.mmr != null -> "${row.mmr} MMR"
-                                    row.totalXp != null -> "${row.totalXp} XP"
-                                    else -> ""
-                                }
+                                scoreLabel = "${row.mmr} MMR"
                             )
                         }
                     )
