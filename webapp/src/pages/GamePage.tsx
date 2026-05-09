@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { CountdownBar } from '@/components/CountdownBar';
@@ -116,6 +116,8 @@ export const GamePage = () => {
   const correctIndex = result?.correctAnswerIndex ?? null;
   const isQuestionActive = phase === 'QUESTION_ACTIVE' && !!question;
   const isLocked = !isQuestionActive || myAnswer !== null;
+  const isLockedRef = useRef(isLocked);
+  useEffect(() => { isLockedRef.current = isLocked; }, [isLocked]);
   const durationSec = question ? Math.max(1, question.timeLimitMs / 1000) : 20;
   const activeRoomId = roomId ?? storedRoomId ?? '';
 
@@ -153,6 +155,7 @@ export const GamePage = () => {
     const onKeyDown = (event: KeyboardEvent) => {
       const answerIndex = Number(event.key) - 1;
       if (answerIndex < 0 || answerIndex > 3) return;
+      if (isLockedRef.current) return;
       submitAnswer(answerIndex);
     };
 

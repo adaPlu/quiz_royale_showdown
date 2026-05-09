@@ -8,6 +8,8 @@ import { useProfileStore } from '@/stores/profileStore';
 
 export const useGameSocket = (roomId: string | undefined) => {
   const navigate = useNavigate();
+  const navigateRef = useRef(navigate);
+  useEffect(() => { navigateRef.current = navigate; });
   const accessToken = useAuthStore((state) => state.accessToken);
   const joinedRef = useRef(false);
   const applyRoomState = useGameStore((state) => state.applyRoomState);
@@ -43,11 +45,11 @@ export const useGameSocket = (roomId: string | undefined) => {
       socketService.on('room:player_left', applyPlayerLeft),
       socketService.on('round:countdown_started', (payload) => {
         applyCountdown(payload);
-        navigate(`/game/${payload.roomId}`, { replace: true });
+        navigateRef.current(`/game/${payload.roomId}`, { replace: true });
       }),
       socketService.on('round:question_started', (payload) => {
         applyQuestion(payload);
-        navigate(`/game/${payload.roomId}`, { replace: true });
+        navigateRef.current(`/game/${payload.roomId}`, { replace: true });
       }),
       socketService.on('round:answer_locked', applyAnswerLocked),
       socketService.on('round:result', applyRoundResult),
@@ -57,7 +59,7 @@ export const useGameSocket = (roomId: string | undefined) => {
       socketService.on('powerup:effect', applyPowerupEffect),
       socketService.on('game:over', (payload) => {
         applyGameOver(payload);
-        navigate(`/results/${payload.roomId}`);
+        navigateRef.current(`/results/${payload.roomId}`);
       }),
       socketService.on('game:level_up', (payload) => {
         applyLevelUp(payload);

@@ -21,12 +21,17 @@ vi.mock('@/stores/gameStore', () => ({
       finalScores: typeof mockFinalScores;
       winnerId: string | null;
       resetRoom: typeof mockResetRoom;
+      players: Array<{ id: string; displayName: string; score: number; streak: number; isEliminated: boolean }>;
     }) => unknown,
   ) =>
     selector({
       finalScores: mockFinalScores,
       winnerId: null,
       resetRoom: mockResetRoom,
+      players: [
+        { id: 'player-1', displayName: 'Alice', score: 1500, streak: 3, isEliminated: false },
+        { id: 'player-2', displayName: 'Bob', score: 900, streak: 1, isEliminated: false },
+      ],
     }),
 }));
 
@@ -81,9 +86,8 @@ describe('ResultsPage', () => {
 
     renderPage();
 
-    // Each playerId appears in both PlayerAvatar mock and the row text span
-    expect(screen.getAllByText('player-1').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('player-2').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Alice').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Bob').length).toBeGreaterThan(0);
   });
 
   it('highlights the winner via Final Standings section', () => {

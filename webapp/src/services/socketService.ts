@@ -266,10 +266,16 @@ class SocketService {
 
     const eventType = envelope.data.type as ServerEventType;
     const schema = ServerEventSchemas[eventType];
-    if (!schema) return;
+    if (!schema) {
+      console.warn('[socketService] unhandled event type:', eventType);
+      return;
+    }
 
     const parsed = schema.safeParse(envelope.data.payload);
-    if (!parsed.success) return;
+    if (!parsed.success) {
+      console.warn('[socketService] parse failed for event', eventType, parsed.error.issues);
+      return;
+    }
 
     this.listeners.get(eventType)?.forEach((handler) => handler(parsed.data));
   }

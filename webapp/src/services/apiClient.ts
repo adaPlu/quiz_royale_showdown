@@ -63,6 +63,8 @@ apiClient.interceptors.request.use((config) => {
 
 let refreshPromise: Promise<string> | null = null;
 
+const REFRESH_TIMEOUT_MS = 10_000;
+
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError<ErrorBody>) => {
@@ -79,19 +81,24 @@ apiClient.interceptors.response.use(
 
     originalRequest._retry = true;
 
-    refreshPromise ??= axios
-      .post<{ accessToken: string }>(
-        `${API_BASE_URL}/auth/refresh`,
-        {},
-        { withCredentials: true },
+    if (!refreshPromise) {
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('refresh timeout')), REFRESH_TIMEOUT_MS),
+      );
+      refreshPromise = (
+        Promise.race([
+          axios.post<{ accessToken: string }>(`${API_BASE_URL}/auth/refresh`, {}, { withCredentials: true }),
+          timeout,
+        ]) as Promise<{ data: { accessToken: string } }>
       )
-      .then((response) => {
-        setAccessToken(response.data.accessToken);
-        return response.data.accessToken;
-      })
-      .finally(() => {
-        refreshPromise = null;
-      });
+        .then((response) => {
+          setAccessToken(response.data.accessToken);
+          return response.data.accessToken;
+        })
+        .finally(() => {
+          refreshPromise = null;
+        });
+    }
 
     try {
       const accessToken = await refreshPromise;
@@ -102,7 +109,9 @@ apiClient.interceptors.response.use(
       return apiClient.request(originalRequest);
     } catch (refreshError) {
       setAccessToken(null);
-      throw refreshError;
+      if (refreshError instanceof ApiError) throw refreshError;
+      if (axios.isAxiosError(refreshError)) throw toApiError(refreshError as AxiosError<ErrorBody>);
+      throw new ApiError(0, 'REFRESH_FAILED', refreshError instanceof Error ? refreshError.message : 'Token refresh failed');
     }
   },
 );

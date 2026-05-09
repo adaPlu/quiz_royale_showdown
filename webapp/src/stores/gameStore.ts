@@ -245,7 +245,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       phase: 'COUNTDOWN',
       question: null,
       ...resetRoundInteraction,
-      countdownEndsAt: new Date(payload.startsAt).getTime(),
+      countdownEndsAt: new Date(payload.startsAt).getTime() + payload.seconds * 1000,
     });
   },
 
