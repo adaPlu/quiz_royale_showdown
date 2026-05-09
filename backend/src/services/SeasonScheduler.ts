@@ -19,11 +19,12 @@ export async function processExpiredSeasons(): Promise<void> {
 
   for (const season of expiredSeasons) {
     try {
+      const claimed = await prisma.$executeRaw`
+        UPDATE "Season" SET "rewardsAwardedAt" = NOW()
+        WHERE id = ${season.id} AND "rewardsAwardedAt" IS NULL
+      `;
+      if (claimed === 0) continue;
       await awardSeasonRewards(season.id, season.name);
-      await prisma.season.update({
-        where: { id: season.id },
-        data: { rewardsAwardedAt: now },
-      });
       logger.info("Season rewards awarded", { seasonId: season.id, name: season.name });
     } catch (err) {
       logger.error("Failed to award season rewards", {

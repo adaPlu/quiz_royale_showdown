@@ -18,16 +18,18 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Backend typecheck
         run: npm run typecheck -w backend
 
       - name: Backend tests
+        timeout-minutes: 10
         run: npm run test -w backend
 
       - name: Web typecheck
         run: npm run typecheck -w webapp
 
       - name: Web tests
+        timeout-minutes: 10
         run: npm run test -w webapp

@@ -482,7 +482,8 @@ export class GameOrchestrator {
   ): Promise<void> {
     logger.info("Game over", { roomId, winnerIds });
 
-    const finalScores = await this.loadScores(roomId, finalistIds);
+    const humanFinalistIds = finalistIds.filter((id) => !id.startsWith('bot:'));
+    const finalScores = await this.loadScores(roomId, humanFinalistIds);
     const sortedStandings = finalScores
       .sort((left, right) =>
         (right.totalScore ?? right.roundScore) - (left.totalScore ?? left.roundScore) ||
@@ -537,28 +538,30 @@ export class GameOrchestrator {
       await Promise.all(
         finalStandings.map(async (standing) => {
           const isWinner = winnerSet.has(standing.playerId);
-          await prisma.seasonScore.upsert({
-            where: { seasonId_userId: { seasonId: season.id, userId: standing.playerId } },
-            create: {
-              id: generateId(),
-              seasonId: season.id,
-              userId: standing.playerId,
-              mmr: Math.max(0, 1000 + (isWinner ? 25 : -10)),
-              wins: isWinner ? 1 : 0,
-              gamesPlayed: 1,
-            },
-            update: {
-              mmr: isWinner ? { increment: 25 } : undefined,
-              wins: isWinner ? { increment: 1 } : undefined,
-              gamesPlayed: { increment: 1 },
-            },
+          await prisma.$transaction(async (tx) => {
+            await tx.seasonScore.upsert({
+              where: { seasonId_userId: { seasonId: season.id, userId: standing.playerId } },
+              create: {
+                id: generateId(),
+                seasonId: season.id,
+                userId: standing.playerId,
+                mmr: Math.max(0, 1000 + (isWinner ? 25 : -10)),
+                wins: isWinner ? 1 : 0,
+                gamesPlayed: 1,
+              },
+              update: {
+                mmr: isWinner ? { increment: 25 } : undefined,
+                wins: isWinner ? { increment: 1 } : undefined,
+                gamesPlayed: { increment: 1 },
+              },
+            });
+            if (!isWinner) {
+              await tx.$executeRaw`
+                UPDATE "SeasonScore" SET mmr = GREATEST(mmr - 10, 0)
+                WHERE "userId" = ${standing.playerId} AND "seasonId" = ${season.id}
+              `;
+            }
           });
-          if (!isWinner) {
-            await prisma.$executeRaw`
-              UPDATE "SeasonScore" SET mmr = GREATEST(mmr - 10, 0)
-              WHERE "userId" = ${standing.playerId} AND "seasonId" = ${season.id}
-            `;
-          }
         })
       );
       logger.info("SeasonScore upserted", { roomId, seasonId: season.id, count: finalStandings.length });

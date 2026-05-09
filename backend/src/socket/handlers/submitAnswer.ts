@@ -70,6 +70,8 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
 
     const { roomId, questionId, answerIndex, clientSentAt } = parsed.data;
     const userId = socket.data.userId;
+    let lockKey: string | null = null;
+    let answerWritten = false;
 
     try {
       if (!redisService) {
@@ -105,10 +107,11 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
         return;
       }
 
-      const lockKey = `answer_lock:${roomId}:${questionContext.roundId}:${userId}`;
+      lockKey = `answer_lock:${roomId}:${questionContext.roundId}:${userId}`;
       const locked = await redisService.setnx(lockKey, "1", ANSWER_LOCK_TTL_SECONDS);
       if (!locked) {
         emitError(socket, "ALREADY_ANSWERED", "You have already submitted an answer for this round");
+        lockKey = null;
         return;
       }
 
@@ -155,6 +158,8 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
         },
       });
 
+      answerWritten = true;
+
       logger.info("Answer submitted", {
         roomId,
         roundId: questionContext.roundId,
@@ -170,6 +175,10 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
         message: error instanceof Error ? error.message : String(error)
       });
       emitError(socket, "INTERNAL_ERROR", "Failed to submit answer");
+    } finally {
+      if (lockKey && !answerWritten && redisService) {
+        await redisService.del(lockKey).catch(() => undefined);
+      }
     }
   });
 }
