@@ -42,6 +42,12 @@ android {
     }
   }
 
+  testOptions {
+    unitTests {
+      isReturnDefaultValues = true
+    }
+  }
+
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
@@ -111,4 +117,10 @@ dependencies {
 
   debugImplementation("androidx.compose.ui:ui-tooling")
   debugImplementation("androidx.compose.ui:ui-test-manifest")
+
+  // Unit tests
+  testImplementation("junit:junit:4.13.2")
+  testImplementation("io.mockk:mockk:1.13.10")
+  testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0")
+  testImplementation("app.cash.turbine:turbine:1.1.0")
 }
