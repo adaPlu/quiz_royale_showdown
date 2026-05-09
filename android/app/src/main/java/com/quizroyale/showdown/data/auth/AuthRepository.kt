@@ -7,6 +7,8 @@ import androidx.security.crypto.MasterKey
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 
 @Singleton
@@ -14,6 +16,8 @@ class AuthRepository @Inject constructor(
   @ApplicationContext context: Context,
   private val authApi: AuthApi
 ) {
+  private val refreshMutex = Mutex()
+
   private val prefs = EncryptedSharedPreferences.create(
     context,
     "quiz_royale_secure",
@@ -36,11 +40,11 @@ class AuthRepository @Inject constructor(
     return response
   }
 
-  suspend fun refreshIfPossible(): AuthTokens? {
-    val refreshToken = prefs.getString(KEY_REFRESH_TOKEN, null) ?: return null
+  suspend fun refreshIfPossible(): AuthTokens? = refreshMutex.withLock {
+    val refreshToken = prefs.getString(KEY_REFRESH_TOKEN, null) ?: return@withLock null
     val response = authApi.refresh(RefreshRequest(refreshToken))
     persistTokens(response.tokens)
-    return response.tokens
+    response.tokens
   }
 
   fun currentAccessToken(): String? = prefs.getString(KEY_ACCESS_TOKEN, null)

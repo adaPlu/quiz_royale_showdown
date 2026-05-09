@@ -15,9 +15,11 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Duration
 import java.time.Instant
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -98,34 +100,43 @@ class GameViewModel @Inject constructor(
 
   private fun observeGameEvents() {
     viewModelScope.launch {
-      gameRepository.events.collect { event ->
-        when (event) {
-          is GameEvent.RoomState -> handleRoomState(event.room)
-          is GameEvent.PlayerJoined -> updatePlayers(event.roomId) { players ->
-            (players.filterNot { it.id == event.player.id } + event.player.toUiModel())
-              .sortedByDescending { it.score }
+      while (isActive) {
+        try {
+          gameRepository.events.collect { event ->
+            when (event) {
+              is GameEvent.RoomState -> handleRoomState(event.room)
+              is GameEvent.PlayerJoined -> updatePlayers(event.roomId) { players ->
+                (players.filterNot { it.id == event.player.id } + event.player.toUiModel())
+                  .sortedByDescending { it.score }
+              }
+              is GameEvent.PlayerLeft -> updatePlayers(event.roomId) { players ->
+                players.filterNot { it.id == event.playerId }
+              }
+              is GameEvent.CountdownStarted -> handleCountdown(event)
+              is GameEvent.QuestionStarted -> handleQuestion(event)
+              is GameEvent.AnswerLocked -> handleAnswerLocked(event)
+              is GameEvent.RoundResult -> handleRoundResult(event)
+              is GameEvent.RoundElimination -> handleElimination(event)
+              is GameEvent.FinaleStarted -> handleFinale(event)
+              is GameEvent.GameOver -> handleGameOver(event)
+              is GameEvent.PowerupActivated -> {
+                _sideEffects.trySend(GameSideEffect.PlayPowerup)
+                _sideEffects.trySend(GameSideEffect.ShowToast("Power-up: ${event.powerupId}"))
+              }
+              is GameEvent.LootDrop -> {
+                _sideEffects.trySend(GameSideEffect.ShowLootDrop(event.powerupCode))
+              }
+              is GameEvent.LevelUp -> {
+                _sideEffects.trySend(GameSideEffect.ShowLevelUp(event.newLevel))
+              }
+              is GameEvent.ServerError -> _sideEffects.trySend(GameSideEffect.ShowToast(event.message))
+            }
           }
-          is GameEvent.PlayerLeft -> updatePlayers(event.roomId) { players ->
-            players.filterNot { it.id == event.playerId }
-          }
-          is GameEvent.CountdownStarted -> handleCountdown(event)
-          is GameEvent.QuestionStarted -> handleQuestion(event)
-          is GameEvent.AnswerLocked -> handleAnswerLocked(event)
-          is GameEvent.RoundResult -> handleRoundResult(event)
-          is GameEvent.RoundElimination -> handleElimination(event)
-          is GameEvent.FinaleStarted -> handleFinale(event)
-          is GameEvent.GameOver -> handleGameOver(event)
-          is GameEvent.PowerupActivated -> {
-            _sideEffects.trySend(GameSideEffect.PlayPowerup)
-            _sideEffects.trySend(GameSideEffect.ShowToast("Power-up: ${event.powerupId}"))
-          }
-          is GameEvent.LootDrop -> {
-            _sideEffects.trySend(GameSideEffect.ShowLootDrop(event.powerupCode))
-          }
-          is GameEvent.LevelUp -> {
-            _sideEffects.trySend(GameSideEffect.ShowLevelUp(event.newLevel))
-          }
-          is GameEvent.ServerError -> _sideEffects.trySend(GameSideEffect.ShowToast(event.message))
+        } catch (e: CancellationException) {
+          throw e
+        } catch (e: Exception) {
+          android.util.Log.w("GameViewModel", "events flow closed, restarting: ${e.message}")
+          delay(1_000)
         }
       }
     }
@@ -264,7 +275,7 @@ class GameViewModel @Inject constructor(
   }
 
   private fun startHeartbeat(roomId: String) {
-    if (heartbeatJob?.isActive == true) return
+    heartbeatJob?.cancel()
     heartbeatJob = viewModelScope.launch {
       while (true) {
         delay(30_000L)

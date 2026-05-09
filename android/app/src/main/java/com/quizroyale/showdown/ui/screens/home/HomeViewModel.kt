@@ -44,6 +44,11 @@ class HomeViewModel @Inject constructor(
             .getString(QuizFcmService.PREF_TOKEN, null) ?: return
         viewModelScope.launch {
             runCatching { pushApi.registerFcmToken(FcmTokenRequest(token)) }
+                .onSuccess {
+                    context.getSharedPreferences(QuizFcmService.PREF_FILE, Context.MODE_PRIVATE)
+                        .edit().remove(QuizFcmService.PREF_TOKEN).apply()
+                }
+                .onFailure { android.util.Log.w("HomeViewModel", "FCM upload failed", it) }
         }
     }
 

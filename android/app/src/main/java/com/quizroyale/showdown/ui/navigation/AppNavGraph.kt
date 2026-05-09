@@ -56,7 +56,12 @@ fun AppNavGraph() {
       val roomCode = backStackEntry.arguments?.getString("roomId").orEmpty()
       LobbyScreen(
         onJoinRoom = {
-          navController.navigate(Screen.Game.createRoute(roomCode.ifBlank { it }))
+          val resolvedCode = it.ifBlank { roomCode }
+          if (resolvedCode.isBlank()) {
+            navController.popBackStack()
+            return@LobbyScreen
+          }
+          navController.navigate(Screen.Game.createRoute(resolvedCode))
         }
       )
     }
