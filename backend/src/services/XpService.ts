@@ -26,7 +26,7 @@ export function levelFromTotalXp(totalXp: number): number {
   return Math.max(1, level);
 }
 
-export function xpToNextLevel(currentLevel: number): number {
+export function xpThresholdForLevel(currentLevel: number): number {
   const nextLevelThreshold = (currentLevel + 1) * (currentLevel + 1) * 150;
   return nextLevelThreshold;
 }
@@ -85,4 +85,4 @@ export async function awardMatchXp(
   return results;
 }
 
-export const xpService = { awardMatchXp, levelFromTotalXp, xpToNextLevel };
+export const xpService = { awardMatchXp, levelFromTotalXp, xpThresholdForLevel };

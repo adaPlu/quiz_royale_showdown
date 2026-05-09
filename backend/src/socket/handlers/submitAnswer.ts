@@ -144,6 +144,8 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
         })
       );
 
+      answerWritten = true;
+
       const answerTimeMs = Math.max(0, receivedAtMs - questionContext.startTs);
       await prisma.answer.upsert({
         where: { roundId_userId: { roundId: questionContext.roundId, userId } },
@@ -157,8 +159,6 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
           answerTimeMs,
         },
       });
-
-      answerWritten = true;
 
       logger.info("Answer submitted", {
         roomId,

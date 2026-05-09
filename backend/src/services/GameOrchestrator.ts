@@ -20,7 +20,7 @@ import { generateId } from "../utils/ulid";
 import { BadRequestError } from "../utils/errors";
 import { logger } from "../utils/logger";
 import type { PlayerSummary, ServerEvents } from "../types/contracts";
-import { awardMatchXp, levelFromTotalXp, xpToNextLevel } from "./XpService";
+import { awardMatchXp, levelFromTotalXp, xpThresholdForLevel } from "./XpService";
 
 const COUNTDOWN_MS = 5_000;
 const ROUND_RESULT_DISPLAY_MS = 4_000;
@@ -480,6 +480,10 @@ export class GameOrchestrator {
     winnerIds: string[],
     finalistIds: string[]
   ): Promise<void> {
+    // idempotency guard — skip if already finalized
+    const currentRoom = await prisma.room.findUnique({ where: { id: roomId }, select: { status: true } });
+    if (!currentRoom || currentRoom.status === 'GAME_OVER') return;
+
     logger.info("Game over", { roomId, winnerIds });
 
     const humanFinalistIds = finalistIds.filter((id) => !id.startsWith('bot:'));

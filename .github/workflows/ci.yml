@@ -39,8 +39,6 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/checkout@v4
         with:
           repository: adaPlu/quiz_royale_showdown
           ref: feature/android
@@ -49,7 +47,8 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: '17'
+          cache: 'gradle'
 
       - name: Android unit tests
         run: cd android-repo/android && ./gradlew testDebugUnitTest

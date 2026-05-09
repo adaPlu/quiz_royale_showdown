@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
 import { prisma } from "../models/prismaClient";
-import { levelFromTotalXp, xpToNextLevel } from "../services/XpService";
+import { levelFromTotalXp, xpThresholdForLevel } from "../services/XpService";
 import { NotFoundError } from "../utils/errors";
 
 const router = Router();
@@ -36,7 +36,7 @@ router.get("/me", requireAuth, async (req, res, next) => {
       ...user,
       totalXp,
       level,
-      xpToNextLevel: Math.max(0, xpToNextLevel(level) - totalXp),
+      xpToNextLevel: Math.max(0, xpThresholdForLevel(level) - totalXp),
       wins: seasonScore?.wins ?? 0,
       gamesPlayed: seasonScore?.gamesPlayed ?? 0,
       mmr: seasonScore?.mmr ?? 1000,

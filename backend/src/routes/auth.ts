@@ -1,6 +1,7 @@
 import bcrypt from "bcrypt";
 import { Prisma } from "@prisma/client";
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import { z } from "zod";
 
 import { requireAuth } from "../middleware/auth";
@@ -54,6 +55,14 @@ const refreshSchema = z.object({
   refreshToken: z.string().min(20).optional()
 });
 
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many registration attempts, please try again later.' },
+});
+
 export const authRouter = Router();
 
 function isUniqueConstraintError(error: unknown): error is Prisma.PrismaClientKnownRequestError {
@@ -74,7 +83,7 @@ function formatAuthPayload(
   };
 }
 
-authRouter.post("/register", validate({ body: registerSchema }), async (req, res, next) => {
+authRouter.post("/register", registerLimiter, validate({ body: registerSchema }), async (req, res, next) => {
   try {
     const { email, username, displayName, password } = req.body as z.infer<typeof registerSchema>;
     const normalizedEmail = email.toLowerCase().trim();
