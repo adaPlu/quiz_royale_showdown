@@ -51,8 +51,12 @@ class LeaderboardViewModel @Inject constructor(
 
     private fun loadTab(tab: LeaderboardTab) {
         viewModelScope.launch {
+            val token = authRepository.currentAccessToken()
+            if (token == null) {
+                _uiState.update { it.copy(loading = false, entries = emptyList()) }
+                return@launch
+            }
             try {
-                val token = authRepository.currentAccessToken() ?: ""
                 val entries = when (tab) {
                     LeaderboardTab.Season -> leaderboardApi.getSeason("Bearer $token")
                     LeaderboardTab.Global -> leaderboardApi.getGlobal("Bearer $token")

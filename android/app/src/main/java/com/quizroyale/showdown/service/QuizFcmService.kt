@@ -27,6 +27,7 @@ class QuizFcmService : FirebaseMessagingService() {
         private const val CHANNEL_NAME = "Quiz Royale"
         const val PREF_FILE = "quiz_fcm"
         const val PREF_TOKEN = "token"
+        private val notifId = java.util.concurrent.atomic.AtomicInteger(0)
     }
 
     @Inject lateinit var authRepository: AuthRepository
@@ -77,6 +78,6 @@ class QuizFcmService : FirebaseMessagingService() {
             .setContentIntent(pendingIntent)
             .build()
 
-        nm.notify(System.currentTimeMillis().toInt(), notification)
+        nm.notify(notifId.incrementAndGet(), notification)
     }
 }

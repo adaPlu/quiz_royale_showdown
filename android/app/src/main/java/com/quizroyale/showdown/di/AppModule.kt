@@ -5,7 +5,9 @@ import androidx.room.Room
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import com.quizroyale.showdown.BuildConfig
 import com.quizroyale.showdown.data.auth.AuthApi
+import com.quizroyale.showdown.data.auth.TokenRefreshAuthenticator
 import com.quizroyale.showdown.data.auth.TokenRefreshInterceptor
+import com.quizroyale.showdown.data.cosmetics.CosmeticsApi
 import com.quizroyale.showdown.data.friends.FriendsApi
 import com.quizroyale.showdown.data.game.GameApi
 import com.quizroyale.showdown.data.local.AppDatabase
@@ -48,12 +50,16 @@ object AppModule {
   @Provides
   @Singleton
   @ApiOkHttpClient
-  fun provideApiOkHttp(tokenRefreshInterceptor: TokenRefreshInterceptor): OkHttpClient {
+  fun provideApiOkHttp(
+    tokenRefreshInterceptor: TokenRefreshInterceptor,
+    tokenRefreshAuthenticator: TokenRefreshAuthenticator
+  ): OkHttpClient {
     val logging = HttpLoggingInterceptor().apply {
       level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC else HttpLoggingInterceptor.Level.NONE
     }
     return OkHttpClient.Builder()
       .addInterceptor(tokenRefreshInterceptor)
+      .authenticator(tokenRefreshAuthenticator)
       .addInterceptor(logging)
       .build()
   }
@@ -107,6 +113,10 @@ object AppModule {
   @Provides
   @Singleton
   fun providePushApi(@ApiRetrofit retrofit: Retrofit): PushApi = retrofit.create(PushApi::class.java)
+
+  @Provides
+  @Singleton
+  fun provideCosmeticsApi(@ApiRetrofit retrofit: Retrofit): CosmeticsApi = retrofit.create(CosmeticsApi::class.java)
 
   @Provides
   @Singleton

@@ -9,7 +9,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import retrofit2.Retrofit
 import javax.inject.Inject
 
 data class CosmeticItem(
@@ -44,10 +43,9 @@ private fun ApiCosmetic.toUiItem() = CosmeticItem(
 
 @HiltViewModel
 class CosmeticsViewModel @Inject constructor(
-    retrofit: Retrofit
+    private val api: CosmeticsApi
 ) : ViewModel() {
 
-    private val api = retrofit.create(CosmeticsApi::class.java)
     private val _uiState = MutableStateFlow<CosmeticsUiState>(CosmeticsUiState.Loading)
     val uiState: StateFlow<CosmeticsUiState> = _uiState
 
