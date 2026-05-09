@@ -20,6 +20,7 @@ export function ToastManager() {
         <LootDropToast
           powerupCode={lootDrop.powerupType.toLowerCase() as PowerUpType}
           onDismiss={clearLootDrop}
+          stableKey={lootDrop.ts}
         />
       )}
     </>

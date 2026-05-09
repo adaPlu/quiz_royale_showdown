@@ -43,7 +43,7 @@ export default function ProfilePage() {
   const [cosmetics, setCosmetics] = useState<CosmeticItem[]>([]);
   const { pushState, subscribe, unsubscribe } = useWebPush();
 
-  const isOwnProfile = !username || username === currentUser?.displayName;
+  const isOwnProfile = !username || username === currentUser?.username;
 
   useEffect(() => {
     const endpoint = username ? `/users/${username}/profile` : '/users/me';

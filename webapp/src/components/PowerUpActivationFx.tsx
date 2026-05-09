@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
+import { useEffect, useRef } from 'react';
 
 import type { PowerUpType } from './PowerUpTray';
 
@@ -25,6 +26,18 @@ export const PowerUpActivationFx = ({
 }: PowerUpActivationFxProps) => {
   const meta = powerupCode ? FX_META[powerupCode] : null;
   const isMine = activatingUserId === currentUserId;
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  const handleAnimationComplete = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(onComplete, 1400);
+  };
 
   return (
     <AnimatePresence>
@@ -35,9 +48,7 @@ export const PowerUpActivationFx = ({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
-          onAnimationComplete={() => {
-            setTimeout(onComplete, 1400);
-          }}
+          onAnimationComplete={handleAnimationComplete}
           className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center"
         >
           {/* Radial burst ring */}

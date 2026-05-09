@@ -63,12 +63,11 @@ export const useGameSocket = (roomId: string | undefined) => {
       }),
       socketService.on('game:level_up', (payload) => {
         applyLevelUp(payload);
-        updateXp(payload.xpAwarded, payload.newLevel);
+        updateXp(payload.xpAwarded, payload.newLevel, payload.xpToNextLevel);
       }),
     ];
 
     return () => {
-      joinedRef.current = false;
       unsubs.forEach((unsubscribe) => unsubscribe());
     };
   }, [roomId, accessToken]); // eslint-disable-line react-hooks/exhaustive-deps

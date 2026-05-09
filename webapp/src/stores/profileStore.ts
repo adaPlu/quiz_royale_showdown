@@ -22,7 +22,7 @@ interface ProfileState {
   equippedCosmetics: EquippedCosmetics;
   powerupInventory: PowerupInventory;
   setProfile: (data: Partial<ProfileState>) => void;
-  updateXp: (newXp: number, newLevel: number) => void;
+  updateXp: (xpDelta: number, newLevel: number, xpToNextLevel?: number) => void;
   equip: (type: keyof EquippedCosmetics, id: string) => void;
   reset: () => void;
 }
@@ -39,7 +39,11 @@ export const useProfileStore = create<ProfileState>((set) => ({
   equippedCosmetics: {},
   powerupInventory: EMPTY_INVENTORY,
   setProfile: (data) => set((s) => ({ ...s, ...data })),
-  updateXp: (newXp, newLevel) => set({ xp: newXp, level: newLevel }),
+  updateXp: (xpDelta, newLevel, xpToNextLevel) => set((s) => ({
+    xp: s.xp + xpDelta,
+    level: newLevel,
+    ...(xpToNextLevel !== undefined ? { xpToNextLevel } : {}),
+  })),
   equip: (type, id) => set((s) => ({
     equippedCosmetics: { ...s.equippedCosmetics, [type]: id },
   })),

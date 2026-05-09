@@ -220,6 +220,9 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       roundNumber: payload.room.roundNumber,
       totalRounds: payload.room.totalRounds,
       players: payload.room.players,
+      // Clear stale round state so reconnect doesn't show previous round data
+      question: null,
+      ...resetRoundInteraction,
     });
   },
 

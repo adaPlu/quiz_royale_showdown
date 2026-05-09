@@ -326,6 +326,7 @@ export const GamePage = () => {
       <LootDropToast
         powerupCode={lootDrop?.powerupType as PowerUpType ?? null}
         onDismiss={clearLootDrop}
+        stableKey={lootDrop?.ts}
       />
       <LevelUpToast
         level={levelUpQueue[0]?.newLevel ?? null}

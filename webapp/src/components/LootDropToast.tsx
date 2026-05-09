@@ -22,9 +22,10 @@ const LABELS: Record<PowerUpType, string> = {
 interface LootDropToastProps {
   powerupCode: PowerUpType | null;
   onDismiss: () => void;
+  stableKey?: number | string;
 }
 
-export const LootDropToast = ({ powerupCode, onDismiss }: LootDropToastProps) => {
+export const LootDropToast = ({ powerupCode, onDismiss, stableKey }: LootDropToastProps) => {
   useEffect(() => {
     if (!powerupCode) return;
     const timer = setTimeout(onDismiss, 2500);
@@ -35,7 +36,7 @@ export const LootDropToast = ({ powerupCode, onDismiss }: LootDropToastProps) =>
     <AnimatePresence>
       {powerupCode && (
         <motion.div
-          key={powerupCode + Date.now()}
+          key={stableKey ?? powerupCode}
           initial={{ x: 120, opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
           exit={{ x: 120, opacity: 0 }}
