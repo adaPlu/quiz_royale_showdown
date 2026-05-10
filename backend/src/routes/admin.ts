@@ -45,7 +45,7 @@ adminRouter.post("/questions/generate", async (req, res, next) => {
       res.status(503).json({ error: "ANTHROPIC_API_KEY not configured" });
       return;
     }
-    const target = Number((req.body as Record<string, unknown>).count ?? 200);
+    const target = Math.min(Number((req.body as any).count ?? 200), 500);
     // Fire and forget — respond immediately, generation runs in background
     void questionGeneratorService.generateAndStore(target).catch(() => null);
     res.json({ message: `AI question generation started (target: ${target})`, status: "running" });

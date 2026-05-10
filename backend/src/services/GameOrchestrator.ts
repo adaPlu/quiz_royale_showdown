@@ -532,13 +532,13 @@ export class GameOrchestrator {
     }
 
     // Upsert SeasonScore for each finalist if an active season exists
+    const winnerSet = new Set(winnerIds);
     const season = await prisma.season.findFirst({
       where: { startsAt: { lte: new Date() }, endsAt: { gte: new Date() } },
       orderBy: { startsAt: "desc" },
     });
 
     if (season) {
-      const winnerSet = new Set(winnerIds);
       await Promise.all(
         finalStandings.map(async (standing) => {
           const isWinner = winnerSet.has(standing.playerId);
@@ -575,7 +575,6 @@ export class GameOrchestrator {
 
     // Track challenge progress for human players only (skip bot: prefix)
     const today = new Date().toISOString().slice(0, 10);
-    const winnerSet = new Set(winnerIds);
     // Count per-player correct answers and power-up uses for this room
     const humanIds = finalStandings.map((s) => s.playerId).filter((id) => !id.startsWith('bot:'));
     const roomRounds = await prisma.round.findMany({ where: { roomId }, select: { id: true } });
@@ -668,6 +667,10 @@ export class GameOrchestrator {
 
     const POWERUP_CODES = ["DOUBLE_DOWN", "FIFTY_FIFTY", "TIME_FREEZE", "SHIELD", "SABOTAGE"] as const;
 
+    // Pre-fetch all powerup records to avoid N+1
+    const allPowerUpRecords = await prisma.powerUp.findMany({});
+    const powerUpByCode = new Map(allPowerUpRecords.map((p) => [p.code, p]));
+
     for (const playerId of finalistIds) {
       if (playerId.startsWith('bot:')) continue;
       const randomPowerup = POWERUP_CODES[Math.floor(Math.random() * POWERUP_CODES.length)];
@@ -679,7 +682,7 @@ export class GameOrchestrator {
 
       // Persist loot drop to PlayerPowerUp inventory
       try {
-        const powerUpRecord = await prisma.powerUp.findUnique({ where: { code: randomPowerup } });
+        const powerUpRecord = powerUpByCode.get(randomPowerup);
         if (powerUpRecord) {
           await prisma.playerPowerUp.upsert({
             where: { userId_powerUpId: { userId: playerId, powerUpId: powerUpRecord.id } },

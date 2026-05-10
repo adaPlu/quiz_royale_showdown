@@ -61,7 +61,6 @@ model User {
   fcmTokens              FcmToken[]
 
   @@unique([displayName])
-  @@index([displayName])
   @@index([email])
 }
 
@@ -130,6 +129,7 @@ model Round {
   room           Room         @relation(fields: [roomId], references: [id], onDelete: Cascade)
   question       QuestionBank @relation(fields: [questionId], references: [id])
   answers        Answer[]
+  powerUpUses    PowerUpUse[]
 
   @@unique([roomId, roundNumber])
   @@index([roomId])
@@ -207,6 +207,7 @@ model PowerUpUse {
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   powerUp        PowerUp  @relation(fields: [powerUpId], references: [id], onDelete: Cascade)
   room           Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  round          Round?   @relation(fields: [roundId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([roomId])
