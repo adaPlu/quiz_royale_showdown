@@ -133,6 +133,10 @@ export function registerSocketHandlers(io: Server, socket: AuthenticatedSocket):
         case "room:leave": {
           const roomId = message.payload.roomId;
           const userId = socket.data.userId;
+          if (!socket.data.roomId || socket.data.roomId !== roomId) {
+            emitError(socket, 'ROOM_MISMATCH', 'Cannot leave a room you are not joined to');
+            return;
+          }
           await roomService.leaveRoom(roomId, userId);
           await socket.leave(roomId);
           const leftEvent: ServerEvents = {

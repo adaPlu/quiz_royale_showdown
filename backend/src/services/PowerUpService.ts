@@ -352,6 +352,14 @@ export class PowerUpService {
         if (!input.targetPlayerId) {
           throw new BadRequestError("SABOTAGE requires targetPlayerId");
         }
+        // Verify target is an active member of this room
+        const targetPlayer = await prisma.roomPlayer.findUnique({
+          where: { roomId_userId: { roomId: input.roomId, userId: input.targetPlayerId! } },
+          select: { isEliminated: true },
+        });
+        if (!targetPlayer || targetPlayer.isEliminated) {
+          throw new BadRequestError('Target player is not an active member of this room');
+        }
         await redisService!.set(
           sabotageKey(input.roomId, input.targetPlayerId),
           "1",

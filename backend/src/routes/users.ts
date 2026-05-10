@@ -51,6 +51,9 @@ router.get("/search", requireAuth, async (req, res, next) => {
   try {
     const q = String(req.query.q ?? "").trim();
     if (q.length < 2) return res.json([]);
+    if (q.length > 50) {
+      return res.status(400).json({ error: 'Query too long' });
+    }
     const users = await prisma.user.findMany({
       where: { displayName: { contains: q, mode: "insensitive" } },
       select: { id: true, displayName: true, avatarUrl: true, rating: true },
@@ -65,7 +68,10 @@ router.get("/search", requireAuth, async (req, res, next) => {
 // GET /users/:identifier/profile — public profile; resolves by userId first, then displayName
 router.get("/:identifier/profile", async (req, res, next) => {
   try {
-    const { identifier } = req.params as { identifier: string };
+    const identifier = String(req.params.identifier ?? '').trim();
+    if (!identifier || identifier.length > 64) {
+      return res.status(400).json({ error: 'Invalid identifier' });
+    }
     // Try userId first (exact), then fall back to displayName (case-insensitive)
     const user = await prisma.user.findFirst({
       where: {

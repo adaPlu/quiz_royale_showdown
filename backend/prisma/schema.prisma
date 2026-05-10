@@ -60,6 +60,7 @@ model User {
   pushSubscriptions      PushSubscription[]
   fcmTokens              FcmToken[]
 
+  @@unique([displayName])
   @@index([displayName])
   @@index([email])
 }
@@ -92,6 +93,7 @@ model Room {
   rounds         Round[]
   players        RoomPlayer[]
   season         Season?      @relation(fields: [seasonId], references: [id])
+  powerUpUses    PowerUpUse[]
 
   @@index([hostUserId])
   @@index([status])
@@ -165,6 +167,7 @@ model QuestionBank {
   rounds           Round[]
 
   @@index([isActive, lastUsedAt])
+  @@unique([prompt])
 }
 
 model PowerUp {
@@ -203,6 +206,7 @@ model PowerUpUse {
   createdAt      DateTime @default(now())
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   powerUp        PowerUp  @relation(fields: [powerUpId], references: [id], onDelete: Cascade)
+  room           Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([roomId])
@@ -309,8 +313,8 @@ model FcmToken {
 
 model Friendship {
   id          String           @id @db.VarChar(26)
-  requesterId String
-  addresseeId String
+  requesterId String   @db.VarChar(26)
+  addresseeId String   @db.VarChar(26)
   status      FriendshipStatus @default(PENDING)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt

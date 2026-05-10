@@ -82,10 +82,14 @@ async function awardSeasonRewards(seasonId: string, seasonName: string): Promise
   }
 
   // Grant season cosmetics to top-3 finishers
+  const cosmeticCodes = events.map((_, i) => `season:rank_${i + 1}`);
+  const cosmeticsRaw = await prisma.cosmetic.findMany({ where: { code: { in: cosmeticCodes } } });
+  const cosmeticByCode = new Map(cosmeticsRaw.map((c) => [c.code, c]));
+
   for (const event of events) {
     const { userId, rank } = event;
     const code = `season:rank_${rank}`;
-    const cosmetic = await prisma.cosmetic.findFirst({ where: { code } });
+    const cosmetic = cosmeticByCode.get(code);
     if (cosmetic) {
       await prisma.userCosmetic.upsert({
         where: { userId_cosmeticId: { userId, cosmeticId: cosmetic.id } },
