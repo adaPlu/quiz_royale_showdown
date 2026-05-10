@@ -6,5 +6,4 @@ sealed class GameSideEffect {
     data class ShowLevelUp(val newLevel: Int) : GameSideEffect()
     data class NavigateToResults(val roomId: String) : GameSideEffect()
     data class ShowLootDrop(val powerupCode: String) : GameSideEffect()
-    data object PlayPowerup : GameSideEffect()
 }

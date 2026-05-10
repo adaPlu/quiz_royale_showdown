@@ -61,13 +61,9 @@ fun AppNavGraph() {
     ) { backStackEntry ->
       val roomCode = backStackEntry.arguments?.getString("roomId").orEmpty()
       LobbyScreen(
-        onJoinRoom = {
-          val resolvedCode = it.ifBlank { roomCode }
-          if (resolvedCode.isBlank()) {
-            navController.popBackStack()
-            return@LobbyScreen
-          }
-          navController.navigate(Screen.Game.createRoute(resolvedCode))
+        roomCode = roomCode,
+        onGameStarted = { roomId ->
+          navController.navigate(Screen.Game.createRoute(roomId))
         }
       )
     }
@@ -126,6 +122,7 @@ fun AppNavGraph() {
         GameScreen(
           state = state,
           onAnswerSelected = viewModel::submitAnswer,
+          ownedPowerups = (state as? GameUiState.ActiveQuestion)?.ownedPowerups ?: emptyList(),
           onPowerupSelected = { code ->
             runCatching { PowerupType.valueOf(code) }.getOrNull()?.let { type ->
               viewModel.onIntent(GameIntent.UsePowerup(type))

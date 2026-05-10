@@ -9,10 +9,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
@@ -59,10 +61,14 @@ fun GameScreen(
         modifier = Modifier.weight(1f),
         verticalArrangement = Arrangement.spacedBy(16.dp)
       ) {
-        CountdownRing(
-          timerSeconds = (state as? GameUiState.ActiveQuestion)?.timerSeconds ?: 0,
-          timeLimitSeconds = (state as? GameUiState.ActiveQuestion)?.let { it.timeLimitMs / 1000 } ?: 30
-        )
+        if (state is GameUiState.ActiveQuestion) {
+          CountdownRing(
+            timerSeconds = state.timerSeconds,
+            timeLimitSeconds = state.timeLimitMs / 1000
+          )
+        } else {
+          Spacer(modifier = Modifier.size(180.dp))
+        }
 
         when (state) {
           is GameUiState.Countdown ->

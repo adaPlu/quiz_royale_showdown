@@ -121,7 +121,6 @@ class GameViewModel @Inject constructor(
               is GameEvent.FinaleStarted -> handleFinale(event)
               is GameEvent.GameOver -> handleGameOver(event)
               is GameEvent.PowerupActivated -> {
-                _sideEffects.trySend(GameSideEffect.PlayPowerup)
                 _sideEffects.trySend(GameSideEffect.ShowToast("Power-up: ${event.powerupId}"))
               }
               is GameEvent.LootDrop -> {

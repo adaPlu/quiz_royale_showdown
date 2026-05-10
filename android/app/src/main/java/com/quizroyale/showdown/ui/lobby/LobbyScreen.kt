@@ -6,23 +6,39 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 
 @Composable
 fun LobbyScreen(
-  onJoinRoom: (String) -> Unit
+  roomCode: String,
+  onGameStarted: (String) -> Unit,
+  viewModel: LobbyViewModel = hiltViewModel()
 ) {
-  var roomCode by rememberSaveable { mutableStateOf("") }
+  val uiState by viewModel.uiState.collectAsState()
+
+  LaunchedEffect(Unit) {
+    if (roomCode.isNotBlank()) {
+      viewModel.onIntent(LobbyIntent.JoinRoom(roomCode))
+    }
+  }
+
+  LaunchedEffect(uiState.gameStarted) {
+    if (uiState.gameStarted) {
+      onGameStarted(uiState.roomId.ifBlank { roomCode })
+    }
+  }
 
   Column(
     modifier = Modifier
@@ -31,22 +47,53 @@ fun LobbyScreen(
       .padding(24.dp),
     verticalArrangement = Arrangement.spacedBy(20.dp)
   ) {
-    Text(text = "Quiz Royale Showdown", style = MaterialTheme.typography.headlineMedium)
+    Text(text = "Lobby — ${uiState.roomCode.ifBlank { roomCode }}", style = MaterialTheme.typography.headlineMedium)
+
+    if (uiState.error != null) {
+      Text(
+        text = uiState.error!!,
+        color = MaterialTheme.colorScheme.error,
+        style = MaterialTheme.typography.bodyMedium
+      )
+    }
+
+    if (uiState.countdownSeconds != null && uiState.countdownSeconds!! > 0) {
+      Text(
+        text = "Game starts in ${uiState.countdownSeconds}s…",
+        style = MaterialTheme.typography.titleMedium
+      )
+    }
+
     Text(
-      text = "Use this starter lobby to connect to the socket stub and enter the first playable room flow.",
-      style = MaterialTheme.typography.bodyLarge
+      text = "Players (${uiState.players.size} / ${uiState.maxPlayers})",
+      style = MaterialTheme.typography.titleSmall
     )
-    OutlinedTextField(
-      value = roomCode,
-      onValueChange = { roomCode = it.uppercase() },
-      label = { Text("Room code") },
-      modifier = Modifier.fillMaxWidth()
-    )
-    Button(
-      onClick = { onJoinRoom(roomCode) },
-      enabled = roomCode.isNotBlank()
+
+    LazyColumn(
+      modifier = Modifier
+        .weight(1f)
+        .fillMaxWidth(),
+      verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-      Text("Join Room")
+      items(uiState.players) { player ->
+        Card(modifier = Modifier.fillMaxWidth()) {
+          Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+              text = player.displayName,
+              style = MaterialTheme.typography.bodyLarge
+            )
+          }
+        }
+      }
+    }
+
+    if (uiState.isHost && !uiState.gameStarted) {
+      Button(
+        onClick = { viewModel.onIntent(LobbyIntent.StartGame) },
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        Text("Start Game")
+      }
     }
   }
 }

@@ -1,5 +1,7 @@
 package com.quizroyale.showdown.ui.game
 
+import com.quizroyale.showdown.ui.game.components.OwnedPowerup
+
 sealed interface GameUiState {
   data object Idle : GameUiState
 
@@ -28,7 +30,8 @@ sealed interface GameUiState {
     val phaseLabel: String,
     val selectedAnswerIndex: Int? = null,
     val isAnswerLocked: Boolean = false,
-    val correctAnswerIndex: Int? = null
+    val correctAnswerIndex: Int? = null,
+    val ownedPowerups: List<OwnedPowerup> = emptyList()
   ) : GameUiState
 
   data class RoundResult(
