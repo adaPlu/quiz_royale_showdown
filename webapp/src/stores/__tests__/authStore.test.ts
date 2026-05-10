@@ -84,6 +84,12 @@ describe('setTokens', () => {
     useAuthStore.getState().setTokens({ accessToken: 'tok-xyz' });
     expect(socketConnect).toHaveBeenCalledWith('tok-xyz');
   });
+
+  it('clears authError when tokens are set', () => {
+    useAuthStore.setState({ authError: 'Previous error' });
+    useAuthStore.getState().setTokens({ accessToken: 'tok-abc' });
+    expect(useAuthStore.getState().authError).toBeNull();
+  });
 });
 
 describe('clearAuth', () => {

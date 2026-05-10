@@ -19,7 +19,7 @@ export const CountdownBar = ({ duration, animationKey, onExpire, startedAt }: Co
 
     const elapsed = startedAt ? (Date.now() - new Date(startedAt).getTime()) / 1000 : 0;
     const remaining = Math.max(0, duration - elapsed);
-    const initialScale = duration > 0 ? remaining / duration : 0;
+    const initialScale = duration > 0 ? Math.min(1, Math.max(0, remaining / duration)) : 0;
 
     controls.set({ scaleX: initialScale });
     blurControls.set({ scaleX: initialScale });

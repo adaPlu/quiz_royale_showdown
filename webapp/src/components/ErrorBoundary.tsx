@@ -27,6 +27,12 @@ export class ErrorBoundary extends React.Component<Props, State> {
           >
             Go Home
           </button>
+          <button
+            onClick={() => window.location.replace('/lobby')}
+            className="rounded-xl bg-brand px-6 py-3 font-bold text-white shadow-royale"
+          >
+            Back to Lobby
+          </button>
         </div>
       );
     }
