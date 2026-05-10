@@ -1,5 +1,8 @@
 package com.quizroyale.showdown.ui.game
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -56,7 +59,10 @@ fun GameScreen(
         modifier = Modifier.weight(1f),
         verticalArrangement = Arrangement.spacedBy(16.dp)
       ) {
-        CountdownRing()
+        CountdownRing(
+          timerSeconds = (state as? GameUiState.ActiveQuestion)?.timerSeconds ?: 0,
+          timeLimitSeconds = (state as? GameUiState.ActiveQuestion)?.let { it.timeLimitMs / 1000 } ?: 30
+        )
 
         when (state) {
           is GameUiState.Countdown ->
@@ -132,7 +138,14 @@ fun GameScreen(
 }
 
 @Composable
-private fun CountdownRing() {
+private fun CountdownRing(timerSeconds: Int, timeLimitSeconds: Int) {
+  val fraction = if (timeLimitSeconds > 0) timerSeconds.toFloat() / timeLimitSeconds.toFloat() else 0f
+  val animatedFraction by animateFloatAsState(
+    targetValue = fraction.coerceIn(0f, 1f),
+    animationSpec = tween(durationMillis = 500, easing = LinearEasing),
+    label = "countdownRing"
+  )
+  val sweepAngle = 360f * animatedFraction
   Canvas(
     modifier = Modifier
       .fillMaxWidth()
@@ -149,7 +162,7 @@ private fun CountdownRing() {
     drawArc(
       color = Brand,
       startAngle = -90f,
-      sweepAngle = 216f,
+      sweepAngle = sweepAngle,
       useCenter = false,
       topLeft = Offset(center.x - radius, center.y - radius),
       size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2),

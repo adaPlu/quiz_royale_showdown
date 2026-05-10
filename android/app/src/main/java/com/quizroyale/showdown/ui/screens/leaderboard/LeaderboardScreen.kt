@@ -85,7 +85,7 @@ fun LeaderboardScreen(
 }
 
 @Composable
-private fun LeaderboardRow(rank: Int, entry: LeaderboardEntry) {
+private fun LeaderboardRow(rank: Int, entry: LeaderboardUiEntry) {
     Row(
         modifier = Modifier
             .fillMaxWidth()

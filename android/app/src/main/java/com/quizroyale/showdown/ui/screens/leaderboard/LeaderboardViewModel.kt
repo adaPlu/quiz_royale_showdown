@@ -17,7 +17,7 @@ enum class LeaderboardTab(val label: String, val endpoint: String) {
     Friends("Friends", "leaderboard/friends?limit=50"),
 }
 
-data class LeaderboardEntry(
+data class LeaderboardUiEntry(
     val userId: String,
     val displayName: String,
     val scoreLabel: String
@@ -25,7 +25,7 @@ data class LeaderboardEntry(
 
 data class LeaderboardUiState(
     val activeTab: LeaderboardTab = LeaderboardTab.Season,
-    val entries: List<LeaderboardEntry> = emptyList(),
+    val entries: List<LeaderboardUiEntry> = emptyList(),
     val loading: Boolean = false,
     val error: String? = null
 )
@@ -67,7 +67,7 @@ class LeaderboardViewModel @Inject constructor(
                     it.copy(
                         loading = false,
                         entries = entries.map { row ->
-                            LeaderboardEntry(
+                            LeaderboardUiEntry(
                                 userId = row.userId,
                                 displayName = row.displayName,
                                 scoreLabel = "${row.mmr} MMR"

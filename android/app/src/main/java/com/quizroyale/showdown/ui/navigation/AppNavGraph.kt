@@ -83,7 +83,7 @@ fun AppNavGraph() {
       val snackbarHostState = remember { SnackbarHostState() }
 
       // Consume side effects
-      LaunchedEffect(Unit) {
+      LaunchedEffect(viewModel) {
         viewModel.sideEffects.collect { effect ->
           when (effect) {
             is GameSideEffect.ShowLevelUp ->
