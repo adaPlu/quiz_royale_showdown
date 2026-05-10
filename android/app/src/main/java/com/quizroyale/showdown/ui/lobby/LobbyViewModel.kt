@@ -9,11 +9,14 @@ import com.quizroyale.showdown.data.game.GameRepository
 import com.quizroyale.showdown.domain.model.GamePlayer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -23,7 +26,6 @@ data class LobbyUiState(
   val currentUserId: String = "",
   val isHost: Boolean = false,
   val allPlayersReady: Boolean = false,
-  val gameStarted: Boolean = false,
   val roomId: String = "",
   val roomCode: String = "",
   val phase: String = "WAITING",
@@ -51,6 +53,9 @@ class LobbyViewModel @Inject constructor(
     LobbyUiState(currentUserId = userId, roomCode = initialRoomCode, roomId = initialRoomCode)
   )
   val uiState: StateFlow<LobbyUiState> = _uiState.asStateFlow()
+
+  private val _navigationEvents = Channel<String>(Channel.BUFFERED)
+  val navigationEvents: Flow<String> = _navigationEvents.receiveAsFlow()
 
   init {
     observeGameEvents()
@@ -102,15 +107,22 @@ class LobbyViewModel @Inject constructor(
     gameRepository.events
       .onEach { event ->
         when (event) {
-          is GameEvent.RoomState -> _uiState.update {
-            it.copy(
-              players = event.room.players,
-              roomId = event.room.roomId,
-              roomCode = event.room.code,
-              phase = event.room.phase,
-              gameStarted = event.room.phase != "WAITING",
-              error = null
-            )
+          is GameEvent.RoomState -> {
+            val isHost = event.room.hostPlayerId.isNotBlank() &&
+              event.room.hostPlayerId == userId
+            _uiState.update {
+              it.copy(
+                players = event.room.players,
+                roomId = event.room.roomId,
+                roomCode = event.room.code,
+                phase = event.room.phase,
+                isHost = isHost,
+                error = null
+              )
+            }
+            if (event.room.phase != "WAITING") {
+              _navigationEvents.trySend(event.room.roomId)
+            }
           }
           is GameEvent.PlayerJoined -> updatePlayers(event.roomId) { players ->
             (players.filterNot { it.id == event.player.id } + event.player)
@@ -119,11 +131,15 @@ class LobbyViewModel @Inject constructor(
           is GameEvent.PlayerLeft -> updatePlayers(event.roomId) { players ->
             players.filterNot { it.id == event.playerId }
           }
-          is GameEvent.CountdownStarted -> updateIfRoomMatches(event.roomId) {
-            it.copy(
-              phase = "COUNTDOWN",
-              gameStarted = true,
-              countdownSeconds = event.seconds
+          is GameEvent.CountdownStarted -> {
+            updateIfRoomMatches(event.roomId) {
+              it.copy(
+                phase = "COUNTDOWN",
+                countdownSeconds = event.seconds
+              )
+            }
+            _navigationEvents.trySend(
+              _uiState.value.roomId.ifBlank { event.roomId }
             )
           }
           is GameEvent.ServerError -> _uiState.update { it.copy(error = event.message) }

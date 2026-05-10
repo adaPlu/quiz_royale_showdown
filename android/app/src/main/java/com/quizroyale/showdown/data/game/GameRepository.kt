@@ -224,7 +224,8 @@ class GameRepository @Inject constructor(
       phase = room.optString("phase", room.optString("status", "WAITING")),
       roundNumber = room.optInt("roundNumber", 0),
       totalRounds = room.optInt("totalRounds", 10),
-      players = parsePlayers(room.optJSONArray("players"))
+      players = parsePlayers(room.optJSONArray("players")),
+      hostPlayerId = room.optString("hostPlayerId", room.optString("hostId", ""))
     )
   }
 

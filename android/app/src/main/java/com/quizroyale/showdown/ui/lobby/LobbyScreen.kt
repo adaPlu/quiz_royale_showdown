@@ -28,15 +28,9 @@ fun LobbyScreen(
 ) {
   val uiState by viewModel.uiState.collectAsState()
 
-  LaunchedEffect(Unit) {
-    if (roomCode.isNotBlank()) {
-      viewModel.onIntent(LobbyIntent.JoinRoom(roomCode))
-    }
-  }
-
-  LaunchedEffect(uiState.gameStarted) {
-    if (uiState.gameStarted) {
-      onGameStarted(uiState.roomId.ifBlank { roomCode })
+  LaunchedEffect(viewModel) {
+    viewModel.navigationEvents.collect { roomId ->
+      onGameStarted(roomId)
     }
   }
 
@@ -87,7 +81,7 @@ fun LobbyScreen(
       }
     }
 
-    if (uiState.isHost && !uiState.gameStarted) {
+    if (uiState.isHost && uiState.phase == "WAITING") {
       Button(
         onClick = { viewModel.onIntent(LobbyIntent.StartGame) },
         modifier = Modifier.fillMaxWidth()

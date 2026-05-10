@@ -10,7 +10,8 @@ data class RoomSnapshot(
   val phase: String,
   val roundNumber: Int,
   val totalRounds: Int,
-  val players: List<GamePlayer>
+  val players: List<GamePlayer>,
+  val hostPlayerId: String = ""
 )
 
 data class ScoreRanking(

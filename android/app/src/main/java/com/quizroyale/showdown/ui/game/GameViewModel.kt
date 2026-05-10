@@ -151,7 +151,7 @@ class GameViewModel @Inject constructor(
       players = players,
       phaseLabel = room.phase
     )
-    if (room.roomId.isNotBlank()) {
+    if (room.roomId.isNotBlank() && heartbeatJob?.isActive != true) {
       startHeartbeat(room.roomId)
     }
   }
