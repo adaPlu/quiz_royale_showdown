@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-09 — Iteration 11 sprint: selectQuestion TOCTOU eliminated, friends canonical ordering, logout limiter, push key validation, socketService + profileStore tests created, CountdownBar clamp, ErrorBoundary lobby button, LobbyViewModel fully wired, PlayPowerup dead code removed, ownedPowerups passed to GameScreen, CI checkout hardened_
+_Last updated: 2026-05-10 — Iteration 12 sprint: MainActivity wired to AppNavGraph (compile error fixed), LobbyViewModel isHost+navigationEvents, CSP unsafe-inline removed, refresh token syncs socket, RequireAuth isInitializing guard, ResultsPage Play Again fixed, refreshLimiter, leaveRoom in-game guard, admin ULID validation, SeasonScheduler test mocks fixed, schema indexes_
 
 ---
 
@@ -213,6 +213,50 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **Push subscription persistence (LR6)**: `PushSubscription` Prisma model added (applied via `db push`). Save/remove writes to Redis + DB. `sendToUser` falls back to DB when Redis unavailable.
 - **Challenge tracking (LR7)**: `GameOrchestrator.runGameOver` tracks `win_a_game`, `top_3`, `play_3_games` via XP events with duplicate-award guard. Bots excluded.
 - Webapp: `withCredentials: true`, refresh interceptor sends empty body, `authStore` and `apiClient` strip all `refreshToken` state.
+
+### Iteration 12 Sprint — Critical/High Audit Remediations (`a41bb03` main, `3bd7b62` frontend, `be777ce` android)
+
+**Backend (`a41bb03` main)**
+- **auth.ts**: added `refreshLimiter` (5/15min) on `POST /refresh`; removed outer `authLimiter` from auth router mount — each route now has its own limiter, no shared bucket pollution
+- **RoomService.ts**: `leaveRoom` now throws `ForbiddenError` if `room.status !== 'WAITING'` — prevents players from dropping mid-game and corrupting standings
+- **admin.ts**: ULID format validation added to `PUT/DELETE /questions/:id` params — non-ULID IDs return 400 before reaching Prisma
+- **SeasonScheduler.test.ts**: fixed structural mock mismatches — `$executeRaw` mocked (not `season.update`), `cosmetic.findMany` mocked (not `findFirst`); added idempotency test confirming no XP/cosmetics awarded when `$executeRaw` returns 0
+- **schema.prisma**: added `SeasonScore(seasonId, mmr DESC)` index (leaderboard queries), `Room(finishedAt)` index, `PowerUpUse(roundId)` index
+- **push.ts**: FCM token Zod schema adds `.max(512)` cap
+
+**Webapp (`3bd7b62` frontend branch)**
+- **vercel.json**: removed `'unsafe-inline'` from `script-src` CSP — actual deployed config now hardened (was neutralizing XSS protection)
+- **apiClient.ts**: after silent 401→refresh, calls `authStore.getState().setTokens({ accessToken })` via lazy require — socket reconnects with new token instead of silently keeping stale token
+- **authStore.ts**: added `isInitializing` boolean (default `true`, set `false` in `initAuth` finally block)
+- **App.tsx**: `RequireAuth` shows loading spinner while `isInitializing=true` — prevents premature `/login` redirect before token refresh completes on cold load
+- **ResultsPage.tsx**: "Play Again" navigates to `/home` (was `/lobby` which requires `:roomId` and would 404)
+- **useGameSocket.ts**: added `powerup:loot_drop` handler → `setLootDrop` — in-game loot drop toasts now fire
+- **gameStore.ts**: `applyGameOver` spreads `resetRoundInteraction` + clears `usedPowerUps`/`levelUpQueue`; `applyFinaleStarted` clears `question` + `countdownEndsAt`
+- **HomePage.tsx**: room code validation changed from `< 4` to `!== 6` chars with clear error message
+
+**Android (`be777ce` feature/android branch)**
+- **MainActivity.kt**: replaced hardcoded 2-screen switcher with `AppNavGraph()` — fixes compile error from LobbyScreen API change; all routes (Leaderboard, Profile, Friends, Cosmetics, Results) now reachable
+- **LobbyViewModel.kt**: `isHost` now computed from `RoomState.hostPlayerId == authRepository.currentUserId()` — Start Game button no longer permanently hidden; `gameStarted` Boolean replaced with `Channel<String> navigationEvents` (one-shot side effect, no spurious re-navigation on recomposition)
+- **LobbyScreen.kt**: removed duplicate `LaunchedEffect` `room:join` (ViewModel init is sole source of truth); collects `navigationEvents` channel for navigation
+- **GameModels.kt + GameRepository.kt**: `hostPlayerId` field added to `RoomSnapshot`, populated from server JSON
+- **GameViewModel.kt**: `startHeartbeat` guarded with `heartbeatJob?.isActive != true` — no more heartbeat reset storm during busy joins
+- **AndroidManifest.xml**: `quizroyale://lobby` deep link intent-filter added with `autoVerify=true`
+
+### Remaining work (priority order)
+| Priority | Area | Issue |
+|---|---|---|
+| HIGH | Android | `GameViewModelTest.kt` — zero tests; 5 critical cases: submitAnswer guard, GameOver→ResultsStore, timer, reconnect isReconnecting, joinRoom auth fail |
+| HIGH | Android | `LobbyViewModelTest.kt` — zero tests; double-join fix and navigationEvents channel need regression coverage |
+| HIGH | Backend | `trackChallengeProgress` double-award — aggregate-then-create race; needs `$transaction` wrap or `@@unique([userId, reason])` on XpEvent |
+| HIGH | Backend | Refresh-token replay attack test — no test for consumed token returning 401 |
+| HIGH | Backend | `PowerUpService` DB-fail rollback test — Redis lock not released when `$transaction` throws |
+| MEDIUM | Webapp | Mid-round reconnect: `applyRoomState` sets `question:null`; server must include `currentQuestion` in `room:state_sync` when phase is `QUESTION_ACTIVE` |
+| MEDIUM | Webapp | `useGameSocket.test.ts` — hook entirely uncovered |
+| MEDIUM | Backend | `RS-3`: no DB membership check in submitAnswer/usePowerup — socket.data.roomId fully client-trusted |
+| MEDIUM | Backend | `reconnect.ts` leaks `correctAnswerIndex` to reconnecting client |
+| MEDIUM | Android | `allPlayersReady` field in LobbyUiState never updated — remove or derive |
+| LOW | Backend | `top_3` challenge target mismatch (template target=3, tracking call target=1) |
+| LOW | Android | `GameScreen` two-column layout has no phone adaptation below 600dp |
 
 ### Iteration 11 Sprint — Critical/High Audit Remediations (`07520b2` main, `64936b3` frontend, `d9190ba` android)
 
