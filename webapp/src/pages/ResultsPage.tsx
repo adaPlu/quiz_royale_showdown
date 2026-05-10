@@ -131,10 +131,10 @@ export default function ResultsPage() {
             Home
           </button>
           <button
-            onClick={() => navigate('/home')}
+            onClick={() => navigate('/lobby')}
             className="flex-1 rounded-xl bg-brand py-3 font-bold text-white shadow-royale hover:opacity-90"
           >
-            Back to Home
+            Play Again
           </button>
         </div>
       </div>

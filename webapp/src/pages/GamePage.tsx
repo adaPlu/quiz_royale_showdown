@@ -253,6 +253,8 @@ export const GamePage = () => {
                   type="button"
                   disabled={isLocked || eliminated.includes(index)}
                   onClick={() => submitAnswer(index)}
+                  aria-pressed={myAnswer === index}
+                  aria-disabled={isLocked || eliminated.includes(index)}
                   whileHover={!isLocked ? { scale: 1.02 } : undefined}
                   whileTap={!isLocked ? { scale: 0.98 } : undefined}
                   className={[

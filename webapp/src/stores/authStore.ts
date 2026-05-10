@@ -64,7 +64,7 @@ export const useAuthStore = create<AuthState>()(
       setTokens: (tokens) => {
         setApiAccessToken(tokens.accessToken);
         socketService.connect(tokens.accessToken);
-        set({ accessToken: tokens.accessToken });
+        set({ accessToken: tokens.accessToken, authError: null });
       },
       clearAuth: () => {
         setApiAccessToken(null);

@@ -48,6 +48,8 @@ export const PowerUpTray = ({ slots, roomId, disabled = false }: PowerUpTrayProp
             disabled={!isActive}
             onClick={() => activatePowerUp(slot.type)}
             title={meta.label}
+            aria-label={`${meta.label}${typeof slot.count === 'number' && slot.count > 0 ? ` (${slot.count} remaining)` : ''}${slot.used ? ' – used' : ''}`}
+            aria-pressed={slot.used ?? false}
             whileHover={isActive ? { scale: 1.08, y: -3 } : undefined}
             whileTap={isActive ? { scale: 0.96 } : undefined}
             className={[

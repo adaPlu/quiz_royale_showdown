@@ -112,7 +112,8 @@ export const LobbyPage = () => {
             <button
               type="button"
               onClick={() => navigate(`/game/${activeRoomId}`)}
-              className="rounded-xl border border-gold/40 px-4 py-2 text-sm font-bold text-gold transition hover:bg-gold/10"
+              disabled={!activeRoomId}
+              className="rounded-xl border border-gold/40 px-4 py-2 text-sm font-bold text-gold transition hover:bg-gold/10 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Enter Game
             </button>

@@ -69,6 +69,7 @@ export const useGameSocket = (roomId: string | undefined) => {
 
     return () => {
       unsubs.forEach((unsubscribe) => unsubscribe());
+      joinedRef.current = false; // reset so next mount (new room) re-joins
     };
   }, [roomId, accessToken]); // eslint-disable-line react-hooks/exhaustive-deps
 };
