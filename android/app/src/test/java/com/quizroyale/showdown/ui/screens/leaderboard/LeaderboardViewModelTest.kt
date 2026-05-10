@@ -76,13 +76,13 @@ class LeaderboardViewModelTest {
                 userId = "user1",
                 displayName = "Alice",
                 mmr = 1500,
-                totalXp = null,
+                totalXp = 3000,
                 level = 10
             ),
             LeaderboardRow(
                 userId = "user2",
                 displayName = "Bob",
-                mmr = null,
+                mmr = 900,
                 totalXp = 9000,
                 level = 5
             )
@@ -104,7 +104,7 @@ class LeaderboardViewModelTest {
             assertEquals("Alice", finalState.entries[0].displayName)
             assertEquals("1500 MMR", finalState.entries[0].scoreLabel)
             assertEquals("Bob", finalState.entries[1].displayName)
-            assertEquals("9000 XP", finalState.entries[1].scoreLabel)
+            assertEquals("900 MMR", finalState.entries[1].scoreLabel)
 
             cancelAndIgnoreRemainingEvents()
         }

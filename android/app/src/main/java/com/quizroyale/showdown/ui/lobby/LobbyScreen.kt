@@ -22,7 +22,7 @@ import androidx.compose.ui.unit.dp
 fun LobbyScreen(
   onJoinRoom: (String) -> Unit
 ) {
-  var roomCode by rememberSaveable { mutableStateOf("ROYALE") }
+  var roomCode by rememberSaveable { mutableStateOf("") }
 
   Column(
     modifier = Modifier
@@ -42,7 +42,10 @@ fun LobbyScreen(
       label = { Text("Room code") },
       modifier = Modifier.fillMaxWidth()
     )
-    Button(onClick = { onJoinRoom(roomCode) }) {
+    Button(
+      onClick = { onJoinRoom(roomCode) },
+      enabled = roomCode.isNotBlank()
+    ) {
       Text("Join Room")
     }
   }

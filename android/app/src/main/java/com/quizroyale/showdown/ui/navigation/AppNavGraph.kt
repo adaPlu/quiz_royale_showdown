@@ -1,5 +1,10 @@
 package com.quizroyale.showdown.ui.navigation
 
+import android.content.Context
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Scaffold
@@ -8,6 +13,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -71,6 +77,7 @@ fun AppNavGraph() {
       arguments = listOf(navArgument("roomId") { type = NavType.StringType })
     ) { backStackEntry ->
       val roomCode = backStackEntry.arguments?.getString("roomId").orEmpty()
+      val context = LocalContext.current
       val viewModel: GameViewModel = hiltViewModel()
       val state by viewModel.uiState.collectAsState()
       val snackbarHostState = remember { SnackbarHostState() }
@@ -87,6 +94,20 @@ fun AppNavGraph() {
               navController.navigate(Screen.Results.createRoute(effect.roomId))
             is GameSideEffect.ShowLootDrop ->
               snackbarHostState.showSnackbar("You received a ${effect.powerupCode} power-up!")
+            is GameSideEffect.HapticFeedback -> {
+              val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
+              } else {
+                @Suppress("DEPRECATION")
+                context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+              }
+              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createOneShot(50L, VibrationEffect.DEFAULT_AMPLITUDE))
+              } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(50L)
+              }
+            }
             else -> Unit
           }
         }
