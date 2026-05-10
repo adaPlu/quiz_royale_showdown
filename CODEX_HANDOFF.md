@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-09 — Iteration 7 sprint: 4 CRITICAL + 9 HIGH fixes; startGame race, login brute-force, profileStore XP delta bug, ResultsStore stale data, usePowerup enforcement, joinedRef double-join, challenges accumulation, XP N+1, reconnect state clear_
+_Last updated: 2026-05-09 — Iteration 8 sprint: 4 CRITICAL + 7 HIGH fixes; SABOTAGE target validation, schema FKs+unique constraints, FCM exported fix, stale keyboard closure, push error surfacing, ErrorBoundary per-route, LobbyPage default blank_
 
 ---
 
@@ -214,6 +214,30 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **Challenge tracking (LR7)**: `GameOrchestrator.runGameOver` tracks `win_a_game`, `top_3`, `play_3_games` via XP events with duplicate-award guard. Bots excluded.
 - Webapp: `withCredentials: true`, refresh interceptor sends empty body, `authStore` and `apiClient` strip all `refreshToken` state.
 
+### Iteration 8 Sprint — Critical/High Audit Remediations (`2b8728c` main, `1e2a418` frontend, `b7b5b05` android)
+
+**Backend (`2b8728c` main)**
+- **PowerUpService.ts SABOTAGE**: Added `prisma.roomPlayer.findUnique` check before writing sabotage Redis key — throws `BadRequestError` if target is not an active member of the room
+- **schema.prisma**: PowerUpUse `@relation` to Room + `onDelete: Cascade`; Friendship `requesterId/addresseeId @db.VarChar(26)`; QuestionBank `@@unique([prompt])`; User `@@unique([displayName])`
+- **registerHandlers.ts room:leave**: Cross-checks `socket.data.roomId` before `leaveRoom` — emits `ROOM_MISMATCH` if not set or mismatched
+- **SeasonScheduler.ts**: Pre-fetch all season cosmetics with single `findMany` before loop (was N+1)
+- **users.ts**: `/search` query capped at 50 chars; `/:identifier/profile` capped at 64 chars with trim+validation
+
+**Webapp (`1e2a418` frontend branch)**
+- **GamePage.tsx**: `submitAnswerRef` pattern — ref stays current each render, keydown handler calls `submitAnswerRef.current(idx)` (was stale closure causing submissions to drop on reconnect)
+- **useWebPush.ts**: `catch (err)` now `console.warn` + `setPushState('denied')` (was empty catch; push failures invisible to user)
+- **App.tsx**: Per-route `<ErrorBoundary key="...">` wrapping GamePage, LobbyPage, ResultsPage — render errors no longer wipe entire app
+- **LobbyPage.tsx**: Default `roomCode=''` (was `'ROYALE'`); Join button `disabled={roomCode.trim().length !== 6}`
+- **useSocketStatus.ts**: Reconnect banner only on `'reconnecting'`, not `'disconnected'` — prevents flash on intentional logout
+
+**Android (`b7b5b05` feature/android branch)**
+- **AndroidManifest.xml**: `QuizFcmService android:exported="true"` + `android:permission="com.google.android.c2dm.permission.SEND"` — FCM was silently broken on API 31+ with `exported="false"`
+- **AppNavGraph.kt**: `GameSideEffect.HapticFeedback` wired to vibrator (50ms, API-level guarded for S+/O+)
+- **GameSoundManager.kt**: Deleted (never instantiated anywhere — pure dead code)
+- **GameSideEffect.kt**: Removed `PlayCorrect`, `PlayWrong`, `PlayElimination`, `PlayVictory` sealed entries (none were emitted; `PlayPowerup` retained)
+- **LobbyScreen.kt**: Default `roomCode=""` (was `"ROYALE"`); Join button `enabled = roomCode.isNotBlank()`
+- **LeaderboardViewModelTest.kt**: Fixed compile error (nulls passed to non-nullable `Int` fields); assertions updated to `"X MMR"` format
+
 ### Iteration 7 Sprint — Critical/High Audit Remediations (`4cbf016` main, `f6e8e23` frontend, `bd2ef66` android)
 
 **Backend (`4cbf016` main)**
@@ -364,19 +388,19 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **CSP unsafe-inline**: ✅ DONE — removed from `script-src`.
 - **schema.prisma RefreshToken index**: ✅ DONE — `@@index([userId])` added.
 - **AuthRepository currentAccessToken mutex**: Document that `currentAccessToken()` is intentionally non-suspending read-only; callers needing consistency should go through `refreshIfPossible()` which holds the mutex.
-- **GameSoundManager**: `SoundPool` never released; if used in Compose must be wrapped in `DisposableEffect { onDispose { soundManager.release() } }`.
-- **LobbyViewModel dead code**: `observeGameEvents()` flow result is computed but LobbyScreen never observes LobbyViewModel — wire it up or remove the dead collection.
-- **GamePage keyboard handler**: stale closure over `eliminated` array — add `eliminated`/`question`/`activeRoomId` to keydown effect deps or move `submitAnswer` to a ref.
-- **PowerUpTray accessibility**: buttons use `title` not `aria-label` — add `aria-label={meta.label}` to each power-up button.
+- **LobbyViewModel dead code**: `LobbyScreen.kt` never calls `hiltViewModel<LobbyViewModel>()`; `observeGameEvents()` runs in dead scope — wire up LobbyViewModel to LobbyScreen (pass uiState + onIntent) or remove dead collection logic from LobbyViewModel entirely.
+- **PowerUpTray accessibility**: buttons use `title` not `aria-label` — add `aria-label={meta.label}` and `aria-pressed={slot.used}` to each power-up button.
 - **Answer button accessibility**: missing `aria-pressed`/`aria-disabled` on answer buttons in GamePage.
-- **Backend SABOTAGE power-up**: targetPlayerId not verified to be in the room — verify against `room:${roomId}:players` Redis set before writing sabotage key.
-- **Schema PowerUpUse FK**: missing `@relation` to `Room` — rows orphan on room delete; add `room Room @relation(...)` and `onDelete: Cascade`.
-- **Schema Friendship VarChar**: `requesterId`/`addresseeId` missing `@db.VarChar(26)` — Prisma generates TEXT instead of VARCHAR(26).
-- **Schema QuestionBank uniqueness**: no `@@unique([prompt])` — duplicate questions can appear in same session.
-- **Schema User.displayName uniqueness**: no unique constraint — two users with same display name cannot be distinguished in leaderboard/friends UI.
+- **CountdownRing static**: sweep angle hardcoded `216f` — pass `timerSeconds`/`timeLimitSeconds` to `CountdownRing`, use `animateFloatAsState` for live countdown arc.
 - **useWebPush test coverage**: zero tests for subscribe/unsubscribe/VAPID flow.
-- **socketService test coverage**: zero tests for payload dispatch and Zod validation loop.
+- **socketService test coverage**: zero tests for payload dispatch and Zod validation loop — add `socketService.test.ts`.
+- **GameViewModel test coverage**: most complex ViewModel has zero unit tests — add FSM transition tests.
+- **Reconnect question re-sync**: after reconnect `room:state_sync` clears question, but if phase=QUESTION_ACTIVE no follow-up request for current question is made — player sees blank prompt.
 - **auth.ts dummy hash**: Replace `bcrypt.hash` dummy path with pre-computed `DUMMY_HASH` + `bcrypt.compare` to prevent timing oracle on register (low priority).
+- **selectQuestion TOCTOU**: `findFirst` + separate `update` — two concurrent games can get the same question; needs `$transaction` with `SELECT FOR UPDATE SKIP LOCKED`.
+- **leaderboard auth gap**: global `GET /leaderboard` is unauthenticated — exposes MMR/displayName of up to 500 users per request.
+- **LeaderboardRow nullable fields**: `mmr: Int` non-nullable but API may return null for users with no SeasonScore — will crash with SerializationException at runtime.
+- **AppNavGraph LaunchedEffect key**: `LaunchedEffect(Unit)` on Channel collector — use `LaunchedEffect(viewModel)` to prevent duplicate subscriptions on re-entry.
 - **DB schema migration**: `prisma migrate dev` fails with P3006 shadow DB conflict — always use `prisma db push` for Railway. To fix permanently: spin up clean shadow DB and run `prisma migrate resolve --applied` then squash.
 - **XpEvent/Answer archival**: Both tables grow forever. At scale needs a background archival job.
 - **Season cosmetic seeding**: `season:rank_1/2/3` `Cosmetic` rows must be seeded in the DB for `SeasonScheduler` cosmetic grants to have any effect.
