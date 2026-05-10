@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-09 — Iteration 9 sprint: 1 CRITICAL + 6 HIGH fixes; leaderboard auth gate, winnerSet dedup, powerUp N+1, friends P2002, VIBRATE permission, CountdownRing animated, LaunchedEffect(viewModel), accessibility (aria-label/pressed)_
+_Last updated: 2026-05-09 — Iteration 11 sprint: selectQuestion TOCTOU eliminated, friends canonical ordering, logout limiter, push key validation, socketService + profileStore tests created, CountdownBar clamp, ErrorBoundary lobby button, LobbyViewModel fully wired, PlayPowerup dead code removed, ownedPowerups passed to GameScreen, CI checkout hardened_
 
 ---
 
@@ -213,6 +213,41 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **Push subscription persistence (LR6)**: `PushSubscription` Prisma model added (applied via `db push`). Save/remove writes to Redis + DB. `sendToUser` falls back to DB when Redis unavailable.
 - **Challenge tracking (LR7)**: `GameOrchestrator.runGameOver` tracks `win_a_game`, `top_3`, `play_3_games` via XP events with duplicate-award guard. Bots excluded.
 - Webapp: `withCredentials: true`, refresh interceptor sends empty body, `authStore` and `apiClient` strip all `refreshToken` state.
+
+### Iteration 11 Sprint — Critical/High Audit Remediations (`07520b2` main, `64936b3` frontend, `d9190ba` android)
+
+**Backend (`07520b2` main)**
+- **GameOrchestrator.ts selectQuestion**: replaced two-query pattern (findFirst + separate update) with `prisma.$transaction` using `$queryRaw FOR UPDATE SKIP LOCKED` — eliminates TOCTOU race where concurrent games could draw the same question; `lastUsedAt` update runs inside same transaction; empty `usedIds` handled safely via conditional `Prisma.sql` fragment
+- **friends.ts**: normalize friend-request pair to `(min(userId, targetId), max(userId, targetId))` before create — existing `@@unique([requesterId, addresseeId])` now covers both send directions (B→A race eliminated)
+- **auth.ts**: added `logoutLimiter` (10 req/15min window) on `POST /logout` (was only covered by shared `authLimiter` at 20/15min)
+- **push.ts**: Zod `SubscribeSchema.keys` now validates `p256dh` (base64url, 87–88 chars) and `auth` (base64url, 22–24 chars) with regex + `refine` length checks
+
+**Webapp (`64936b3` frontend branch)**
+- **socketService.test.ts** (new file, 5 tests): idempotent connect, reconnect re-emits `room:join`, silent Zod parse failure, unsubscribe stops handler, disconnect clears `activeRoomCode`
+- **profileStore.test.ts** (new file, 4 tests): `updateXp` accumulation from delta (`xp+delta`), double-call cumulative, `setProfile`, reset
+- **CountdownBar.tsx**: `initialScale` clamped to `[0, 1]` via `Math.min(1, Math.max(0, remaining / duration))` — prevents bar overflow when `startedAt` is in the future due to server/client clock skew
+- **authStore.test.ts**: added assertion that `setTokens` clears `authError` to `null`
+- **ErrorBoundary.tsx**: added "Back to Lobby" button (`window.location.replace('/lobby')`) alongside existing "Go Home" for game-page crash recovery
+
+**Android (`d9190ba` feature/android branch)**
+- **LobbyScreen.kt**: full rewrite — now collects `LobbyViewModel.uiState` via `hiltViewModel()`; `LaunchedEffect(Unit)` fires `LobbyIntent.JoinRoom(roomCode)` on entry; shows player list (`LazyColumn`), error text, countdown, and host "Start Game" button; navigation driven by `LaunchedEffect(uiState.gameStarted)`; room code TextField removed (code entered on HomeScreen)
+- **AppNavGraph.kt**: `LobbyScreen` call updated to `roomCode + onGameStarted` signature; immediate-navigate logic removed
+- **GameSideEffect.kt**: removed `PlayPowerup` sealed entry (was emitted but silently discarded via `else → Unit`)
+- **GameViewModel.kt**: removed `trySend(GameSideEffect.PlayPowerup)` from `PowerupActivated` handler
+- **GameUiState.ActiveQuestion**: added `ownedPowerups: List<OwnedPowerup>` field; `AppNavGraph` now passes it to `GameScreen` — `PowerUpTray` no longer permanently hidden
+- **GameScreen.kt**: `CountdownRing` only rendered during `ActiveQuestion` state; replaced with equal-size `Spacer` on other states to prevent layout shift
+- **ci.yml**: cross-repo `actions/checkout` now includes `token: ${{ secrets.GITHUB_TOKEN }}` and `ref: ${{ github.head_ref || github.ref_name }}` — fixes silent failures on private repos and fork PRs
+
+### Remaining work (priority order)
+| Priority | Area | Issue |
+|---|---|---|
+| HIGH | Android | `GameViewModelTest.kt` — no unit tests for most complex ViewModel; 5 critical cases: joinRoom sets Lobby+heartbeat, backoff resets on try, handleGameOver→ResultsStore, submitAnswer idempotency, timer countdown |
+| HIGH | Android | `ProfileViewModelTest.kt` — no test file |
+| MEDIUM | Webapp | Mid-round reconnect: `applyRoomState` sets `question: null`; server must re-send `round:question_started` on `room:join` during `QUESTION_ACTIVE` or client must emit `round:request_state` |
+| MEDIUM | Webapp | `useGameSocket.test.ts` — joinedRef single-join guard, reconnect path, navigation side effects uncovered |
+| MEDIUM | Android | `_sideEffects` channel: `NavigateToResults` can be delayed behind suspended snackbar; process it in a separate coroutine |
+| LOW | Backend | Redis key cleanup when room is deleted via `leaveRoom` |
+| LOW | Android | `CountdownBar.test.tsx` — elapsed-time calculation uncovered |
 
 ### Iteration 9 Sprint — Critical/High Audit Remediations (`f087638` main, `a3cbbd9` frontend, `0f7d45c` android)
 
