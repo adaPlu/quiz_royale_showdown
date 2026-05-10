@@ -47,8 +47,9 @@ export function useWebPush() {
 
       await api.post('/push/subscribe', { subscription: subscription.toJSON() });
       setPushState('subscribed');
-    } catch {
-      // permission denied or subscribe failed — silently ignore
+    } catch (err) {
+      console.warn('[useWebPush] subscribe failed', err);
+      setPushState('denied'); // treat any failure as denied so button re-enables
     }
   };
 

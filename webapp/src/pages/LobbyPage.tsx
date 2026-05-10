@@ -15,7 +15,7 @@ export const LobbyPage = () => {
   const phase = useGameStore((state) => state.phase);
   const code = useGameStore((state) => state.code);
   const storedRoomId = useGameStore((state) => state.roomId);
-  const [roomCode, setRoomCode] = useState((roomId ?? code ?? 'ROYALE').toUpperCase());
+  const [roomCode, setRoomCode] = useState((roomId ?? code ?? '').toUpperCase());
   const [joinError, setJoinError] = useState<string | null>(null);
 
   useGameSocket(roomId ?? roomCode);
@@ -83,7 +83,8 @@ export const LobbyPage = () => {
             <button
               type="button"
               onClick={joinRoom}
-              className="self-end rounded-2xl bg-brand px-7 py-4 text-lg font-semibold text-white shadow-brand transition hover:bg-brand/80"
+              disabled={roomCode.trim().length !== 6}
+              className="self-end rounded-2xl bg-brand px-7 py-4 text-lg font-semibold text-white shadow-brand transition hover:bg-brand/80 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Join Room
             </button>

@@ -61,9 +61,9 @@ export const App = () => {
 
           {/* Auth-gated */}
           <Route path="/home" element={<RequireAuth><HomePage /></RequireAuth>} />
-          <Route path="/lobby/:roomId" element={<RequireAuth><LobbyPage /></RequireAuth>} />
-          <Route path="/game/:roomId"  element={<RequireAuth><GamePage /></RequireAuth>} />
-          <Route path="/results/:roomId" element={<RequireAuth><ResultsPage /></RequireAuth>} />
+          <Route path="/lobby/:roomId" element={<RequireAuth><ErrorBoundary key="lobby-page"><LobbyPage /></ErrorBoundary></RequireAuth>} />
+          <Route path="/game/:roomId"  element={<RequireAuth><ErrorBoundary key="game-page"><GamePage /></ErrorBoundary></RequireAuth>} />
+          <Route path="/results/:roomId" element={<RequireAuth><ErrorBoundary key="results-page"><ResultsPage /></ErrorBoundary></RequireAuth>} />
           <Route path="/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
           <Route path="/profile/:username" element={<RequireAuth><ProfilePage /></RequireAuth>} />
           <Route path="/leaderboard" element={<RequireAuth><LeaderboardPage /></RequireAuth>} />

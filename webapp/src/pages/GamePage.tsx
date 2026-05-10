@@ -118,6 +118,8 @@ export const GamePage = () => {
   const isLocked = !isQuestionActive || myAnswer !== null;
   const isLockedRef = useRef(isLocked);
   useEffect(() => { isLockedRef.current = isLocked; }, [isLocked]);
+  const submitAnswerRef = useRef(submitAnswer);
+  useEffect(() => { submitAnswerRef.current = submitAnswer; });
   const durationSec = question ? Math.max(1, question.timeLimitMs / 1000) : 20;
 
   const [remainingSec, setRemainingSec] = useState<number>(0);
@@ -162,11 +164,11 @@ export const GamePage = () => {
   };
 
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      const answerIndex = Number(event.key) - 1;
-      if (answerIndex < 0 || answerIndex > 3) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      const idx = Number(e.key) - 1;
+      if (idx < 0 || idx > 3) return;
       if (isLockedRef.current) return;
-      submitAnswer(answerIndex);
+      submitAnswerRef.current(idx);
     };
 
     window.addEventListener('keydown', onKeyDown);

@@ -6,7 +6,7 @@ export function useSocketStatus() {
 
   useEffect(() => {
     return socketService.onStatusChange((status) => {
-      setIsReconnecting(status === 'reconnecting' || status === 'disconnected');
+      setIsReconnecting(status === 'reconnecting');
     });
   }, []);
 
