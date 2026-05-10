@@ -42,11 +42,16 @@ friendsRouter.post(
         throw new ConflictError("Friendship already exists");
       }
 
+      // Normalize to canonical order (lexicographically smaller ID is always requesterId)
+      // so the @@unique([requesterId, addresseeId]) constraint covers both send directions.
+      const canonicalRequesterId = userId < addresseeId ? userId : addresseeId;
+      const canonicalAddresseeId = userId < addresseeId ? addresseeId : userId;
+
       const friendship = await prisma.friendship.create({
         data: {
           id: generateId(),
-          requesterId: userId,
-          addresseeId,
+          requesterId: canonicalRequesterId,
+          addresseeId: canonicalAddresseeId,
         },
       });
 

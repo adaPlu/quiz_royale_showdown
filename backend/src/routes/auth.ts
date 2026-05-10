@@ -71,6 +71,14 @@ const loginLimiter = rateLimit({
   message: { error: 'Too many login attempts, please try again later.' },
 });
 
+const logoutLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many logout attempts, please try again later.' },
+});
+
 export const authRouter = Router();
 
 function isUniqueConstraintError(error: unknown): error is Prisma.PrismaClientKnownRequestError {
@@ -202,7 +210,7 @@ authRouter.post("/refresh", validate({ body: refreshSchema }), async (req, res, 
   }
 });
 
-authRouter.post("/logout", async (req, res, next) => {
+authRouter.post("/logout", logoutLimiter, async (req, res, next) => {
   try {
     const refreshToken =
       req.cookies?.[REFRESH_COOKIE_NAME] ??

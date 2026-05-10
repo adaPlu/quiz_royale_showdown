@@ -4,6 +4,7 @@
  */
 
 import type { QuestionBank } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import type { Server } from "socket.io";
 import { prisma } from "../models/prismaClient";
 import {
@@ -749,33 +750,50 @@ export class GameOrchestrator {
 
   private async selectQuestion(usedIds: string[], roundNumber = 1): Promise<QuestionBank> {
     const targetDifficulty = roundNumber <= 3 ? 'EASY' : roundNumber <= 7 ? 'MEDIUM' : 'HARD';
-    const baseWhere = {
-      isActive: true,
-      id: { notIn: usedIds.length > 0 ? usedIds : undefined }
-    };
 
-    let question = await prisma.questionBank.findFirst({
-      where: { ...baseWhere, difficulty: targetDifficulty },
-      orderBy: [{ lastUsedAt: "asc" }, { id: "asc" }]
-    });
+    const result = await prisma.$transaction(async (tx) => {
+      // Try preferred difficulty first, then fall back to any active question.
+      // FOR UPDATE SKIP LOCKED prevents concurrent games from selecting the same row.
+      const notInClause = usedIds.length > 0
+        ? Prisma.sql`AND id NOT IN (${Prisma.join(usedIds)})`
+        : Prisma.sql``;
 
-    if (!question) {
-      question = await prisma.questionBank.findFirst({
-        where: baseWhere,
-        orderBy: [{ lastUsedAt: "asc" }, { id: "asc" }]
+      let rows = await tx.$queryRaw<QuestionBank[]>`
+        SELECT * FROM "QuestionBank"
+        WHERE "isActive" = true
+          AND difficulty = ${targetDifficulty}::"Difficulty"
+          ${notInClause}
+        ORDER BY "lastUsedAt" ASC NULLS FIRST, id ASC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+      `;
+
+      if (rows.length === 0) {
+        rows = await tx.$queryRaw<QuestionBank[]>`
+          SELECT * FROM "QuestionBank"
+          WHERE "isActive" = true
+            ${notInClause}
+          ORDER BY "lastUsedAt" ASC NULLS FIRST, id ASC
+          LIMIT 1
+          FOR UPDATE SKIP LOCKED
+        `;
+      }
+
+      if (rows.length === 0) {
+        throw new Error("No available questions in the bank");
+      }
+
+      const question = rows[0];
+
+      await tx.questionBank.update({
+        where: { id: question.id },
+        data: { lastUsedAt: new Date() }
       });
-    }
 
-    if (!question) {
-      throw new Error("No available questions in the bank");
-    }
-
-    await prisma.questionBank.update({
-      where: { id: question.id },
-      data: { lastUsedAt: new Date() }
+      return question;
     });
 
-    return question;
+    return result;
   }
 
   private async loadScores(roomId: string, playerIds: string[]): Promise<PlayerStanding[]> {
