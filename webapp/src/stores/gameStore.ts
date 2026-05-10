@@ -316,6 +316,8 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
     set((state) => ({
       roomId: payload.roomId,
       phase: 'FINALE',
+      question: null,
+      countdownEndsAt: null,
       players: state.players.map((player) => ({
         ...player,
         isEliminated: !payload.finalistIds.includes(player.id),
@@ -373,8 +375,10 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       winnerId: payload.winnerId,
       finalScores: payload.finalStandings,
       question: null,
-      result: null,
-      countdownEndsAt: null,
+      ...resetRoundInteraction,
+      usedPowerUps: [],
+      levelUpQueue: [],
+      lootDrop: null,
     });
   },
 

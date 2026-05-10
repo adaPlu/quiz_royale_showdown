@@ -20,6 +20,8 @@ const NotFoundPage    = lazy(() => import('@/pages/NotFoundPage'));
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user);
+  const isInitializing = useAuthStore((s) => s.isInitializing);
+  if (isInitializing) return <div className="flex h-screen items-center justify-center"><span className="text-white">Loading…</span></div>;
   if (!user) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }

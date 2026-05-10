@@ -27,6 +27,7 @@ type AuthState = {
   user: AuthUser | null;
   accessToken: string | null;
   authError: string | null;
+  isInitializing: boolean;
   setUser: (user: AuthUserInput) => void;
   setAccessToken: (token: string) => void;
   setTokens: (tokens: { accessToken: string }) => void;
@@ -55,6 +56,7 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       accessToken: null,
       authError: null,
+      isInitializing: true,
       setUser: (user) => set({ user: normalizeUser(user) }),
       setAccessToken: (token) => {
         setApiAccessToken(token);
@@ -73,7 +75,7 @@ export const useAuthStore = create<AuthState>()(
       },
       clearAuthError: () => set({ authError: null }),
       initAuth: async () => {
-        set({ authError: null });
+        set({ authError: null, isInitializing: true });
         try {
           const response = await apiClient.post<{ accessToken: string }>(
             '/auth/refresh',
@@ -92,6 +94,8 @@ export const useAuthStore = create<AuthState>()(
         } catch {
           // refresh failed — user must log in
           set({ authError: 'Your session expired. Please sign in again.' });
+        } finally {
+          set({ isInitializing: false });
         }
       },
     }),

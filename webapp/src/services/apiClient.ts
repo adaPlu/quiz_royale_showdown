@@ -5,6 +5,11 @@ import axios, {
   type AxiosResponse,
 } from 'axios';
 
+// Lazy import to avoid circular dependency: authStore → apiClient → authStore
+const getAuthStore = () =>
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  (require('@/stores/authStore') as typeof import('@/stores/authStore')).useAuthStore;
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000/api/v1';
 
 type ErrorBody = {
@@ -92,8 +97,15 @@ apiClient.interceptors.response.use(
         ]) as Promise<{ data: { accessToken: string } }>
       )
         .then((response) => {
-          setAccessToken(response.data.accessToken);
-          return response.data.accessToken;
+          const newToken = response.data.accessToken;
+          setAccessToken(newToken);
+          // Sync authStore and reconnect socket with the new token
+          try {
+            getAuthStore().getState().setTokens({ accessToken: newToken });
+          } catch {
+            // authStore may not be initialized yet in SSR or test envs — ignore
+          }
+          return newToken;
         })
         .finally(() => {
           refreshPromise = null;

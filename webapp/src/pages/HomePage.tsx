@@ -28,8 +28,8 @@ export default function HomePage() {
 
   const goToLobby = async (roomCode: string) => {
     const normalizedCode = roomCode.trim().toUpperCase();
-    if (normalizedCode.length < 4) {
-      setError('Enter at least 4 characters for a room code.');
+    if (normalizedCode.length !== 6) {
+      setError('Room code must be exactly 6 characters');
       return;
     }
 
@@ -128,7 +128,7 @@ export default function HomePage() {
             />
             <button
               onClick={() => goToLobby(code)}
-              disabled={code.length < 4 || isJoining}
+              disabled={code.trim().length !== 6 || isJoining}
               className="rounded-xl border border-brand/40 bg-brand/20 px-4 py-3 font-semibold text-brand hover:bg-brand/30 disabled:opacity-40"
             >
               Join

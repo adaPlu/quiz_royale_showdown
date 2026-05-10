@@ -131,7 +131,7 @@ export default function ResultsPage() {
             Home
           </button>
           <button
-            onClick={() => navigate('/lobby')}
+            onClick={() => navigate('/home')}
             className="flex-1 rounded-xl bg-brand py-3 font-bold text-white shadow-royale hover:opacity-90"
           >
             Play Again
