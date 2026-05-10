@@ -61,7 +61,7 @@ router.delete("/subscribe", requireAuth, validate({ body: SubscribeSchema }), as
 });
 
 // POST /push/fcm-token — store Android FCM device token
-router.post("/fcm-token", requireAuth, validate({ body: z.object({ token: z.string().min(1) }) }), async (req, res, next) => {
+router.post("/fcm-token", requireAuth, validate({ body: z.object({ token: z.string().min(1).max(512) }) }), async (req, res, next) => {
   try {
     const userId = req.jwtClaims!.sub;
     const { token } = req.body as { token: string };

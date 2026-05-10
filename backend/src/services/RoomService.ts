@@ -343,6 +343,10 @@ export class RoomService {
       throw new NotFoundError(`Room ${roomId} not found`);
     }
 
+    if (room.status !== 'WAITING') {
+      throw new ForbiddenError('Cannot leave a room that is already in progress');
+    }
+
     const playerRecord = room.players.find((player) => player.userId === userId);
     if (!playerRecord) {
       throw new NotFoundError("You are not in this room");

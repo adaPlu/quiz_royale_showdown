@@ -6,7 +6,7 @@ import helmet from "helmet";
 import { env } from "./config/env";
 import { requireAuth } from "./middleware/auth";
 import { errorHandler } from "./middleware/errorHandler";
-import { apiLimiter, authLimiter } from "./middleware/rateLimiter";
+import { apiLimiter } from "./middleware/rateLimiter";
 import { requestIdMiddleware } from "./middleware/requestId";
 import { authRouter } from "./routes/auth";
 import { healthRouter } from "./routes/health";
@@ -40,7 +40,7 @@ export const createApp = () => {
   app.use("/health", healthRouter);
 
   // Apply rate limiting: strict limit on auth, general limit on all other API routes
-  app.use("/api/v1/auth", authLimiter, authRouter);
+  app.use("/api/v1/auth", authRouter);
   app.use("/api/v1", apiLimiter);
   app.use("/api/v1/rooms", roomsRouter);
   app.use("/api/v1/users", usersRouter);

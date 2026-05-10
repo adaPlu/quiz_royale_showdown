@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { prismaMock } = vi.hoisted(() => {
   const prismaMock = {
+    $executeRaw: vi.fn().mockResolvedValue(1),
     season: {
       findMany: vi.fn(),
       update: vi.fn(),
@@ -24,7 +25,7 @@ const { prismaMock } = vi.hoisted(() => {
       groupBy: vi.fn(),
     },
     cosmetic: {
-      findFirst: vi.fn(),
+      findMany: vi.fn(),
     },
     userCosmetic: {
       upsert: vi.fn(),
@@ -47,11 +48,11 @@ import { processExpiredSeasons } from "../SeasonScheduler";
 describe("processExpiredSeasons", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    prismaMock.season.update.mockResolvedValue({});
+    prismaMock.$executeRaw.mockResolvedValue(1);
     prismaMock.xpEvent.create.mockResolvedValue({});
     prismaMock.xpEvent.groupBy.mockResolvedValue([]);
     prismaMock.seasonScore.findMany.mockResolvedValue([]);
-    prismaMock.cosmetic.findFirst.mockResolvedValue(null);
+    prismaMock.cosmetic.findMany.mockResolvedValue([]);
     prismaMock.userCosmetic.upsert.mockResolvedValue({});
   });
 
@@ -62,7 +63,19 @@ describe("processExpiredSeasons", () => {
 
     expect(prismaMock.seasonScore.findMany).not.toHaveBeenCalled();
     expect(prismaMock.xpEvent.create).not.toHaveBeenCalled();
-    expect(prismaMock.season.update).not.toHaveBeenCalled();
+    expect(prismaMock.$executeRaw).not.toHaveBeenCalled();
+  });
+
+  it("skips rewards when $executeRaw returns 0 (idempotency — already claimed)", async () => {
+    prismaMock.season.findMany.mockResolvedValue([
+      { id: "season-idem", name: "Idempotency Season" },
+    ]);
+    prismaMock.$executeRaw.mockResolvedValue(0);
+
+    await processExpiredSeasons();
+
+    expect(prismaMock.xpEvent.create).not.toHaveBeenCalled();
+    expect(prismaMock.userCosmetic.upsert).not.toHaveBeenCalled();
   });
 
   it("queries seasons with endsAt < now and rewardsAwardedAt null", async () => {
@@ -110,13 +123,6 @@ describe("processExpiredSeasons", () => {
         data: expect.objectContaining({ userId: "u3", amount: 150 }),
       }),
     );
-
-    expect(prismaMock.season.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: "season-1" },
-        data: expect.objectContaining({ rewardsAwardedAt: expect.any(Date) }),
-      }),
-    );
   });
 
   it("awards XP only to available top positions when fewer than 3 players", async () => {
@@ -146,13 +152,8 @@ describe("processExpiredSeasons", () => {
     await processExpiredSeasons();
 
     expect(prismaMock.xpEvent.create).not.toHaveBeenCalled();
-    // rewardsAwardedAt is still stamped so the scheduler doesn't retry
-    expect(prismaMock.season.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: "empty-season" },
-        data: expect.objectContaining({ rewardsAwardedAt: expect.any(Date) }),
-      }),
-    );
+    // rewardsAwardedAt is stamped via $executeRaw so the scheduler doesn't retry
+    expect(prismaMock.$executeRaw).toHaveBeenCalled();
   });
 
   it("processes remaining seasons when one throws", async () => {
@@ -167,9 +168,11 @@ describe("processExpiredSeasons", () => {
 
     await processExpiredSeasons();
 
-    // The good season should still be processed
-    expect(prismaMock.season.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "good-season" } }),
+    // The good season should still be processed — xpEvent.create called once for u1
+    expect(prismaMock.xpEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ userId: "u1" }),
+      }),
     );
   });
 
@@ -198,7 +201,11 @@ describe("processExpiredSeasons", () => {
       { userId: "u2", mmr: 1500 },
       { userId: "u3", mmr: 1200 },
     ]);
-    prismaMock.cosmetic.findFirst.mockResolvedValue({ id: "cos-id" });
+    prismaMock.cosmetic.findMany.mockResolvedValue([
+      { id: "cos-id-1", code: "season:rank_1" },
+      { id: "cos-id-2", code: "season:rank_2" },
+      { id: "cos-id-3", code: "season:rank_3" },
+    ]);
     prismaMock.userCosmetic.upsert.mockResolvedValue({});
 
     await processExpiredSeasons();
@@ -206,7 +213,7 @@ describe("processExpiredSeasons", () => {
     expect(prismaMock.userCosmetic.upsert).toHaveBeenCalledTimes(3);
     expect(prismaMock.userCosmetic.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        create: expect.objectContaining({ userId: "u1", cosmeticId: "cos-id" }),
+        create: expect.objectContaining({ userId: "u1", cosmeticId: "cos-id-1" }),
       }),
     );
   });
@@ -218,7 +225,7 @@ describe("processExpiredSeasons", () => {
     prismaMock.seasonScore.findMany.mockResolvedValue([
       { userId: "u1", mmr: 1000 },
     ]);
-    prismaMock.cosmetic.findFirst.mockResolvedValue(null);
+    prismaMock.cosmetic.findMany.mockResolvedValue([]);
 
     const { logger } = await import("../../utils/logger");
 

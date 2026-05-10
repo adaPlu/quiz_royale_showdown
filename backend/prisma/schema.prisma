@@ -97,6 +97,7 @@ model Room {
   @@index([hostUserId])
   @@index([status])
   @@index([seasonId])
+  @@index([finishedAt])
 }
 
 model RoomPlayer {
@@ -211,6 +212,7 @@ model PowerUpUse {
 
   @@index([userId])
   @@index([roomId])
+  @@index([roundId])
 }
 
 model Cosmetic {
@@ -274,6 +276,7 @@ model SeasonScore {
 
   @@unique([seasonId, userId])
   @@index([userId])
+  @@index([seasonId, mmr(sort: Desc)])
 }
 
 model PurchaseReceipt {

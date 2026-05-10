@@ -64,6 +64,10 @@ adminRouter.post("/questions/refill", async (_req, res, next) => {
   }
 });
 
+const questionIdParamsSchema = z.object({
+  id: z.string().ulid("Question ID must be a valid ULID"),
+});
+
 const questionSchema = z.object({
   prompt: z.string().min(5),
   optionA: z.string().min(1),
@@ -118,13 +122,18 @@ adminRouter.post("/questions", async (req, res, next) => {
 // PUT /api/v1/admin/questions/:id  — update fields
 adminRouter.put("/questions/:id", async (req, res, next) => {
   try {
+    const idParsed = questionIdParamsSchema.safeParse(req.params);
+    if (!idParsed.success) {
+      res.status(400).json({ error: "Invalid question ID", issues: idParsed.error.issues });
+      return;
+    }
     const parsed = questionSchema.partial().safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "Validation failed", issues: parsed.error.issues });
       return;
     }
     const question = await prisma.questionBank.update({
-      where: { id: req.params.id },
+      where: { id: idParsed.data.id },
       data: parsed.data,
     });
     res.json(question);
@@ -136,8 +145,13 @@ adminRouter.put("/questions/:id", async (req, res, next) => {
 // DELETE /api/v1/admin/questions/:id  — soft-delete (isActive = false)
 adminRouter.delete("/questions/:id", async (req, res, next) => {
   try {
+    const idParsed = questionIdParamsSchema.safeParse(req.params);
+    if (!idParsed.success) {
+      res.status(400).json({ error: "Invalid question ID", issues: idParsed.error.issues });
+      return;
+    }
     await prisma.questionBank.update({
-      where: { id: req.params.id },
+      where: { id: idParsed.data.id },
       data: { isActive: false },
     });
     res.status(204).end();
