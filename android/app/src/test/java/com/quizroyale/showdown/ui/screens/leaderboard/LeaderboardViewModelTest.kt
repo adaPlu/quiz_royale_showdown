@@ -10,7 +10,6 @@ import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
-import retrofit2.Retrofit
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class LeaderboardViewModelTest {
@@ -19,12 +18,10 @@ class LeaderboardViewModelTest {
 
     private val authRepository = mockk<AuthRepository>()
     private val leaderboardApi = mockk<LeaderboardApi>()
-    private val retrofit = mockk<Retrofit>()
 
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
-        every { retrofit.create(LeaderboardApi::class.java) } returns leaderboardApi
     }
 
     @After
@@ -38,7 +35,7 @@ class LeaderboardViewModelTest {
         // we just need to observe the state before any coroutines are advanced.
         every { authRepository.currentAccessToken() } returns null
 
-        val viewModel = LeaderboardViewModel(authRepository, retrofit)
+        val viewModel = LeaderboardViewModel(authRepository, leaderboardApi)
         // Before advancing the dispatcher the state should be loading=true
         assertTrue(viewModel.uiState.value.loading)
     }
@@ -47,7 +44,7 @@ class LeaderboardViewModelTest {
     fun `loadTab returns empty list when token is null`() = runTest {
         every { authRepository.currentAccessToken() } returns null
 
-        val viewModel = LeaderboardViewModel(authRepository, retrofit)
+        val viewModel = LeaderboardViewModel(authRepository, leaderboardApi)
 
         viewModel.uiState.test {
             // Consume the initial loading=true emission
@@ -89,7 +86,7 @@ class LeaderboardViewModelTest {
         )
         coEvery { leaderboardApi.getSeason("Bearer $token") } returns fakeRows
 
-        val viewModel = LeaderboardViewModel(authRepository, retrofit)
+        val viewModel = LeaderboardViewModel(authRepository, leaderboardApi)
 
         viewModel.uiState.test {
             // Consume initial loading state

@@ -25,7 +25,6 @@ data class LobbyUiState(
   val maxPlayers: Int = 8,
   val currentUserId: String = "",
   val isHost: Boolean = false,
-  val allPlayersReady: Boolean = false,
   val roomId: String = "",
   val roomCode: String = "",
   val phase: String = "WAITING",

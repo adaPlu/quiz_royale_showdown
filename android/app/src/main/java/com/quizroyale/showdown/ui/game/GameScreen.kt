@@ -24,9 +24,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -182,8 +179,6 @@ private fun QuestionCard(
   state: GameUiState.ActiveQuestion,
   onAnswerSelected: (Int) -> Unit
 ) {
-  var localLocked by remember(state.questionId) { mutableStateOf(false) }
-
   Card {
     Column(
       modifier = Modifier.padding(20.dp),
@@ -197,12 +192,11 @@ private fun QuestionCard(
         val isCorrect = state.correctAnswerIndex == index
         Button(
           onClick = {
-            if (!localLocked && !state.isAnswerLocked) {
-              localLocked = true
+            if (!state.isAnswerLocked) {
               onAnswerSelected(index)
             }
           },
-          enabled = !state.isAnswerLocked && !localLocked,
+          enabled = !state.isAnswerLocked,
           modifier = Modifier.fillMaxWidth()
         ) {
           val suffix = when {

@@ -8,7 +8,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import retrofit2.Retrofit
 import javax.inject.Inject
 
 enum class LeaderboardTab(val label: String, val endpoint: String) {
@@ -33,13 +32,11 @@ data class LeaderboardUiState(
 @HiltViewModel
 class LeaderboardViewModel @Inject constructor(
     private val authRepository: AuthRepository,
-    private val retrofit: Retrofit
+    private val leaderboardApi: LeaderboardApi
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LeaderboardUiState(loading = true))
     val uiState: StateFlow<LeaderboardUiState> = _uiState
-
-    private val leaderboardApi by lazy { retrofit.create(LeaderboardApi::class.java) }
 
     init {
         loadTab(LeaderboardTab.Season)
