@@ -236,6 +236,18 @@ describe("PowerUpService canonical activation effects", () => {
     expect(result.publicEffect).toEqual({ type: "SHIELD", targetPlayerId: USER_ID });
   });
 
+  it("releases the Redis lock when the DB transaction fails", async () => {
+    primeActivation("DOUBLE_DOWN");
+    const dbError = new Error("DB connection lost");
+    prismaMock.$transaction.mockRejectedValueOnce(dbError);
+
+    await expect(new PowerUpService().activatePowerUp(activationInput("DOUBLE_DOWN"))).rejects.toThrow("DB connection lost");
+
+    expect(redisServiceMock.del).toHaveBeenCalledWith(
+      `powerup:${ROOM_ID}:${USER_ID}:${powerUpIdFor("DOUBLE_DOWN")}:used`,
+    );
+  });
+
   it("requires SABOTAGE to include a target before consuming inventory", async () => {
     primeActivation("SABOTAGE");
 

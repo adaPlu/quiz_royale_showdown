@@ -66,7 +66,7 @@ export async function awardMatchXp(
     xpEventData.push({
       id: generateId(),
       userId: player.playerId,
-      reason: "GAME_FINISH",
+      reason: `GAME_FINISH:${roomId}`,
       amount: xpAwarded,
       metadata: { roomId, rank: player.rank },
     });
@@ -82,7 +82,7 @@ export async function awardMatchXp(
     });
   }
 
-  await Promise.all(xpEventData.map((data) => prisma.xpEvent.create({ data })));
+  await prisma.xpEvent.createMany({ data: xpEventData, skipDuplicates: true });
 
   return results;
 }

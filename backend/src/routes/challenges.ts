@@ -15,7 +15,7 @@ function todayKey(): string {
 const DAILY_CHALLENGE_TEMPLATES = [
   { id: "win_a_game",       title: "Victory Lap",       description: "Win a game",              target: 1,  xpReward: 200 },
   { id: "answer_10",        title: "Quick Draw",         description: "Answer 10 questions correctly", target: 10, xpReward: 150 },
-  { id: "top_3",            title: "Podium Finish",     description: "Finish in the top 3",     target: 3,  xpReward: 100 },
+  { id: "top_3",            title: "Podium Finish",     description: "Finish in the top 3",     target: 1,  xpReward: 100 },
   { id: "use_powerup",      title: "Power Player",       description: "Use a power-up",          target: 1,  xpReward: 75  },
   { id: "play_3_games",     title: "Hat Trick",          description: "Play 3 games today",      target: 3,  xpReward: 125 },
   { id: "streak_5",         title: "On Fire",            description: "Get a 5-answer streak",   target: 5,  xpReward: 175 },

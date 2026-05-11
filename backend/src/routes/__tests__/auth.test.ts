@@ -63,7 +63,8 @@ import jwt from "jsonwebtoken";
 import { env } from "../../config/env";
 import { errorHandler } from "../../middleware/errorHandler";
 import { authRouter } from "../auth";
-import { findUserById } from "../../services/AuthService";
+import { findUserById, rotateRefreshToken } from "../../services/AuthService";
+import { UnauthorizedError } from "../../utils/errors";
 
 function buildApp() {
   const app = express();
@@ -244,6 +245,21 @@ describe("POST /auth/logout", () => {
     });
 
     expect(res.status).toBe(204);
+  });
+});
+
+describe("POST /auth/refresh", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('returns 401 when the refresh token has already been consumed', async () => {
+    vi.mocked(rotateRefreshToken).mockRejectedValueOnce(new UnauthorizedError('Refresh token revoked'));
+    const app = buildApp();
+    const res = await request(app, 'POST', '/auth/refresh', {
+      body: { refreshToken: 'consumed-token' },
+    });
+    expect(res.status).toBe(401);
   });
 });
 

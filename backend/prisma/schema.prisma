@@ -247,6 +247,7 @@ model XpEvent {
   createdAt   DateTime @default(now())
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, reason])
   @@index([userId, createdAt])
   @@index([userId, reason])
 }

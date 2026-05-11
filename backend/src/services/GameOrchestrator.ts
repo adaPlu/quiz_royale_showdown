@@ -481,9 +481,12 @@ export class GameOrchestrator {
     winnerIds: string[],
     finalistIds: string[]
   ): Promise<void> {
-    // idempotency guard — skip if already finalized
-    const currentRoom = await prisma.room.findUnique({ where: { id: roomId }, select: { status: true } });
-    if (!currentRoom || currentRoom.status === 'GAME_OVER') return;
+    // Atomic compare-and-swap: claim the GAME_OVER transition exactly once
+    const claimed = await prisma.room.updateMany({
+      where: { id: roomId, status: { not: 'GAME_OVER' } },
+      data: { status: 'GAME_OVER', finishedAt: new Date() },
+    });
+    if (claimed.count === 0) return;
 
     logger.info("Game over", { roomId, winnerIds });
 
@@ -636,11 +639,6 @@ export class GameOrchestrator {
             : Promise.resolve(),
         ])
     );
-
-    await prisma.room.update({
-      where: { id: roomId },
-      data: { status: "GAME_OVER", finishedAt: new Date() }
-    });
 
     // Persist final scores to RoomPlayer before emitting to clients
     try {
@@ -838,18 +836,20 @@ export class GameOrchestrator {
     increment: number,
     today: string
   ): Promise<void> {
-    const existing = await prisma.xpEvent.aggregate({
-      where: { userId: playerId, reason: { startsWith: `CHALLENGE:${challengeId}:` },
-               createdAt: { gte: new Date(`${today}T00:00:00Z`) } },
-      _sum: { amount: true },
-    });
-    const current = existing._sum.amount ?? 0;
-    if (current >= target) return; // already completed
-    const toAdd = Math.min(increment, target - current);
-    if (toAdd <= 0) return;
-    await prisma.xpEvent.create({
-      data: { id: generateId(), userId: playerId, reason: `CHALLENGE:${challengeId}:${today}`, amount: toAdd,
-              metadata: { source: 'game_over' } },
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.xpEvent.aggregate({
+        where: { userId: playerId, reason: { startsWith: `CHALLENGE:${challengeId}:` },
+                 createdAt: { gte: new Date(`${today}T00:00:00Z`) } },
+        _sum: { amount: true },
+      });
+      const current = existing._sum.amount ?? 0;
+      if (current >= target) return; // already completed
+      const toAdd = Math.min(increment, target - current);
+      if (toAdd <= 0) return;
+      await tx.xpEvent.create({
+        data: { id: generateId(), userId: playerId, reason: `CHALLENGE:${challengeId}:${today}`, amount: toAdd,
+                metadata: { source: 'game_over' } },
+      });
     });
   }
 

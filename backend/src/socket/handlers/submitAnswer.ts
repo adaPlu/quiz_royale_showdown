@@ -88,6 +88,15 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
         return;
       }
 
+      const roomPlayer = await prisma.roomPlayer.findUnique({
+        where: { roomId_userId: { roomId, userId } },
+        select: { isEliminated: true },
+      });
+      if (!roomPlayer || roomPlayer.isEliminated) {
+        emitError(socket, 'ELIMINATED', 'You have been eliminated');
+        return;
+      }
+
       const questionContext = await redisService.getJson<CurrentQuestionContext>(
         `game:${roomId}:current_question`
       );
