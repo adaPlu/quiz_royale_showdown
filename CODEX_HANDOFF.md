@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-10 — Iteration 12 sprint: MainActivity wired to AppNavGraph (compile error fixed), LobbyViewModel isHost+navigationEvents, CSP unsafe-inline removed, refresh token syncs socket, RequireAuth isInitializing guard, ResultsPage Play Again fixed, refreshLimiter, leaveRoom in-game guard, admin ULID validation, SeasonScheduler test mocks fixed, schema indexes_
+_Last updated: 2026-05-10 — Iteration 13 sprint: runGameOver atomic CAS, XpEvent @@unique+GAME_FINISH:roomId, trackChallengeProgress $transaction, isEliminated guard on submitAnswer, GameViewModelTest+LobbyViewModelTest created, useGameSocket tests, client:heartbeat, ARIA radio group, LeaderboardApi DI fixed_
 
 ---
 
@@ -213,6 +213,51 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **Push subscription persistence (LR6)**: `PushSubscription` Prisma model added (applied via `db push`). Save/remove writes to Redis + DB. `sendToUser` falls back to DB when Redis unavailable.
 - **Challenge tracking (LR7)**: `GameOrchestrator.runGameOver` tracks `win_a_game`, `top_3`, `play_3_games` via XP events with duplicate-award guard. Bots excluded.
 - Webapp: `withCredentials: true`, refresh interceptor sends empty body, `authStore` and `apiClient` strip all `refreshToken` state.
+
+### Iteration 13 Sprint — Critical/High Audit Remediations (`b177b24` main, `430de4f` frontend, `7868574` android)
+
+**Backend (`b177b24` main)**
+- **GameOrchestrator.ts runGameOver**: replaced SELECT+later-UPDATE idempotency pattern with atomic `prisma.room.updateMany({ where: { id, status: { not: 'GAME_OVER' } } })` CAS — eliminates window where two concurrent runGameOvers both pass the guard and double-award XP/MMR
+- **XpService.ts**: `GAME_FINISH` reason now encodes roomId as `"GAME_FINISH:{roomId}"`; N individual `create` calls replaced with `createMany({ skipDuplicates: true })`
+- **schema.prisma**: `@@unique([userId, reason])` added to `XpEvent` — duplicate GAME_FINISH:{roomId} is now a DB constraint violation
+- **GameOrchestrator.ts trackChallengeProgress**: wrapped `aggregate`+`create` in `$transaction` — prevents concurrent game-overs from both passing `current < target` and double-awarding challenge XP
+- **challenges.ts**: `top_3` template `target` changed from 3 to 1 — matches tracking call semantics (description says "once" not "3 times")
+- **submitAnswer.ts**: `prisma.roomPlayer.findUnique` check added — eliminated players cannot submit answers
+- **auth.test.ts**: replay-attack test added (second use of consumed refresh token → 401)
+- **PowerUpService.test.ts**: DB transaction failure test added — verifies Redis lock released in rollback catch
+
+**Webapp (`430de4f` frontend branch)**
+- **useGameSocket.test.ts**: new file, 7 tests covering mount/join, re-join guard, cleanup reset, `game:over` navigation, `powerup:loot_drop` handler
+- **useGameSocket.ts**: `client:heartbeat` emitted every 15s when `activeRoomId` is set
+- **GamePage.tsx**: answer buttons wrapped in `role="radiogroup"` with `role="radio"` + `aria-checked` (was incorrect `aria-pressed`)
+- **OfflineBanner.tsx + SocketReconnectBanner.tsx**: `role="alert"` added for screen reader announcements
+- **LootDropToast.tsx**: unknown powerupType falls back to raw code string
+- **LobbyPage.tsx**: room code input `id` + label `htmlFor` association added
+
+**Android (`7868574` feature/android branch)**
+- **GameViewModelTest.kt**: new file, 5 tests (submitAnswer guard, GameOver→ResultsStore, timer countdown, joinRoom ShowToast, backoff reset)
+- **LobbyViewModelTest.kt**: new file, 3 tests (isHost=false, isHost=true from hostPlayerId match, navigationEvents emits roomId on phase change)
+- **MainDispatcherRule.kt**: shared coroutine test utility
+- **AppModule.kt**: `provideLeaderboardApi` `@Provides @Singleton` added — LeaderboardViewModel now injects `LeaderboardApi` directly
+- **LeaderboardViewModel.kt**: injects `LeaderboardApi` instead of creating via Retrofit constructor
+- **LeaderboardViewModelTest.kt**: updated to inject mock api directly
+- **LobbyViewModel.kt**: removed `allPlayersReady` dead field (never set, never read)
+- **GameScreen.kt**: removed `localLocked` dual-lock; `state.isAnswerLocked` is sole source of truth
+
+### Remaining work (priority order)
+| Priority | Area | Issue |
+|---|---|---|
+| MEDIUM | Backend | RS-3: no DB membership check in usePowerup — activating player elimination not verified |
+| MEDIUM | Backend | matchmakeOrCreate: room not evicted from Redis queue when filled via direct joinRoom |
+| MEDIUM | Webapp | Mid-round reconnect: `applyRoomState` sets `question:null`; backend must include `currentQuestion` in `room:state_sync` when `QUESTION_ACTIVE` |
+| MEDIUM | Android | GameScreen two-column layout has no phone adaptation (< 600dp) |
+| MEDIUM | Android | `matchesRoom` over-accepts events from any room when roomId is blank (LevelUp, LootDrop apply globally) |
+| MEDIUM | Backend | gameActionLimiter defined but never applied to socket submitAnswer/usePowerup handlers |
+| LOW | Backend | GET /rooms/:roomCode unauthenticated — exposes player lists |
+| LOW | Backend | SeasonScore MMR double-decrement if same player finishes two concurrent games |
+| LOW | Backend | reconnect.ts: correctAnswerIndex in type scope but stripped at emit — needs regression test |
+| LOW | Webapp | apiClient lazy-require circular dep: verify works correctly in Vite prod build |
+| LOW | Android | GameScreen CountdownRing animation doesn't reset per question (visual jump at boundary) |
 
 ### Iteration 12 Sprint — Critical/High Audit Remediations (`a41bb03` main, `3bd7b62` frontend, `be777ce` android)
 
