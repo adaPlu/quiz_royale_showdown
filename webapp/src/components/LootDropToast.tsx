@@ -46,7 +46,7 @@ export const LootDropToast = ({ powerupCode, onDismiss, stableKey }: LootDropToa
           <span className="text-2xl">{ICONS[powerupCode]}</span>
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-gold">Loot Drop!</p>
-            <p className="font-black text-white">You got: {LABELS[powerupCode]}</p>
+            <p className="font-black text-white">You got: {LABELS[powerupCode] ?? powerupCode}</p>
           </div>
           <button
             type="button"

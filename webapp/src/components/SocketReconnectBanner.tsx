@@ -8,6 +8,7 @@ export function SocketReconnectBanner() {
     <AnimatePresence>
       {isReconnecting && (
         <motion.div
+          role="alert"
           initial={{ y: -48 }}
           animate={{ y: 0 }}
           exit={{ y: -48 }}

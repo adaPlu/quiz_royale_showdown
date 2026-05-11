@@ -20,6 +20,7 @@ export const OfflineBanner = () => {
       {offline && (
         <motion.div
           key="offline"
+          role="alert"
           initial={{ y: -48, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: -48, opacity: 0 }}

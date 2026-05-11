@@ -246,14 +246,15 @@ export const GamePage = () => {
               {question?.prompt ?? 'Waiting for the next live question.'}
             </h2>
 
-            <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <div role="radiogroup" aria-label="Answer choices" className="mt-6 grid gap-4 md:grid-cols-2">
               {(question?.answers ?? ['Option A', 'Option B', 'Option C', 'Option D']).map((answer, index) => (
                 <motion.button
                   key={`${question?.questionId ?? 'placeholder'}-${index}`}
                   type="button"
+                  role="radio"
                   disabled={isLocked || eliminated.includes(index)}
                   onClick={() => submitAnswer(index)}
-                  aria-pressed={myAnswer === index}
+                  aria-checked={myAnswer === index}
                   aria-disabled={isLocked || eliminated.includes(index)}
                   whileHover={!isLocked ? { scale: 1.02 } : undefined}
                   whileTap={!isLocked ? { scale: 0.98 } : undefined}

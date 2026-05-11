@@ -66,11 +66,12 @@ export const LobbyPage = () => {
           </p>
 
           <div className="mt-8 grid gap-4 rounded-[28px] border border-white/10 bg-black/20 p-5 md:grid-cols-[1fr_auto]">
-            <label className="flex flex-col gap-3">
+            <label htmlFor="room-code-input" className="flex flex-col gap-3">
               <span className="text-sm font-semibold uppercase tracking-[0.2em] text-white/60">
                 Room Code
               </span>
               <input
+                id="room-code-input"
                 value={roomCode}
                 onChange={(event) => {
                   setJoinError(null);

@@ -27,6 +27,16 @@ export const useGameSocket = (roomId: string | undefined) => {
   const applyLevelUp = useGameStore((state) => state.applyLevelUp);
   const updateXp = useProfileStore((state) => state.updateXp);
 
+  const activeRoomId = roomId;
+
+  useEffect(() => {
+    if (!activeRoomId) return;
+    const id = setInterval(() => {
+      socketService.emit('client:heartbeat', { roomId: activeRoomId, sentAt: new Date().toISOString() });
+    }, 15_000);
+    return () => clearInterval(id);
+  }, [activeRoomId]);
+
   useEffect(() => {
     if (accessToken) {
       socketService.connect(accessToken);
