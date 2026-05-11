@@ -55,8 +55,8 @@ JWT_ACCESS_SECRET=<random 32+ chars>
 JWT_REFRESH_SECRET=<random 32+ chars>
 JWT_ACCESS_TTL=15m
 JWT_REFRESH_TTL=7d
-VAPID_PUBLIC_KEY=<optional for launch path>
-VAPID_PRIVATE_KEY=<optional for launch path>
+VAPID_PUBLIC_KEY=<required in production; generate with web-push>
+VAPID_PRIVATE_KEY=<required in production; generate with web-push>
 VAPID_SUBJECT=mailto:<ops address>
 ADMIN_SECRET=<random 32+ chars>
 ```
@@ -64,10 +64,10 @@ ADMIN_SECRET=<random 32+ chars>
 Migration note:
 
 - Fresh staging DB: no extra migration env is required. `start.sh` baselines the
-  two superseded init snapshots and applies `20260425000000_init`.
+  two known superseded init snapshots and applies `20260425000000_init`.
 - Already-shaped Railway DB: set `PRISMA_BASELINE_CURRENT_INIT=1` only when the
   current init schema has already been applied out-of-band and migration history
-  needs to be reconciled.
+  needs to be reconciled. Do not set it for an unknown or fresh database.
 
 Mounted launch surface:
 

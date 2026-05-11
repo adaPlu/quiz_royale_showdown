@@ -23,7 +23,17 @@ const PRODUCTION_REQUIRED_KEYS = [
   "DATABASE_URL",
   "REDIS_URL",
   "ADMIN_SECRET",
+  "VAPID_PUBLIC_KEY",
+  "VAPID_PRIVATE_KEY",
 ] as const;
+
+const PRODUCTION_PLACEHOLDER_VALUES: Partial<Record<(typeof PRODUCTION_REQUIRED_KEYS)[number], string>> = {
+  JWT_ACCESS_SECRET: DEV_DEFAULTS.JWT_ACCESS_SECRET,
+  JWT_REFRESH_SECRET: DEV_DEFAULTS.JWT_REFRESH_SECRET,
+  DATABASE_URL: DEV_DEFAULTS.DATABASE_URL,
+  REDIS_URL: DEV_DEFAULTS.REDIS_URL,
+  ADMIN_SECRET: DEV_DEFAULTS.ADMIN_SECRET,
+};
 
 const envSchema = z.object({
   // Runtime
@@ -83,7 +93,7 @@ function getProductionEnvErrors(rawEnv: NodeJS.ProcessEnv): string[] {
       continue;
     }
 
-    if (value === DEV_DEFAULTS[key] || /^change-me/i.test(value)) {
+    if (value === PRODUCTION_PLACEHOLDER_VALUES[key] || /^change-me/i.test(value)) {
       errors.push(`${key} must not use a development placeholder in production`);
     }
   }

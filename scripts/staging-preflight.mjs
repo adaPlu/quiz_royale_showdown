@@ -27,6 +27,7 @@ function checkFile(relativePath) {
 
 [
   "backend/Dockerfile",
+  "backend/package-lock.json",
   "backend/start.sh",
   "backend/railway.json",
   "backend/package.json",
@@ -64,6 +65,17 @@ if (dockerfile.includes('CMD ["sh", "start.sh"]')) {
   pass("Docker runtime executes start.sh");
 } else {
   fail("backend/Dockerfile must execute start.sh");
+}
+
+if (
+  dockerfile.includes("COPY package.json package-lock.json") &&
+  dockerfile.includes("RUN npm ci --omit=dev") &&
+  dockerfile.includes("RUN npm ci") &&
+  !dockerfile.includes("npm install")
+) {
+  pass("Docker build uses package-lock.json with npm ci");
+} else {
+  fail("backend/Dockerfile must use package-lock.json with npm ci, not npm install");
 }
 
 const startScript = read("backend/start.sh");

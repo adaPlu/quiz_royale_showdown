@@ -1,18 +1,35 @@
 import type { Server } from "socket.io";
 import { z } from "zod";
-import { prisma } from "../../models/prismaClient";
 import { redisService } from "../../services/RedisService";
-import type { SocketErrorEvent } from "../../types/contracts";
+import { powerUpService } from "../../services/PowerUpService";
+import type { ServerEvents, SocketErrorEvent } from "../../types/contracts";
+import { AppError } from "../../utils/errors";
 import { logger } from "../../utils/logger";
 import type { AuthenticatedSocket } from "../middleware";
 
 const activatePowerupSchema = z.object({
   roomId: z.string().min(1),
-  powerUpId: z.string().min(1),
+  powerUpId: z.string().min(1).optional(),
+  powerUpCode: z.string().min(1).optional(),
+  id: z.string().min(1).optional(),
+  code: z.string().min(1).optional(),
   targetPlayerId: z.string().min(1).optional()
+}).superRefine((payload, ctx) => {
+  if (!payload.powerUpId && !payload.powerUpCode && !payload.id && !payload.code) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "One of powerUpId, powerUpCode, id, or code is required",
+      path: ["powerUpId"],
+    });
+  }
 });
 
-const POWERUP_TTL_SECONDS = 7200;
+type ActiveQuestionContext = {
+  roundId: string;
+  answers?: string[];
+  questionOptions?: string[];
+  correctAnswerIndex?: number;
+};
 
 const emitError = (
   socket: AuthenticatedSocket,
@@ -29,7 +46,33 @@ const emitError = (
   socket.emit("message", envelope);
 };
 
-export function registerUsePowerupHandler(_io: Server, socket: AuthenticatedSocket): void {
+const powerUpIdentifier = (payload: z.infer<typeof activatePowerupSchema>): string =>
+  payload.powerUpId ?? payload.powerUpCode ?? payload.id ?? payload.code ?? "";
+
+const socketErrorCode = (error: unknown): string => {
+  if (!(error instanceof AppError)) {
+    return "INTERNAL_ERROR";
+  }
+
+  if (error.name === "NotFoundError") {
+    return "POWERUP_NOT_FOUND";
+  }
+
+  if (error.name === "ForbiddenError" && /already used/i.test(error.message)) {
+    return "POWERUP_ALREADY_USED";
+  }
+
+  if (error.name === "ForbiddenError" && /inventory|available/i.test(error.message)) {
+    return "POWERUP_UNAVAILABLE";
+  }
+
+  return error.code;
+};
+
+const socketErrorMessage = (error: unknown): string =>
+  error instanceof AppError ? error.message : "Failed to activate power-up";
+
+export function registerUsePowerupHandler(io: Server, socket: AuthenticatedSocket): void {
   socket.on("message", async (message: unknown) => {
     if (
       !message ||
@@ -48,53 +91,69 @@ export function registerUsePowerupHandler(_io: Server, socket: AuthenticatedSock
       return;
     }
 
-    const { roomId, powerUpId, targetPlayerId } = parsed.data;
+    const { roomId, targetPlayerId } = parsed.data;
+    const powerUpId = powerUpIdentifier(parsed.data);
     const userId = socket.data.userId;
 
     try {
-      if (!redisService) {
-        throw new Error("Redis unavailable");
+      if (!socket.data.roomId) {
+        emitError(socket, "ROOM_NOT_JOINED", "Socket has not joined a room");
+        return;
       }
 
-      if (socket.data.roomId && socket.data.roomId !== roomId) {
+      if (socket.data.roomId !== roomId) {
         emitError(socket, "ROOM_MISMATCH", "Socket is not joined to the requested room");
         return;
       }
 
-      const powerUp = await prisma.powerUp.findFirst({
-        where: { id: powerUpId, isActive: true },
-        select: { id: true, code: true }
-      });
+      const questionContext = redisService
+        ? await redisService.getJson<ActiveQuestionContext>(`game:${roomId}:current_question`)
+        : null;
 
-      if (!powerUp) {
-        emitError(socket, "POWERUP_NOT_FOUND", `Power-up ${powerUpId} was not found`);
-        return;
+      const result = await powerUpService.activatePowerUp({
+        roomId,
+        userId,
+        powerUpId,
+        targetPlayerId,
+        roundId: questionContext?.roundId,
+        questionOptions: questionContext?.questionOptions ?? questionContext?.answers,
+        correctAnswerIndex: questionContext?.correctAnswerIndex,
+      }, io);
+
+      const publicEvent: ServerEvents = {
+        type: "powerup:activated",
+        version: "v1",
+        payload: {
+          roomId: result.roomId,
+          userId: result.userId,
+          powerUpId: result.powerUpId,
+          code: result.code,
+          effect: result.publicEffect,
+        },
+      };
+
+      io.to(roomId).emit("message", publicEvent);
+
+      if (result.privateEffect) {
+        const privateEvent: ServerEvents = {
+          type: "powerup:private_effect",
+          version: "v1",
+          payload: {
+            roomId: result.roomId,
+            powerUpId: result.powerUpId,
+            code: result.code,
+            effect: result.privateEffect,
+          },
+        };
+
+        socket.emit("message", privateEvent);
       }
-
-      const usedKey = `powerup:${roomId}:${userId}:${powerUp.id}:used`;
-      const reserved = await redisService.setnx(usedKey, "1", POWERUP_TTL_SECONDS);
-      if (!reserved) {
-        emitError(socket, "POWERUP_ALREADY_USED", "This power-up has already been activated in the current game");
-        return;
-      }
-
-      await redisService.publish(
-        `game:${roomId}:events`,
-        JSON.stringify({
-          type: "POWERUP_ACTIVATED",
-          roomId,
-          userId,
-          powerUpId: powerUp.id,
-          powerUpCode: powerUp.code,
-          targetPlayerId: targetPlayerId ?? null
-        })
-      );
 
       logger.info("Power-up activated", {
         roomId,
         userId,
-        powerUpId: powerUp.id,
-        powerUpCode: powerUp.code,
+        powerUpId: result.powerUpId,
+        powerUpCode: result.code,
         targetPlayerId
       });
     } catch (error) {
@@ -104,7 +163,7 @@ export function registerUsePowerupHandler(_io: Server, socket: AuthenticatedSock
         powerUpId,
         message: error instanceof Error ? error.message : String(error)
       });
-      emitError(socket, "INTERNAL_ERROR", "Failed to activate power-up");
+      emitError(socket, socketErrorCode(error), socketErrorMessage(error));
     }
   });
 }

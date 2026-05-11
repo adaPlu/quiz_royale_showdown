@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import type { PowerUpCode } from "@/stores/profileStore";
+
 export const gamePhaseSchema = z.enum([
   "WAITING",
   "COUNTDOWN",
@@ -102,6 +104,19 @@ export const socketErrorPayloadSchema = z.object({
   message: z.string(),
   details: z.unknown().optional()
 });
+export const powerupActivatedPayloadSchema = z.object({
+  roomId: z.string(),
+  userId: z.string(),
+  powerUpId: z.string(),
+  code: z.string(),
+  effect: z.record(z.unknown())
+});
+export const powerupPrivateEffectPayloadSchema = z.object({
+  roomId: z.string(),
+  powerUpId: z.string(),
+  code: z.string(),
+  effect: z.record(z.unknown())
+});
 
 export const serverEventSchema = z.discriminatedUnion("type", [
   envelope("room:state_sync", roomStateSyncPayloadSchema),
@@ -114,6 +129,8 @@ export const serverEventSchema = z.discriminatedUnion("type", [
   envelope("round:elimination", roundEliminationPayloadSchema),
   envelope("round:finale_started", roundFinaleStartedPayloadSchema),
   envelope("game:over", gameOverPayloadSchema),
+  envelope("powerup:activated", powerupActivatedPayloadSchema),
+  envelope("powerup:private_effect", powerupPrivateEffectPayloadSchema),
   envelope("error", socketErrorPayloadSchema)
 ]);
 
@@ -121,17 +138,11 @@ export type ServerEvent = z.infer<typeof serverEventSchema>;
 export type ServerEventType = ServerEvent["type"];
 export type ServerEventPayload<TType extends ServerEventType> = Extract<ServerEvent, { type: TType }>["payload"];
 
-export type PowerupActivatePayload =
-  | {
-      roomId: string;
-      powerUpId: string;
-      targetPlayerId?: string;
-    }
-  | {
-      roomId: string;
-      powerupId: string;
-      targetPlayerId?: string;
-    };
+export type PowerupActivatePayload = {
+  roomId: string;
+  powerUpId: PowerUpCode;
+  targetPlayerId?: string;
+};
 
 export type ClientEvent =
   | { type: "room:join"; version: "v1"; payload: { roomCode: string } }

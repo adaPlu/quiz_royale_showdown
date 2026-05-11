@@ -3,12 +3,17 @@ import { env } from "../config/env";
 import { logger } from "../utils/logger";
 import { redisService } from "./RedisService";
 
-const VAPID_PUBLIC_KEY = env.vapidPublicKey ||
-  "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U";
-const VAPID_PRIVATE_KEY = env.vapidPrivateKey ||
-  "UUxI4O8-FbRouAevSmBQ6co62GroYWmcOMkk7ujjZOQ";
+const VAPID_PUBLIC_KEY = env.vapidPublicKey.trim();
+const VAPID_PRIVATE_KEY = env.vapidPrivateKey.trim();
+const isWebPushConfigured = VAPID_PUBLIC_KEY.length > 0 && VAPID_PRIVATE_KEY.length > 0;
 
-webpush.setVapidDetails(env.vapidSubject, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+if (isWebPushConfigured) {
+  webpush.setVapidDetails(env.vapidSubject, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+} else if (env.isProduction) {
+  throw new Error("VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are required in production");
+} else {
+  logger.warn("Web push disabled: VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are not configured");
+}
 
 const pushSubKey = (userId: string) => `push:subs:${userId}`;
 const fcmTokenKey = (userId: string) => `fcm:token:${userId}`;
@@ -22,7 +27,11 @@ export interface WebPushPayload {
 
 class PushNotificationService {
   get vapidPublicKey() {
-    return VAPID_PUBLIC_KEY;
+    return isWebPushConfigured ? VAPID_PUBLIC_KEY : null;
+  }
+
+  get isWebPushConfigured() {
+    return isWebPushConfigured;
   }
 
   async saveWebPushSubscription(userId: string, subscription: PushSubscription): Promise<void> {
@@ -43,6 +52,7 @@ class PushNotificationService {
   }
 
   async sendToUser(userId: string, payload: WebPushPayload): Promise<void> {
+    if (!isWebPushConfigured) return;
     if (!redisService) return;
     const members = await redisService.smembers(pushSubKey(userId));
     if (!members.length) return;

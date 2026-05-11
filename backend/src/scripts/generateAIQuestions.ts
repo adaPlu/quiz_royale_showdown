@@ -1,9 +1,9 @@
 /**
- * Generate trivia questions via Claude AI and store them in the DB.
+ * Generate trivia questions via OpenAI and store them in the DB.
  * Run: npm run generate:questions -w backend [count]
  * Example: npm run generate:questions -w backend 500
  *
- * Requires ANTHROPIC_API_KEY in environment / .env
+ * Requires OPENAI_API_KEY in environment / .env
  */
 
 import "dotenv/config";
@@ -17,7 +17,7 @@ async function main(): Promise<void> {
   const target = parseInt(process.argv[2] ?? "200", 10);
 
   if (!questionGeneratorService.isAvailable) {
-    console.error("ANTHROPIC_API_KEY is not set. Add it to your .env file.");
+    console.error("OPENAI_API_KEY is not set. Add it to your .env file.");
     process.exit(1);
   }
 

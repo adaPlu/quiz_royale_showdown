@@ -17,6 +17,8 @@ export function useGameSocket(roomId: string | undefined) {
   const applyRoundResult = useGameStore((state) => state.applyRoundResult);
   const applyElimination = useGameStore((state) => state.applyElimination);
   const applyFinaleStarted = useGameStore((state) => state.applyFinaleStarted);
+  const applyPowerupActivated = useGameStore((state) => state.applyPowerupActivated);
+  const applyPowerupPrivateEffect = useGameStore((state) => state.applyPowerupPrivateEffect);
   const applyGameOver = useGameStore((state) => state.applyGameOver);
 
   useEffect(() => {
@@ -94,6 +96,18 @@ export function useGameSocket(roomId: string | undefined) {
     );
 
     unsubs.push(
+      socketService.on('powerup:activated', (payload) => {
+        applyPowerupActivated(payload);
+      }),
+    );
+
+    unsubs.push(
+      socketService.on('powerup:private_effect', (payload) => {
+        applyPowerupPrivateEffect(payload);
+      }),
+    );
+
+    unsubs.push(
       socketService.on('game:over', (payload) => {
         applyGameOver(payload);
         navigate(`/results/${payload.roomId}`, { replace: true });
@@ -117,6 +131,8 @@ export function useGameSocket(roomId: string | undefined) {
     applyGameOver,
     applyPlayerJoined,
     applyPlayerLeft,
+    applyPowerupActivated,
+    applyPowerupPrivateEffect,
     applyQuestion,
     applyRoomState,
     applyRoundResult,

@@ -7,9 +7,25 @@ plugins {
   id("org.jetbrains.kotlin.plugin.compose")
 }
 
+fun buildConfigString(value: String): String =
+  "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
 android {
   namespace = "com.quizroyale.showdown"
   compileSdk = 35
+
+  val debugApiBaseUrl = "http://10.0.2.2:4000/api/v1/"
+  val debugWsBaseUrl = "ws://10.0.2.2:4000/ws"
+  val releaseApiBaseUrl = providers.gradleProperty("RELEASE_API_BASE_URL")
+    .orElse(providers.environmentVariable("RELEASE_API_BASE_URL"))
+    .orElse(providers.gradleProperty("API_BASE_URL"))
+    .orElse(providers.environmentVariable("API_BASE_URL"))
+    .getOrElse("https://api.quizroyale.gg/api/v1/")
+  val releaseWsBaseUrl = providers.gradleProperty("RELEASE_WS_BASE_URL")
+    .orElse(providers.environmentVariable("RELEASE_WS_BASE_URL"))
+    .orElse(providers.gradleProperty("WS_BASE_URL"))
+    .orElse(providers.environmentVariable("WS_BASE_URL"))
+    .getOrElse("wss://api.quizroyale.gg/ws")
 
   defaultConfig {
     applicationId = "com.quizroyale.showdown"
@@ -22,14 +38,18 @@ android {
     vectorDrawables {
       useSupportLibrary = true
     }
-
-    buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:4000/api/v1/\"")
-    buildConfigField("String", "WS_BASE_URL", "\"ws://10.0.2.2:4000/ws\"")
   }
 
   buildTypes {
+    debug {
+      buildConfigField("String", "API_BASE_URL", buildConfigString(debugApiBaseUrl))
+      buildConfigField("String", "WS_BASE_URL", buildConfigString(debugWsBaseUrl))
+    }
+
     release {
-      isMinifyEnabled = false
+      isMinifyEnabled = true
+      buildConfigField("String", "API_BASE_URL", buildConfigString(releaseApiBaseUrl))
+      buildConfigField("String", "WS_BASE_URL", buildConfigString(releaseWsBaseUrl))
       proguardFiles(
         getDefaultProguardFile("proguard-android-optimize.txt"),
         "proguard-rules.pro"
@@ -99,4 +119,5 @@ dependencies {
 
   debugImplementation("androidx.compose.ui:ui-tooling")
   debugImplementation("androidx.compose.ui:ui-test-manifest")
+  testImplementation("junit:junit:4.13.2")
 }

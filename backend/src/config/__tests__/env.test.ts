@@ -9,6 +9,8 @@ const PROD_ENV = {
   DATABASE_URL: "postgresql://prod-user:prod-pass@prod-db:5432/quiz_royale",
   REDIS_URL: "redis://prod-redis:6379",
   ADMIN_SECRET: "prod-admin-secret-at-least-32-chars",
+  VAPID_PUBLIC_KEY: "prod-vapid-public-key",
+  VAPID_PRIVATE_KEY: "prod-vapid-private-key",
 } as const;
 
 const DEV_DEFAULTS = {
@@ -38,6 +40,8 @@ describe("env", () => {
       DATABASE_URL: undefined,
       REDIS_URL: undefined,
       ADMIN_SECRET: undefined,
+      VAPID_PUBLIC_KEY: undefined,
+      VAPID_PRIVATE_KEY: undefined,
     });
 
     const { env } = await import("../env");
@@ -72,6 +76,8 @@ describe("env", () => {
     expect(error).toHaveBeenCalledWith("  DATABASE_URL is required in production");
     expect(error).toHaveBeenCalledWith("  REDIS_URL is required in production");
     expect(error).toHaveBeenCalledWith("  ADMIN_SECRET is required in production");
+    expect(error).toHaveBeenCalledWith("  VAPID_PUBLIC_KEY is required in production");
+    expect(error).toHaveBeenCalledWith("  VAPID_PRIVATE_KEY is required in production");
   });
 
   it("fails fast in production when audited secrets use development placeholders", async () => {

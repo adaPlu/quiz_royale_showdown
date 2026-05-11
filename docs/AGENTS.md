@@ -142,8 +142,8 @@ Backend Agent must keep `backend/src/types/contracts.ts` in sync with the contra
 ## Environment Setup (each agent)
 
 ```bash
-# 1. Clone & install root deps
-npm install
+# 1. Clone & install root deps from the committed lockfile
+npm ci
 
 # 2. Start infrastructure
 docker-compose up -d postgres redis

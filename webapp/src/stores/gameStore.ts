@@ -81,8 +81,8 @@ interface GameActions {
   applyRoundResult: (payload: RoundResultPayload) => void;
   applyElimination: (payload: RoundEliminationPayload) => void;
   applyFinaleStarted: (payload: RoundFinaleStartedPayload) => void;
-  applyPowerupUsed: (payload: PowerupUsedPayload) => void;
-  applyPowerupEffect: (payload: PowerupEffectPayload) => void;
+  applyPowerupActivated: (payload: PowerupActivatedPayload) => void;
+  applyPowerupPrivateEffect: (payload: PowerupPrivateEffectPayload) => void;
   applyGameOver: (payload: GameOverPayload) => void;
   applyLevelUp: (payload: LevelUpPayload) => void;
   setMyAnswer: (index: number) => void;
@@ -103,20 +103,8 @@ type AnswerLockedPayload = ServerEventPayload<'round:answer_locked'>;
 type RoundResultPayload = ServerEventPayload<'round:result'>;
 type RoundEliminationPayload = ServerEventPayload<'round:elimination'>;
 type RoundFinaleStartedPayload = ServerEventPayload<'round:finale_started'>;
-
-interface PowerupUsedPayload {
-  roomId: string;
-  playerId: string;
-  powerupId: string;
-}
-
-interface PowerupEffectPayload {
-  roomId: string;
-  effectType: string;
-  affectedPlayerIds: string[];
-  data?: unknown;
-}
-
+type PowerupActivatedPayload = ServerEventPayload<'powerup:activated'>;
+type PowerupPrivateEffectPayload = ServerEventPayload<'powerup:private_effect'>;
 type GameOverPayload = ServerEventPayload<'game:over'>;
 
 interface LevelUpPayload {
@@ -265,36 +253,37 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
     set({ phase: 'FINALE' });
   },
 
-  applyPowerupUsed: () => {
-    // Reserved for a later wave.
-  },
-
-  applyPowerupEffect: (payload) => {
+  applyPowerupActivated: (payload) => {
+    const targetPlayerId =
+      typeof payload.effect.targetPlayerId === 'string' ? payload.effect.targetPlayerId : payload.userId;
     const effect: ActivePowerupEffect = {
-      effectType: payload.effectType,
-      affectedPlayerIds: payload.affectedPlayerIds,
-      data: payload.data,
+      effectType: payload.code,
+      affectedPlayerIds: [targetPlayerId],
+      data: payload.effect,
     };
 
-    if (payload.effectType === 'fifty_fifty') {
-      const data = payload.data as { eliminatedIndices?: number[] } | undefined;
+    set({ activePowerupEffect: effect });
+  },
+
+  applyPowerupPrivateEffect: (payload) => {
+    const effect: ActivePowerupEffect = {
+      effectType: payload.code,
+      affectedPlayerIds: [],
+      data: payload.effect,
+    };
+
+    if (payload.code === 'FIFTY_FIFTY') {
+      const maskedAnswerIndices = Array.isArray(payload.effect.maskedAnswerIndices)
+        ? payload.effect.maskedAnswerIndices.filter((value): value is number => typeof value === 'number')
+        : [];
       set({
         activePowerupEffect: effect,
-        fiftyFiftyEliminated: data?.eliminatedIndices ?? [],
+        fiftyFiftyEliminated: maskedAnswerIndices,
       });
       return;
     }
 
-    if (payload.effectType === 'reveal_answer') {
-      const data = payload.data as { revealedIndex?: number } | undefined;
-      set({
-        activePowerupEffect: effect,
-        revealedOptionIndex: data?.revealedIndex ?? null,
-      });
-      return;
-    }
-
-    if (payload.effectType === 'time_boost') {
+    if (payload.code === 'TIME_FREEZE') {
       set({ activePowerupEffect: effect, timeBoostActive: true });
       return;
     }
@@ -352,6 +341,12 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
         break;
       case 'round:finale_started':
         get().applyFinaleStarted(payload as RoundFinaleStartedPayload);
+        break;
+      case 'powerup:activated':
+        get().applyPowerupActivated(payload as PowerupActivatedPayload);
+        break;
+      case 'powerup:private_effect':
+        get().applyPowerupPrivateEffect(payload as PowerupPrivateEffectPayload);
         break;
       case 'game:over':
         get().applyGameOver(payload as GameOverPayload);

@@ -27,7 +27,7 @@ const normalizeRoomCode = (roomCode: string) => roomCode.trim().toUpperCase();
 
 const normalizePowerupPayload = (payload: PowerupActivatePayload) => ({
   roomId: payload.roomId,
-  powerUpId: "powerUpId" in payload ? payload.powerUpId : payload.powerupId,
+  powerUpId: payload.powerUpId,
   targetPlayerId: payload.targetPlayerId
 });
 
@@ -224,6 +224,8 @@ class SocketService {
       "round:elimination",
       "round:finale_started",
       "game:over",
+      "powerup:activated",
+      "powerup:private_effect",
       "error"
     ] as const).map((eventType) =>
       this.on(eventType, (payload) => {

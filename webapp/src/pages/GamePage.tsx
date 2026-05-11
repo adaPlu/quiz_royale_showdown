@@ -70,10 +70,11 @@ export const GamePage = () => {
   const players     = useGameStore((s) => s.players);
 
   const powerupSlots: PowerupSlot[] = [
-    { type: 'fifty_fifty',  owned: false, used: fiftyFiftyEliminated.length > 0 },
-    { type: 'shield',       owned: false, used: false },
-    { type: 'time_boost',   owned: false, used: timeBoostActive },
-    { type: 'reveal_wrong', owned: false, used: revealedOptionIndex !== null },
+    { type: 'DOUBLE_DOWN', owned: false, used: false },
+    { type: 'FIFTY_FIFTY', owned: false, used: fiftyFiftyEliminated.length > 0 },
+    { type: 'TIME_FREEZE', owned: false, used: timeBoostActive },
+    { type: 'SHIELD', owned: false, used: false },
+    { type: 'SABOTAGE', owned: false, used: revealedOptionIndex !== null },
   ];
 
   const isLocked = myAnswer !== null || phase === 'ANSWER_LOCKED' || phase === 'ROUND_RESULT';

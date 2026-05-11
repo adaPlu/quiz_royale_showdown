@@ -32,7 +32,7 @@ adminRouter.get("/questions/count", async (_req, res, next) => {
 adminRouter.post("/questions/generate", async (req, res, next) => {
   try {
     if (!questionGeneratorService.isAvailable) {
-      res.status(503).json({ error: "ANTHROPIC_API_KEY not configured" });
+      res.status(503).json({ error: "OPENAI_API_KEY not configured" });
       return;
     }
     const target = Number((req.body as Record<string, unknown>).count ?? 200);

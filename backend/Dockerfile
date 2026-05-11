@@ -1,21 +1,21 @@
-# ── Stage 1: production-only deps ────────────────────────────────────────────
+# Stage 1: production-only deps
 FROM node:20-alpine AS deps
 WORKDIR /app
-COPY package.json ./
-RUN npm install --omit=dev
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
 
-# ── Stage 2: full deps + compile + prisma generate ───────────────────────────
+# Stage 2: full deps + compile + prisma generate
 FROM node:20-alpine AS build
 WORKDIR /app
-COPY package.json ./
-RUN npm install
+COPY package.json package-lock.json ./
+RUN npm ci
 COPY tsconfig.json .
 COPY prisma ./prisma
 COPY src ./src
 RUN npx prisma generate
 RUN npm run build
 
-# ── Stage 3: lean runtime image ──────────────────────────────────────────────
+# Stage 3: lean runtime image
 FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
@@ -23,7 +23,7 @@ COPY --from=build /app/dist ./dist
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY prisma ./prisma
-COPY package.json .
+COPY package.json package-lock.json ./
 COPY start.sh .
 RUN chmod +x start.sh
 EXPOSE 4000

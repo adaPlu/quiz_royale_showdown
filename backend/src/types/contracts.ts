@@ -79,6 +79,25 @@ export type ServerEvents =
         finalStandings: Array<{ playerId: string; rank: number; score: number; xpAwarded: number }>;
       }
     >
+  | EventEnvelope<
+      "powerup:activated",
+      {
+        roomId: string;
+        userId: string;
+        powerUpId: string;
+        code: string;
+        effect: Record<string, unknown>;
+      }
+    >
+  | EventEnvelope<
+      "powerup:private_effect",
+      {
+        roomId: string;
+        powerUpId: string;
+        code: string;
+        effect: Record<string, unknown>;
+      }
+    >
   | SocketErrorEvent;
 
 export type ClientEvents =
@@ -87,7 +106,17 @@ export type ClientEvents =
       "round:submit_answer",
       { roomId: string; questionId: string; answerIndex: number; clientSentAt: string }
     >
-  | EventEnvelope<"powerup:activate", { roomId: string; powerUpId: string; targetPlayerId?: string }>
+  | EventEnvelope<
+      "powerup:activate",
+      {
+        roomId: string;
+        powerUpId?: string;
+        powerUpCode?: string;
+        id?: string;
+        code?: string;
+        targetPlayerId?: string;
+      }
+    >
   | EventEnvelope<"client:heartbeat", { roomId: string; sentAt: string }>;
 
 export type AuthedSocketUser = {

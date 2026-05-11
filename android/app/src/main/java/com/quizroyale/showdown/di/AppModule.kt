@@ -35,11 +35,8 @@ object AppModule {
   @Singleton
   @AuthOkHttpClient
   fun provideAuthOkHttp(): OkHttpClient {
-    val logging = HttpLoggingInterceptor().apply {
-      level = HttpLoggingInterceptor.Level.BASIC
-    }
     return OkHttpClient.Builder()
-      .addInterceptor(logging)
+      .addDebugLogging()
       .build()
   }
 
@@ -47,12 +44,9 @@ object AppModule {
   @Singleton
   @ApiOkHttpClient
   fun provideApiOkHttp(tokenRefreshInterceptor: TokenRefreshInterceptor): OkHttpClient {
-    val logging = HttpLoggingInterceptor().apply {
-      level = HttpLoggingInterceptor.Level.BASIC
-    }
     return OkHttpClient.Builder()
       .addInterceptor(tokenRefreshInterceptor)
-      .addInterceptor(logging)
+      .addDebugLogging()
       .build()
   }
 
@@ -102,5 +96,14 @@ object AppModule {
   @Singleton
   fun provideDatabase(@ApplicationContext context: Context): AppDatabase {
     return Room.databaseBuilder(context, AppDatabase::class.java, "quiz_royale.db").build()
+  }
+
+  private fun OkHttpClient.Builder.addDebugLogging(): OkHttpClient.Builder {
+    if (BuildConfig.DEBUG) {
+      addInterceptor(HttpLoggingInterceptor().apply {
+        level = HttpLoggingInterceptor.Level.BASIC
+      })
+    }
+    return this
   }
 }
