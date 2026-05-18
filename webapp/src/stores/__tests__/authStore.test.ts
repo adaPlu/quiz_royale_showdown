@@ -122,11 +122,13 @@ describe('initAuth', () => {
     expect(useAuthStore.getState().accessToken).toBe('refreshed-tok');
     expect(setApiAccessToken).toHaveBeenCalledWith('refreshed-tok');
     expect(socketConnect).toHaveBeenCalledWith('refreshed-tok');
+    expect(useAuthStore.getState().isInitializing).toBe(false);
   });
 
   it('silently swallows errors when the refresh call fails', async () => {
     apiClientPost.mockRejectedValueOnce(new Error('401 Unauthorized'));
     await expect(useAuthStore.getState().initAuth()).resolves.toBeUndefined();
     expect(useAuthStore.getState().accessToken).toBeNull();
+    expect(useAuthStore.getState().isInitializing).toBe(false);
   });
 });

@@ -222,6 +222,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       players: payload.room.players,
       // Clear stale round state so reconnect doesn't show previous round data
       question: null,
+      lootDrop: null,
       ...resetRoundInteraction,
     });
   },
@@ -317,7 +318,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       roomId: payload.roomId,
       phase: 'FINALE',
       question: null,
-      countdownEndsAt: null,
+      ...resetRoundInteraction,
       players: state.players.map((player) => ({
         ...player,
         isEliminated: !payload.finalistIds.includes(player.id),

@@ -3,8 +3,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { CountdownBar } from '@/components/CountdownBar';
-import { LevelUpToast } from '@/components/LevelUpToast';
-import { LootDropToast } from '@/components/LootDropToast';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { PowerUpActivationFx } from '@/components/PowerUpActivationFx';
 import { PowerUpTray, type PowerUpSlot, type PowerUpType } from '@/components/PowerUpTray';
@@ -76,10 +74,6 @@ export const GamePage = () => {
   const revealed = useGameStore((state) => state.revealedOptionIndex);
   const usedPowerUps = useGameStore((state) => state.usedPowerUps);
   const setMyAnswer = useGameStore((state) => state.setMyAnswer);
-  const lootDrop = useGameStore((state) => state.lootDrop);
-  const clearLootDrop = useGameStore((state) => state.clearLootDrop);
-  const levelUpQueue = useGameStore((state) => state.levelUpQueue);
-  const dismissLevelUp = useGameStore((state) => state.dismissLevelUp);
   const players = useGameStore((state) => state.players);
   const leaderboard = useMemo(
     () => [...players].sort((a, b) => b.score - a.score),
@@ -209,7 +203,7 @@ export const GamePage = () => {
                 <h1 className="mt-2 text-3xl font-extrabold">
                   {phase === 'WAITING' && (isHost ? 'Start when ready' : 'Waiting for host')}
                   {phase === 'COUNTDOWN' && 'Get ready'}
-                  {phase === 'QUESTION_ACTIVE' && 'Answer now'}
+                  {phase === 'QUESTION_ACTIVE' && (question ? 'Answer now' : 'Waiting for next question…')}
                   {phase === 'ANSWER_LOCKED' && 'Answer locked'}
                   {phase === 'ROUND_RESULT' && 'Round result'}
                   {phase === 'ELIMINATION' && 'Elimination'}
@@ -327,15 +321,6 @@ export const GamePage = () => {
         activatingUserId={activeFx?.userId ?? ''}
         currentUserId={user?.id ?? ''}
         onComplete={onFxComplete}
-      />
-      <LootDropToast
-        powerupCode={lootDrop?.powerupType as PowerUpType ?? null}
-        onDismiss={clearLootDrop}
-        stableKey={lootDrop?.ts}
-      />
-      <LevelUpToast
-        level={levelUpQueue[0]?.newLevel ?? null}
-        onDismiss={dismissLevelUp}
       />
     </main>
   );

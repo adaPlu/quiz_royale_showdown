@@ -5,12 +5,16 @@ import axios, {
   type AxiosResponse,
 } from 'axios';
 
-// Lazy import to avoid circular dependency: authStore → apiClient → authStore
-const getAuthStore = () =>
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  (require('@/stores/authStore') as typeof import('@/stores/authStore')).useAuthStore;
-
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000/api/v1';
+
+// Callback registered by authStore at module-load time to sync the new token
+// without a circular require(). authStore calls registerTokenRefreshCallback()
+// after it is created; apiClient calls it inside the 401 refresh flow.
+let _onTokenRefreshed: ((token: string) => void) | null = null;
+
+export function registerTokenRefreshCallback(cb: (token: string) => void): void {
+  _onTokenRefreshed = cb;
+}
 
 type ErrorBody = {
   error?: string;
@@ -99,11 +103,9 @@ apiClient.interceptors.response.use(
         .then((response) => {
           const newToken = response.data.accessToken;
           setAccessToken(newToken);
-          // Sync authStore and reconnect socket with the new token
-          try {
-            getAuthStore().getState().setTokens({ accessToken: newToken });
-          } catch {
-            // authStore may not be initialized yet in SSR or test envs — ignore
+          // Sync authStore via registered callback (avoids circular require())
+          if (_onTokenRefreshed) {
+            _onTokenRefreshed(newToken);
           }
           return newToken;
         })

@@ -76,7 +76,7 @@ export const useGameSocket = (roomId: string | undefined) => {
         updateXp(payload.xpAwarded, payload.newLevel, payload.xpToNextLevel);
       }),
       socketService.on('powerup:loot_drop', (payload) => {
-        useGameStore.getState().setLootDrop(payload.powerupType ?? payload.powerupId);
+        useGameStore.getState().setLootDrop(payload.powerupType);
       }),
     ];
 

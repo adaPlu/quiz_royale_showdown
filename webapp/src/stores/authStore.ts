@@ -1,8 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-import { apiClient } from '@/services/apiClient';
-import { setAccessToken as setApiAccessToken } from '@/services/apiClient';
+import { apiClient, registerTokenRefreshCallback, setAccessToken as setApiAccessToken } from '@/services/apiClient';
 import { socketService } from '@/services/socketService';
 
 export type AuthUser = {
@@ -107,3 +106,9 @@ export const useAuthStore = create<AuthState>()(
     },
   ),
 );
+
+// Register the token-refresh callback at module-load time so apiClient can
+// sync authStore after a silent 401 token refresh without a circular require().
+registerTokenRefreshCallback((token) => {
+  useAuthStore.getState().setTokens({ accessToken: token });
+});

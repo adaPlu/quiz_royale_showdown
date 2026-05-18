@@ -121,7 +121,7 @@ export default function HomePage() {
               value={code}
               onChange={(event) => {
                 setError(null);
-                setCode(event.target.value.toUpperCase().slice(0, 12));
+                setCode(event.target.value.toUpperCase().slice(0, 6));
               }}
               placeholder="Room Code"
               className="flex-1 rounded-xl border border-game-border bg-game-card px-4 py-3 font-mono uppercase tracking-widest text-white placeholder-game-muted focus:border-brand focus:outline-none"
