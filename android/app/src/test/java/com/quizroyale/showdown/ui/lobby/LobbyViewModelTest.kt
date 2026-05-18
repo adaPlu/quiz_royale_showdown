@@ -11,7 +11,9 @@ import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -118,5 +120,36 @@ class LobbyViewModelTest {
 
             cancelAndIgnoreRemainingEvents()
         }
+    }
+
+    // ---------------------------------------------------------------------------
+    // 4. navigationEvents emits roomId when CountdownStarted event fires
+    // ---------------------------------------------------------------------------
+    @Test
+    fun `navigationEvents emits roomId when CountdownStarted event fires`() = runTest {
+        val eventsFlow = MutableSharedFlow<GameEvent>()
+        val viewModel = buildViewModel(
+            currentUserId = "user-A",
+            eventsFlow = eventsFlow,
+            initialRoomCode = "room-999"
+        )
+
+        val results = mutableListOf<String>()
+        val job = launch { viewModel.navigationEvents.collect { results.add(it) } }
+
+        eventsFlow.emit(
+            GameEvent.CountdownStarted(
+                roomId = "room-999",
+                startsAt = "2026-01-01T00:00:00Z",
+                seconds = 5
+            )
+        )
+
+        advanceUntilIdle()
+
+        assertEquals("Expected exactly one navigation event", 1, results.size)
+        assertEquals("room-999", results[0])
+
+        job.cancel()
     }
 }

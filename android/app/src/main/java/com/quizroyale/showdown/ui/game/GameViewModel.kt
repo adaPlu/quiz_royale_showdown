@@ -11,6 +11,7 @@ import com.quizroyale.showdown.data.results.ResultsStore
 import com.quizroyale.showdown.domain.model.GamePlayer
 import com.quizroyale.showdown.domain.model.LeaderboardEntry
 import com.quizroyale.showdown.domain.model.PowerupType
+import com.quizroyale.showdown.ui.game.components.OwnedPowerup
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Duration
 import java.time.Instant
@@ -114,7 +115,7 @@ class GameViewModel @Inject constructor(
                 players.filterNot { it.id == event.playerId }
               }
               is GameEvent.CountdownStarted -> handleCountdown(event)
-              is GameEvent.QuestionStarted -> handleQuestion(event)
+              is GameEvent.QuestionStarted -> viewModelScope.launch { handleQuestion(event) }
               is GameEvent.AnswerLocked -> handleAnswerLocked(event)
               is GameEvent.RoundResult -> handleRoundResult(event)
               is GameEvent.RoundElimination -> handleElimination(event)
@@ -124,6 +125,16 @@ class GameViewModel @Inject constructor(
                 _sideEffects.trySend(GameSideEffect.ShowToast("Power-up: ${event.powerupId}"))
               }
               is GameEvent.LootDrop -> {
+                (_uiState.value as? GameUiState.ActiveQuestion)?.let { current ->
+                  val dropped = OwnedPowerup(
+                    code = event.powerupCode,
+                    label = event.powerupCode,
+                    icon = "?",
+                    quantity = 1,
+                    usedThisRound = false
+                  )
+                  _uiState.value = current.copy(ownedPowerups = current.ownedPowerups + dropped)
+                }
                 _sideEffects.trySend(GameSideEffect.ShowLootDrop(event.powerupCode))
               }
               is GameEvent.LevelUp -> {
@@ -171,7 +182,17 @@ class GameViewModel @Inject constructor(
     }
   }
 
-  private fun handleQuestion(event: GameEvent.QuestionStarted) {
+  private suspend fun handleQuestion(event: GameEvent.QuestionStarted) {
+    val inventory = runCatching { gameRepository.getPowerupInventory() }.getOrElse { emptyList() }
+    val ownedPowerups = inventory.map { item ->
+      OwnedPowerup(
+        code = item.code ?: item.id,
+        label = item.name ?: item.code ?: item.id,
+        icon = "?",
+        quantity = 1,
+        usedThisRound = false
+      )
+    }
     val remainingSeconds = remainingSeconds(event.startedAt, event.timeLimitMs)
     _uiState.value = GameUiState.ActiveQuestion(
       roomId = event.roomId,
@@ -182,7 +203,8 @@ class GameViewModel @Inject constructor(
       timeLimitMs = event.timeLimitMs,
       timerSeconds = remainingSeconds,
       players = currentPlayers(),
-      phaseLabel = "QUESTION_ACTIVE"
+      phaseLabel = "QUESTION_ACTIVE",
+      ownedPowerups = ownedPowerups
     )
     startCountdown(remainingSeconds) { remaining ->
       val current = _uiState.value
@@ -388,9 +410,8 @@ class GameViewModel @Inject constructor(
     }
   }
 
-  private fun matchesRoom(currentRoomId: String, eventRoomId: String): Boolean {
-    return currentRoomId.isBlank() || eventRoomId.isBlank() || currentRoomId == eventRoomId
-  }
+  private fun matchesRoom(currentRoomId: String, eventRoomId: String): Boolean =
+    currentRoomId.isBlank() || (eventRoomId.isNotBlank() && currentRoomId == eventRoomId)
 
   override fun onCleared() {
     timerJob?.cancel()

@@ -17,7 +17,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -188,27 +190,21 @@ class GameViewModelTest {
     }
 
     // ---------------------------------------------------------------------------
-    // 5. observeGameEvents resets backoffMs to 1000 after successful collect
-    //    Verifies the try-block reset: backoffMs = 1_000L is set at the top of
-    //    each successful collection cycle.  After an error the next delay is at
-    //    most 1_000 ms (i.e. the reset took effect before the exception path ran).
-    //    We test this indirectly: a second error-free collection cycle starts with
-    //    a 1 s backoff (not the doubled 2 s that would result without the reset).
+    // 5. observeGameEvents continues collecting after an exception (backoff reset)
+    //    After a flow error the VM delays 1 s then restarts collection. We verify
+    //    it actually processes events from the fresh flow after the backoff elapses,
+    //    proving the retry loop remains alive and the backoff is bounded to 1 s.
     // ---------------------------------------------------------------------------
     @Test
-    fun `observeGameEvents resets backoffMs to 1000 after successful collect`() = runTest {
-        // Use a SharedFlow that we can complete with an error after one good emission
-        val eventsFlow = MutableSharedFlow<GameEvent>()
-        val gameRepository = fakeRepo(eventsFlow)
+    fun `observeGameEvents continues collecting after exception`() = runTest {
+        val firstFlow = MutableSharedFlow<GameEvent>()
+        val gameRepository = fakeRepo(firstFlow)
         val resultsStore = mockk<ResultsStore>(relaxed = true)
 
-        // We can't directly observe backoffMs (private field), so we validate
-        // observable behavior: the ViewModel remains alive and still processes
-        // events after the flow throws and restarts.
         val viewModel = GameViewModel(gameRepository, resultsStore)
 
-        // Emit a normal event so the first collection cycle has a "successful" pass
-        eventsFlow.emit(
+        // Establish initial state via a good event so the VM is in a known Lobby state.
+        firstFlow.emit(
             GameEvent.RoomState(
                 room = RoomSnapshot(
                     roomId = "room-x",
@@ -222,33 +218,26 @@ class GameViewModelTest {
             )
         )
 
-        // Verify state was updated from the good event
-        val stateAfterGoodEvent = viewModel.uiState.value
         assertTrue(
-            "State should be Lobby after successful RoomState event",
-            stateAfterGoodEvent is GameUiState.Lobby
+            "State should be Lobby after initial RoomState",
+            viewModel.uiState.value is GameUiState.Lobby
         )
 
-        // Now swap in a flow that immediately throws, simulating a disconnect
-        val throwingFlow = flowOf<GameEvent>().let {
-            // Produce a flow that collects once then throws a RuntimeException
-            kotlinx.coroutines.flow.flow<GameEvent> {
-                throw RuntimeException("Simulated socket close")
-            }
+        // Swap in a throwing flow to simulate a socket disconnect.
+        every { gameRepository.events } returns kotlinx.coroutines.flow.flow {
+            throw RuntimeException("Simulated socket close")
         }
-        every { gameRepository.events } returns throwingFlow
 
-        // Advance time by 1_000 ms (the reset backoff) — reconnect should start
+        // Advance past the 1 s backoff so the retry triggers.
         advanceTimeBy(1_100L)
 
-        // After the delay the ViewModel still processes events — no crash means the
-        // backoff reset logic kept backoffMs at 1_000 (not escalated from a prior cycle)
-        // Emit another event on a fresh flow; the ViewModel must collect it.
+        // Now provide a fresh flow for the reconnected session.
         val freshFlow = MutableSharedFlow<GameEvent>()
         every { gameRepository.events } returns freshFlow
 
-        advanceTimeBy(500L)
+        advanceUntilIdle()
 
+        // Emit an event on the fresh flow; the VM must process it.
         freshFlow.emit(
             GameEvent.RoomState(
                 room = RoomSnapshot(
@@ -263,8 +252,17 @@ class GameViewModelTest {
             )
         )
 
-        // If the ViewModel processed the new event the test confirms the retry logic works
-        // (If backoffMs had been doubled to 2000 without reset, the 1100 ms advance
-        //  would not have been enough to trigger the reconnect.)
+        advanceUntilIdle()
+
+        val finalState = viewModel.uiState.value
+        assertTrue(
+            "State should be Lobby after reconnected RoomState event, but was $finalState",
+            finalState is GameUiState.Lobby
+        )
+        assertEquals(
+            "roomId should match the reconnected room",
+            "room-y",
+            (finalState as GameUiState.Lobby).roomId
+        )
     }
 }

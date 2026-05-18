@@ -154,7 +154,7 @@ class LobbyViewModel @Inject constructor(
 
   private fun updateIfRoomMatches(roomId: String, transform: (LobbyUiState) -> LobbyUiState) {
     _uiState.update { state ->
-      if (roomId.isBlank() || state.roomId.isBlank() || roomId == state.roomId || roomId == state.roomCode) {
+      if (state.roomId.isBlank() || (roomId.isNotBlank() && (roomId == state.roomId || roomId == state.roomCode))) {
         transform(state)
       } else {
         state

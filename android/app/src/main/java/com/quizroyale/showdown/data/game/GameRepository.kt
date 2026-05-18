@@ -84,6 +84,8 @@ class GameRepository @Inject constructor(
     webSocketManager.send(envelope(type = "powerup:activate", payload = payload))
   }
 
+  suspend fun getPowerupInventory(): List<PowerupResponse> = gameApi.getPowerupInventory()
+
   fun sendHeartbeat(roomId: String) {
     webSocketManager.send(
       envelope(

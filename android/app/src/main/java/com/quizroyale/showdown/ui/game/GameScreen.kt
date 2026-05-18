@@ -24,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -59,10 +60,12 @@ fun GameScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
       ) {
         if (state is GameUiState.ActiveQuestion) {
-          CountdownRing(
-            timerSeconds = state.timerSeconds,
-            timeLimitSeconds = state.timeLimitMs / 1000
-          )
+          key(state.questionId) {
+            CountdownRing(
+              timerSeconds = state.timerSeconds,
+              timeLimitSeconds = state.timeLimitMs / 1000
+            )
+          }
         } else {
           Spacer(modifier = Modifier.size(180.dp))
         }
@@ -145,7 +148,7 @@ private fun CountdownRing(timerSeconds: Int, timeLimitSeconds: Int) {
   val fraction = if (timeLimitSeconds > 0) timerSeconds.toFloat() / timeLimitSeconds.toFloat() else 0f
   val animatedFraction by animateFloatAsState(
     targetValue = fraction.coerceIn(0f, 1f),
-    animationSpec = tween(durationMillis = 500, easing = LinearEasing),
+    animationSpec = tween(durationMillis = 1100, easing = LinearEasing),
     label = "countdownRing"
   )
   val sweepAngle = 360f * animatedFraction
@@ -191,11 +194,7 @@ private fun QuestionCard(
         val isSelected = state.selectedAnswerIndex == index
         val isCorrect = state.correctAnswerIndex == index
         Button(
-          onClick = {
-            if (!state.isAnswerLocked) {
-              onAnswerSelected(index)
-            }
-          },
+          onClick = { onAnswerSelected(index) },
           enabled = !state.isAnswerLocked,
           modifier = Modifier.fillMaxWidth()
         ) {
