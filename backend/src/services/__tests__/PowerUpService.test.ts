@@ -15,6 +15,9 @@ const { prismaMock, redisServiceMock } = vi.hoisted(() => {
     powerUpUse: {
       create: vi.fn(),
     },
+    roomPlayer: {
+      findUnique: vi.fn(),
+    },
     $transaction: vi.fn(),
   };
 
@@ -69,6 +72,7 @@ function primeActivation(code: PowerUpCode): void {
   prismaMock.playerPowerUp.update.mockReturnValue({ operation: "update" });
   prismaMock.powerUpUse.create.mockReturnValue({ operation: "create" });
   prismaMock.$transaction.mockResolvedValue([{ quantity: 0 }, { id: "usage-id" }]);
+  prismaMock.roomPlayer.findUnique.mockResolvedValue({ isEliminated: false });
 
   redisServiceMock.setnx.mockResolvedValue(true);
   redisServiceMock.del.mockResolvedValue(1);

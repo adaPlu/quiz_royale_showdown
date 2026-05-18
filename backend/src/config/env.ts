@@ -9,6 +9,32 @@
 import "dotenv/config";
 import { z } from "zod";
 
+const DEV_DEFAULTS = {
+  JWT_ACCESS_SECRET: "dev-access-secret-change-in-production",
+  JWT_REFRESH_SECRET: "dev-refresh-secret-change-in-production",
+  DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/quiz_royale?schema=public",
+  REDIS_URL: "redis://localhost:6379",
+  ADMIN_SECRET: "change-me-in-production",
+} as const;
+
+const PRODUCTION_REQUIRED_KEYS = [
+  "JWT_ACCESS_SECRET",
+  "JWT_REFRESH_SECRET",
+  "DATABASE_URL",
+  "REDIS_URL",
+  "ADMIN_SECRET",
+  "VAPID_PUBLIC_KEY",
+  "VAPID_PRIVATE_KEY",
+] as const;
+
+const PRODUCTION_PLACEHOLDER_VALUES: Partial<Record<(typeof PRODUCTION_REQUIRED_KEYS)[number], string>> = {
+  JWT_ACCESS_SECRET: DEV_DEFAULTS.JWT_ACCESS_SECRET,
+  JWT_REFRESH_SECRET: DEV_DEFAULTS.JWT_REFRESH_SECRET,
+  DATABASE_URL: DEV_DEFAULTS.DATABASE_URL,
+  REDIS_URL: DEV_DEFAULTS.REDIS_URL,
+  ADMIN_SECRET: DEV_DEFAULTS.ADMIN_SECRET,
+};
+
 const envSchema = z.object({
   // Runtime
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -21,7 +47,7 @@ const envSchema = z.object({
   JWT_ACCESS_SECRET: z
     .string()
     .min(16, "JWT_ACCESS_SECRET must be at least 16 characters")
-    .default("dev-access-secret-change-in-production")
+    .default(DEV_DEFAULTS.JWT_ACCESS_SECRET)
     .refine(
       (val) => process.env.NODE_ENV !== "production" || !val.startsWith("dev-"),
       { message: "JWT_ACCESS_SECRET must be changed from the dev default in production" }
@@ -29,7 +55,7 @@ const envSchema = z.object({
   JWT_REFRESH_SECRET: z
     .string()
     .min(16, "JWT_REFRESH_SECRET must be at least 16 characters")
-    .default("dev-refresh-secret-change-in-production")
+    .default(DEV_DEFAULTS.JWT_REFRESH_SECRET)
     .refine(
       (val) => process.env.NODE_ENV !== "production" || !val.startsWith("dev-"),
       { message: "JWT_REFRESH_SECRET must be changed from the dev default in production" }
@@ -40,10 +66,10 @@ const envSchema = z.object({
   // Database
   DATABASE_URL: z
     .string()
-    .default("postgresql://postgres:postgres@localhost:5432/quiz_royale?schema=public"),
+    .default(DEV_DEFAULTS.DATABASE_URL),
 
   // Redis
-  REDIS_URL: z.string().default("redis://localhost:6379"),
+  REDIS_URL: z.string().default(DEV_DEFAULTS.REDIS_URL),
 
   // Logging
   LOG_LEVEL: z
@@ -60,21 +86,50 @@ const envSchema = z.object({
   SENTRY_DSN: z.string().optional(),
   ADMIN_SECRET: z
     .string()
-    .default("change-me-in-production")
+    .default(DEV_DEFAULTS.ADMIN_SECRET)
     .refine(
       (val) => process.env.NODE_ENV !== "production" || val !== "change-me-in-production",
       { message: "ADMIN_SECRET must be changed from the default in production" }
     ),
 });
 
+function getProductionEnvErrors(rawEnv: NodeJS.ProcessEnv): string[] {
+  if (rawEnv.NODE_ENV !== "production") {
+    return [];
+  }
+
+  const errors: string[] = [];
+
+  for (const key of PRODUCTION_REQUIRED_KEYS) {
+    const value = rawEnv[key]?.trim();
+
+    if (!value) {
+      errors.push(`${key} is required in production`);
+      continue;
+    }
+
+    if (value === PRODUCTION_PLACEHOLDER_VALUES[key] || /^change-me/i.test(value)) {
+      errors.push(`${key} must not use a development placeholder in production`);
+    }
+  }
+
+  return errors;
+}
+
 function parseEnv() {
   const result = envSchema.safeParse(process.env);
+  const productionErrors = getProductionEnvErrors(process.env);
 
-  if (!result.success) {
+  if (!result.success || productionErrors.length > 0) {
     console.error("❌ Invalid environment configuration:");
-    const formatted = result.error.flatten().fieldErrors;
-    for (const [field, messages] of Object.entries(formatted)) {
-      console.error(`  ${field}: ${(messages ?? []).join(", ")}`);
+    if (!result.success) {
+      const formatted = result.error.flatten().fieldErrors;
+      for (const [field, messages] of Object.entries(formatted)) {
+        console.error(`  ${field}: ${(messages ?? []).join(", ")}`);
+      }
+    }
+    for (const message of productionErrors) {
+      console.error(`  ${message}`);
     }
     process.exit(1);
   }

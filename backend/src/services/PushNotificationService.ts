@@ -5,15 +5,16 @@ import { redisService } from "./RedisService";
 import { prisma } from '../models/prismaClient';
 import { generateId } from '../utils/ulid';
 
-const VAPID_PUBLIC_KEY = env.vapidPublicKey;
-const VAPID_PRIVATE_KEY = env.vapidPrivateKey;
+const VAPID_PUBLIC_KEY = env.vapidPublicKey.trim();
+const VAPID_PRIVATE_KEY = env.vapidPrivateKey.trim();
+const isWebPushConfigured = VAPID_PUBLIC_KEY.length > 0 && VAPID_PRIVATE_KEY.length > 0;
 
-if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
-  logger.warn("VAPID keys not configured — push notifications disabled");
-}
-
-if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+if (isWebPushConfigured) {
   webpush.setVapidDetails(env.vapidSubject, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+} else if (env.isProduction) {
+  throw new Error("VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are required in production");
+} else {
+  logger.warn("Web push disabled: VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are not configured");
 }
 
 const pushSubKey = (userId: string) => `push:subs:${userId}`;
@@ -28,7 +29,11 @@ export interface WebPushPayload {
 
 class PushNotificationService {
   get vapidPublicKey() {
-    return VAPID_PUBLIC_KEY;
+    return isWebPushConfigured ? VAPID_PUBLIC_KEY : null;
+  }
+
+  get isWebPushConfigured() {
+    return isWebPushConfigured;
   }
 
   async saveWebPushSubscription(userId: string, subscription: PushSubscription): Promise<void> {
@@ -63,6 +68,8 @@ class PushNotificationService {
   }
 
   async sendToUser(userId: string, payload: WebPushPayload): Promise<void> {
+    if (!isWebPushConfigured) return;
+
     let subscriptionStrings: string[] = [];
 
     if (redisService) {

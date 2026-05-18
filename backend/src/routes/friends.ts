@@ -15,6 +15,10 @@ const requestBodySchema = z.object({
   addresseeId: z.string().min(1).max(64),
 });
 
+const friendshipIdParamsSchema = z.object({
+  id: z.string().ulid("Friendship ID must be a valid ULID"),
+});
+
 // POST /friends/request — send a friend request
 friendsRouter.post(
   "/request",
@@ -101,8 +105,13 @@ friendsRouter.get("/", requireAuth, async (req, res, next) => {
 // PUT /friends/:id/accept — accept a pending friend request
 friendsRouter.put("/:id/accept", requireAuth, async (req, res, next) => {
   try {
+    const idParsed = friendshipIdParamsSchema.safeParse(req.params);
+    if (!idParsed.success) {
+      res.status(400).json({ error: "Invalid friendship ID", issues: idParsed.error.issues });
+      return;
+    }
     const userId = req.jwtClaims!.sub;
-    const id = String(req.params.id);
+    const id = idParsed.data.id;
 
     const friendship = await prisma.friendship.findFirst({
       where: { id, addresseeId: userId, status: "PENDING" },
@@ -153,8 +162,13 @@ friendsRouter.get("/pending", requireAuth, async (req, res, next) => {
 // DELETE /friends/:id — remove a friend or decline a request
 friendsRouter.delete("/:id", requireAuth, async (req, res, next) => {
   try {
+    const idParsed = friendshipIdParamsSchema.safeParse(req.params);
+    if (!idParsed.success) {
+      res.status(400).json({ error: "Invalid friendship ID", issues: idParsed.error.issues });
+      return;
+    }
     const userId = req.jwtClaims!.sub;
-    const id = String(req.params.id);
+    const id = idParsed.data.id;
 
     const friendship = await prisma.friendship.findFirst({
       where: {

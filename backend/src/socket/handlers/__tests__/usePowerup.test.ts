@@ -5,6 +5,7 @@ import type { AuthenticatedSocket } from "../../middleware";
 const mocks = vi.hoisted(() => ({
   activatePowerUp: vi.fn(),
   redisGetJson: vi.fn(),
+  roomPlayerFindUnique: vi.fn(),
 }));
 
 vi.mock("../../../services/PowerUpService", () => ({
@@ -12,6 +13,13 @@ vi.mock("../../../services/PowerUpService", () => ({
 }));
 vi.mock("../../../services/RedisService", () => ({
   redisService: { getJson: mocks.redisGetJson },
+}));
+vi.mock("../../../models/prismaClient", () => ({
+  prisma: {
+    roomPlayer: {
+      findUnique: mocks.roomPlayerFindUnique,
+    },
+  },
 }));
 vi.mock("../../../utils/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -56,9 +64,10 @@ describe("registerUsePowerupHandler", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    ({ socket, emit, dispatch } = createSocket());
+    ({ socket, emit, dispatch } = createSocket({ userId: "user-1", roomId: "room-1" }));
     io = createIo();
     mocks.redisGetJson.mockResolvedValue(null);
+    mocks.roomPlayerFindUnique.mockResolvedValue({ isEliminated: false });
   });
 
   it("registers a message handler on the socket", async () => {
@@ -106,6 +115,20 @@ describe("registerUsePowerupHandler", () => {
     expect(mocks.activatePowerUp).not.toHaveBeenCalled();
   });
 
+  it("emits ROOM_NOT_JOINED when the socket has not joined a room", async () => {
+    const { socket: s, emit: e, dispatch: d } = createSocket({ userId: "user-1" });
+    const { registerUsePowerupHandler } = await import("../usePowerup");
+    registerUsePowerupHandler(io as Server, s);
+    await d(validActivate);
+    expect(e).toHaveBeenCalledWith(
+      "message",
+      expect.objectContaining({
+        payload: expect.objectContaining({ code: "ROOM_NOT_JOINED" }),
+      }),
+    );
+    expect(mocks.activatePowerUp).not.toHaveBeenCalled();
+  });
+
   it("broadcasts public effect to room on successful activation", async () => {
     mocks.activatePowerUp.mockResolvedValue({
       code: "SHIELD",
@@ -123,6 +146,21 @@ describe("registerUsePowerupHandler", () => {
       payload: { type: "SHIELD", affectedPlayerIds: ["user-1"] },
     });
     expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("emits ELIMINATED when the room player is eliminated", async () => {
+    mocks.roomPlayerFindUnique.mockResolvedValue({ isEliminated: true });
+    const { registerUsePowerupHandler } = await import("../usePowerup");
+    registerUsePowerupHandler(io as Server, socket);
+    await dispatch(validActivate);
+
+    expect(emit).toHaveBeenCalledWith(
+      "message",
+      expect.objectContaining({
+        payload: expect.objectContaining({ code: "ELIMINATED" }),
+      }),
+    );
+    expect(mocks.activatePowerUp).not.toHaveBeenCalled();
   });
 
   it("sends private effect to activating socket when result includes one", async () => {
@@ -159,7 +197,7 @@ describe("registerUsePowerupHandler", () => {
     );
   });
 
-  it("emits POWERUP_ERROR on ForbiddenError from PowerUpService", async () => {
+  it("emits POWERUP_ALREADY_USED on already-used ForbiddenError from PowerUpService", async () => {
     const { ForbiddenError } = await import("../../../utils/errors");
     mocks.activatePowerUp.mockRejectedValue(new ForbiddenError("Power-up already used this round"));
     const { registerUsePowerupHandler } = await import("../usePowerup");
@@ -170,14 +208,14 @@ describe("registerUsePowerupHandler", () => {
       "message",
       expect.objectContaining({
         payload: expect.objectContaining({
-          code: "POWERUP_ERROR",
+          code: "POWERUP_ALREADY_USED",
           message: "Power-up already used this round",
         }),
       }),
     );
   });
 
-  it("emits POWERUP_ERROR on NotFoundError from PowerUpService", async () => {
+  it("emits POWERUP_NOT_FOUND on NotFoundError from PowerUpService", async () => {
     const { NotFoundError } = await import("../../../utils/errors");
     mocks.activatePowerUp.mockRejectedValue(new NotFoundError("Power-up not found in inventory"));
     const { registerUsePowerupHandler } = await import("../usePowerup");
@@ -187,7 +225,7 @@ describe("registerUsePowerupHandler", () => {
     expect(emit).toHaveBeenCalledWith(
       "message",
       expect.objectContaining({
-        payload: expect.objectContaining({ code: "POWERUP_ERROR" }),
+        payload: expect.objectContaining({ code: "POWERUP_NOT_FOUND" }),
       }),
     );
   });

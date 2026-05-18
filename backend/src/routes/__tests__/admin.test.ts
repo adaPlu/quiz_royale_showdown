@@ -167,7 +167,7 @@ describe("Admin router — secret gating", () => {
 
     expect(res.status).toBe(503);
     const body = res.body as { error: string };
-    expect(body.error).toMatch(/ANTHROPIC_API_KEY/i);
+    expect(body.error).toMatch(/OPENAI_API_KEY/i);
   });
 
   it("returns 200 and starts generation when AI is available", async () => {
@@ -241,13 +241,13 @@ describe("Admin router — question CRUD", () => {
     prismaMock.questionBank.count.mockResolvedValue(0);
     prismaMock.questionBank.findMany.mockResolvedValue([]);
     prismaMock.questionBank.create.mockResolvedValue({ id: "new-question-id", ...VALID_QUESTION, isActive: true });
-    prismaMock.questionBank.update.mockResolvedValue({ id: "q-1", ...VALID_QUESTION, isActive: true });
+    prismaMock.questionBank.update.mockResolvedValue({ id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", ...VALID_QUESTION, isActive: true });
   });
 
   it("GET /questions returns paginated list with total, page, limit, questions", async () => {
     prismaMock.questionBank.count.mockResolvedValue(5);
     prismaMock.questionBank.findMany.mockResolvedValue([
-      { id: "q-1", prompt: "Q1?", optionA: "A", optionB: "B", optionC: "C", optionD: "D", correctIndex: 0, category: "Gen", difficulty: "EASY", isActive: true, lastUsedAt: null, createdAt: new Date().toISOString() },
+      { id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", prompt: "Q1?", optionA: "A", optionB: "B", optionC: "C", optionD: "D", correctIndex: 0, category: "Gen", difficulty: "EASY", isActive: true, lastUsedAt: null, createdAt: new Date().toISOString() },
     ]);
 
     const app = buildApp();
@@ -306,7 +306,7 @@ describe("Admin router — question CRUD", () => {
 
   it("PUT /questions/:id updates and returns the question", async () => {
     const app = buildApp();
-    const res = await request(app, "PUT", "/admin/questions/q-1", {
+    const res = await request(app, "PUT", "/admin/questions/01ARZ3NDEKTSV4RRFFQ69G5FAV", {
       headers: adminHeaders,
       body: { prompt: "Updated prompt?" },
     });
@@ -314,7 +314,7 @@ describe("Admin router — question CRUD", () => {
     expect(res.status).toBe(200);
     expect(prismaMock.questionBank.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: "q-1" },
+        where: { id: "01ARZ3NDEKTSV4RRFFQ69G5FAV" },
         data: expect.objectContaining({ prompt: "Updated prompt?" }),
       }),
     );
@@ -322,26 +322,26 @@ describe("Admin router — question CRUD", () => {
 
   it("DELETE /questions/:id soft-deletes (isActive=false) and returns 204", async () => {
     const app = buildApp();
-    const res = await request(app, "DELETE", "/admin/questions/q-1", {
+    const res = await request(app, "DELETE", "/admin/questions/01ARZ3NDEKTSV4RRFFQ69G5FAV", {
       headers: adminHeaders,
     });
 
     expect(res.status).toBe(204);
     expect(prismaMock.questionBank.update).toHaveBeenCalledWith({
-      where: { id: "q-1" },
+      where: { id: "01ARZ3NDEKTSV4RRFFQ69G5FAV" },
       data: { isActive: false },
     });
   });
 
   it("PATCH /questions/:id/activate restores a soft-deleted question", async () => {
     const app = buildApp();
-    const res = await request(app, "PATCH", "/admin/questions/q-1/activate", {
+    const res = await request(app, "PATCH", "/admin/questions/01ARZ3NDEKTSV4RRFFQ69G5FAV/activate", {
       headers: adminHeaders,
     });
 
     expect(res.status).toBe(200);
     expect(prismaMock.questionBank.update).toHaveBeenCalledWith({
-      where: { id: "q-1" },
+      where: { id: "01ARZ3NDEKTSV4RRFFQ69G5FAV" },
       data: { isActive: true },
     });
   });

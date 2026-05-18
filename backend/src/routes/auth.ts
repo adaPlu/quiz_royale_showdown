@@ -87,6 +87,14 @@ const refreshLimiter = rateLimit({
   message: { error: 'Too many refresh attempts, please try again later.' },
 });
 
+const meLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests to /me, please try again later.' },
+});
+
 export const authRouter = Router();
 
 function isUniqueConstraintError(error: unknown): error is Prisma.PrismaClientKnownRequestError {
@@ -235,7 +243,7 @@ authRouter.post("/logout", logoutLimiter, async (req, res, next) => {
   }
 });
 
-authRouter.get("/me", requireAuth, async (req, res, next) => {
+authRouter.get("/me", meLimiter, requireAuth, async (req, res, next) => {
   try {
     const userId = req.jwtClaims?.sub;
 

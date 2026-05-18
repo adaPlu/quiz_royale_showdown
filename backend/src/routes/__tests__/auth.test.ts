@@ -257,7 +257,7 @@ describe("POST /auth/refresh", () => {
     vi.mocked(rotateRefreshToken).mockRejectedValueOnce(new UnauthorizedError('Refresh token revoked'));
     const app = buildApp();
     const res = await request(app, 'POST', '/auth/refresh', {
-      body: { refreshToken: 'consumed-token' },
+      body: { refreshToken: 'consumed-token-already-used' },
     });
     expect(res.status).toBe(401);
   });

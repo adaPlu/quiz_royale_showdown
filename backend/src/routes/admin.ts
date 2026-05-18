@@ -42,7 +42,7 @@ adminRouter.get("/questions/count", async (_req, res, next) => {
 adminRouter.post("/questions/generate", async (req, res, next) => {
   try {
     if (!questionGeneratorService.isAvailable) {
-      res.status(503).json({ error: "ANTHROPIC_API_KEY not configured" });
+      res.status(503).json({ error: "OPENAI_API_KEY not configured" });
       return;
     }
     const target = Math.min(Number((req.body as any).count ?? 200), 500);
@@ -163,8 +163,13 @@ adminRouter.delete("/questions/:id", async (req, res, next) => {
 // PATCH /api/v1/admin/questions/:id/activate  — restore soft-deleted question
 adminRouter.patch("/questions/:id/activate", async (req, res, next) => {
   try {
+    const idParsed = questionIdParamsSchema.safeParse(req.params);
+    if (!idParsed.success) {
+      res.status(400).json({ error: "Invalid question ID", issues: idParsed.error.issues });
+      return;
+    }
     const question = await prisma.questionBank.update({
-      where: { id: req.params.id },
+      where: { id: idParsed.data.id },
       data: { isActive: true },
     });
     res.json(question);

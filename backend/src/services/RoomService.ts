@@ -153,6 +153,15 @@ export class RoomService {
     if (!joinResult.alreadyJoined) {
       await this.addLivePlayer(room.id, userId);
       logger.info("Player joined room", { userId, roomId: room.id });
+
+      // Remove full rooms from matchmaking so later joins do not race a full candidate.
+      if (redisService) {
+        const config = await this.getRoomConfig(room.id);
+        const newCount = await prisma.roomPlayer.count({ where: { roomId: room.id, isEliminated: false } });
+        if (newCount >= (config.maxPlayers ?? DEFAULT_ROOM_CONFIG.maxPlayers)) {
+          await redisService.zrem(MATCHMAKING_QUEUE_KEY, room.id).catch(() => undefined);
+        }
+      }
     }
 
     const user = await prisma.user.findUniqueOrThrow({

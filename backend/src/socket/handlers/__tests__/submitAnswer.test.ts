@@ -4,7 +4,8 @@ const redisMock = {
   getJson: vi.fn(),
   setnx: vi.fn(),
   zincrby: vi.fn(),
-  hset: vi.fn()
+  hset: vi.fn(),
+  del: vi.fn()
 };
 
 const powerUpMock = {
@@ -15,6 +16,7 @@ const powerUpMock = {
 };
 
 const prismaMock = {
+  roomPlayer: { findUnique: vi.fn().mockResolvedValue({ isEliminated: false }) },
   answer: { upsert: vi.fn().mockResolvedValue({}) },
 };
 
@@ -61,6 +63,8 @@ function createSocket(roomId?: string) {
 describe("registerSubmitAnswerHandler", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    prismaMock.roomPlayer.findUnique.mockResolvedValue({ isEliminated: false });
+    redisMock.del.mockResolvedValue(1);
   });
 
   it("rejects answer submissions before the socket joins a room", async () => {

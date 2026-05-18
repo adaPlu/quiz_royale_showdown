@@ -15,7 +15,8 @@ const prismaMock = {
     aggregate: vi.fn(),
   },
   room: {
-    update: vi.fn()
+    update: vi.fn(),
+    updateMany: vi.fn()
   },
   roomPlayer: {
     updateMany: vi.fn()
@@ -37,12 +38,14 @@ const prismaMock = {
     upsert: vi.fn()
   },
   powerUp: {
-    findUnique: vi.fn()
+    findUnique: vi.fn(),
+    findMany: vi.fn()
   },
   playerPowerUp: {
     upsert: vi.fn()
   },
   $executeRaw: vi.fn(),
+  $transaction: vi.fn(),
 };
 
 vi.mock("../../models/prismaClient", () => ({
@@ -67,7 +70,15 @@ vi.mock("../XpService", () => ({
   levelFromTotalXp: vi.fn((xp: number) => (xp >= 150 ? 2 : 1)),
   xpToNextLevel: vi.fn((level: number) => (level + 1) * (level + 1) * 150),
   awardMatchXp: vi.fn(async (_roomId: string, players: Array<{ playerId: string; rank: number; score: number }>) => {
-    const results = [];
+    const results: Array<{
+      playerId: string;
+      xpAwarded: number;
+      totalXp: number;
+      newLevel: number;
+      prevLevel: number;
+      didLevelUp: boolean;
+      xpToNextLevel: number;
+    }> = [];
     for (const p of players) {
       const xpAwarded = Math.max(10, Math.round(p.score / 10));
       await prismaMock.xpEvent.create({
@@ -110,6 +121,7 @@ describe("GameOrchestrator hardening", () => {
     vi.clearAllMocks();
     redisMock.del.mockResolvedValue(1);
     prismaMock.room.update.mockResolvedValue({});
+    prismaMock.room.updateMany.mockResolvedValue({ count: 1 });
     prismaMock.roomPlayer.updateMany.mockResolvedValue({ count: 0 });
     prismaMock.xpEvent.create.mockResolvedValue({});
     prismaMock.xpEvent.groupBy.mockResolvedValue([]);
@@ -117,12 +129,14 @@ describe("GameOrchestrator hardening", () => {
     prismaMock.season.findFirst.mockResolvedValue(null);
     prismaMock.seasonScore.upsert.mockResolvedValue({});
     prismaMock.powerUp.findUnique.mockResolvedValue(null);
+    prismaMock.powerUp.findMany.mockResolvedValue([]);
     prismaMock.playerPowerUp.upsert.mockResolvedValue({});
     prismaMock.round.findMany.mockResolvedValue([]);
     prismaMock.answer.groupBy.mockResolvedValue([]);
     prismaMock.answer.findMany.mockResolvedValue([]);
     prismaMock.powerUpUse.groupBy.mockResolvedValue([]);
     prismaMock.$executeRaw.mockResolvedValue(0);
+    prismaMock.$transaction.mockImplementation(async (callback: (tx: typeof prismaMock) => unknown) => callback(prismaMock));
   });
 
   it("computes winners from finalists only, excluding eliminated high scorers", async () => {
@@ -178,8 +192,8 @@ describe("GameOrchestrator hardening", () => {
         metadata: { roomId: "room-1", rank: 2 }
       })
     });
-    expect(prismaMock.room.update).toHaveBeenCalledWith({
-      where: { id: "room-1" },
+    expect(prismaMock.room.updateMany).toHaveBeenCalledWith({
+      where: { id: "room-1", status: { not: "GAME_OVER" } },
       data: { status: "GAME_OVER", finishedAt: expect.any(Date) }
     });
     expect(emit).toHaveBeenCalledWith("message", {
@@ -518,8 +532,13 @@ describe("GameOrchestrator hardening", () => {
         { member: "finalist-q", score: 250 },
       ]);
 
-      // Simulate each powerUp.findUnique call returning a real record
-      prismaMock.powerUp.findUnique.mockResolvedValue({ id: "powerup-record-1" });
+      prismaMock.powerUp.findMany.mockResolvedValue([
+        { id: "powerup-record-1", code: "DOUBLE_DOWN" },
+        { id: "powerup-record-2", code: "FIFTY_FIFTY" },
+        { id: "powerup-record-3", code: "TIME_FREEZE" },
+        { id: "powerup-record-4", code: "SHIELD" },
+        { id: "powerup-record-5", code: "SABOTAGE" },
+      ]);
 
       const io = makeIo();
       const { GameOrchestrator } = await import("../GameOrchestrator");

@@ -72,7 +72,10 @@ function request(
 
 const validSubscription = {
   endpoint: "https://fcm.googleapis.com/fcm/send/test-endpoint",
-  keys: { p256dh: "test-p256dh-key", auth: "test-auth-key" },
+  keys: {
+    p256dh: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    auth: "BBBBBBBBBBBBBBBBBBBBBB",
+  },
 };
 
 describe("GET /push/vapid-public-key", () => {

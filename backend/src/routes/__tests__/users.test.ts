@@ -36,7 +36,7 @@ vi.mock("../../utils/logger", () => ({
 }));
 vi.mock("../../services/XpService", () => ({
   levelFromTotalXp: vi.fn((xp: number) => Math.floor(Math.sqrt(xp / 150)) || 1),
-  xpToNextLevel: vi.fn((level: number) => (level + 1) * (level + 1) * 150),
+  xpThresholdForLevel: vi.fn((level: number) => (level + 1) * (level + 1) * 150),
 }));
 
 // We keep requireAuth as-is — it reads from env.jwtAccessSecret

@@ -39,9 +39,9 @@ export const createApp = () => {
 
   app.use("/health", healthRouter);
 
-  // Apply rate limiting: strict limit on auth, general limit on all other API routes
-  app.use("/api/v1/auth", authRouter);
+  // Apply rate limiting: general limit on all API routes, then mount routers.
   app.use("/api/v1", apiLimiter);
+  app.use("/api/v1/auth", authRouter);
   app.use("/api/v1/rooms", roomsRouter);
   app.use("/api/v1/users", usersRouter);
   app.use("/api/v1/friends", friendsRouter);

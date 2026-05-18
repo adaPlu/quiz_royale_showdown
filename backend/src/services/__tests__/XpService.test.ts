@@ -5,6 +5,7 @@ const prismaMock = {
   xpEvent: {
     groupBy: vi.fn(),
     create: vi.fn(),
+    createMany: vi.fn(),
   },
 };
 
@@ -104,6 +105,7 @@ describe("awardMatchXp", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     prismaMock.xpEvent.create.mockResolvedValue({});
+    prismaMock.xpEvent.createMany.mockResolvedValue({ count: 0 });
   });
 
   it("creates one XpEvent per player", async () => {
@@ -119,7 +121,13 @@ describe("awardMatchXp", () => {
       { playerId: "u2", rank: 2, totalPlayers: 2, score: 0 },
     ]);
 
-    expect(prismaMock.xpEvent.create).toHaveBeenCalledTimes(2);
+    expect(prismaMock.xpEvent.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({ userId: "u1", amount: 800 }),
+        expect.objectContaining({ userId: "u2", amount: 200 }),
+      ],
+      skipDuplicates: true,
+    });
   });
 
   it("rank-1 player receives win bonus (500) + base (100) + placement XP", async () => {

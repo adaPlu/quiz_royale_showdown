@@ -117,7 +117,7 @@ Additionally:
 **Theme:** Get all three stacks building cleanly.
 
 #### Backend Agent
-- [ ] BACKEND: Run `npm install` + `prisma migrate dev --name init` — migration completes with 15 tables created
+- [ ] BACKEND: Run `npm ci` + `prisma migrate dev --name init` — migration completes with 15 tables created
 - [ ] BACKEND: Copy `.env.example` → `.env`, fill all required vars — `npm run dev` starts without crash
 - [ ] BACKEND: Write `src/routes/users.ts` (GET /users/me, GET /users/:id/profile) — both routes return 200 with valid shape
 - [ ] BACKEND: Write `src/routes/powerups.ts` (GET /powerups/inventory, POST /powerups/use) — routes registered, return stub 200
@@ -132,7 +132,7 @@ Additionally:
 - [ ] ANDROID: `./gradlew assembleDebug` — build succeeds with no errors
 
 #### Web Agent
-- [ ] WEB: `cd webapp && npm install` — no peer dependency errors
+- [ ] WEB: `npm ci` from the repo root — no peer dependency errors
 - [ ] WEB: Write `src/pages/LoginPage.tsx` (React Hook Form + Zod + POST /auth/login) — form renders and submits
 - [ ] WEB: Write `src/pages/RegisterPage.tsx` (username + email + password + confirm validation) — form renders and validates
 - [ ] WEB: Write `src/pages/HomePage.tsx` (Quick Play + Create Room + Join by Code) — page renders when authenticated

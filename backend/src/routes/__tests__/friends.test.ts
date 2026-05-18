@@ -220,7 +220,7 @@ describe("PUT /friends/:id/accept", () => {
 
   it("returns 401 when unauthenticated", async () => {
     const app = buildApp();
-    const res = await request(app, "PUT", "/friends/fs1/accept");
+    const res = await request(app, "PUT", "/friends/01ARZ3NDEKTSV4RRFFQ69G5FAV/accept");
     expect(res.status).toBe(401);
   });
 
@@ -229,7 +229,7 @@ describe("PUT /friends/:id/accept", () => {
 
     const token = makeToken("user-test");
     const app = buildApp();
-    const res = await request(app, "PUT", "/friends/nonexistent/accept", {
+    const res = await request(app, "PUT", "/friends/01ARZ3NDEKTSV4RRFFQ69G5FAW/accept", {
       headers: { Authorization: `Bearer ${token}` },
     });
 
@@ -238,7 +238,7 @@ describe("PUT /friends/:id/accept", () => {
 
   it("accepts a pending request and returns 200", async () => {
     const fakeFriendship = {
-      id: "fs1",
+      id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
       requesterId: "other-user",
       addresseeId: "user-test",
       status: "PENDING",
@@ -250,7 +250,7 @@ describe("PUT /friends/:id/accept", () => {
 
     const token = makeToken("user-test");
     const app = buildApp();
-    const res = await request(app, "PUT", "/friends/fs1/accept", {
+    const res = await request(app, "PUT", "/friends/01ARZ3NDEKTSV4RRFFQ69G5FAV/accept", {
       headers: { Authorization: `Bearer ${token}` },
     });
 
@@ -304,7 +304,7 @@ describe("DELETE /friends/:id", () => {
 
   it("returns 401 when unauthenticated", async () => {
     const app = buildApp();
-    const res = await request(app, "DELETE", "/friends/fs1");
+    const res = await request(app, "DELETE", "/friends/01ARZ3NDEKTSV4RRFFQ69G5FAV");
     expect(res.status).toBe(401);
   });
 
@@ -313,7 +313,7 @@ describe("DELETE /friends/:id", () => {
 
     const token = makeToken("user-test");
     const app = buildApp();
-    const res = await request(app, "DELETE", "/friends/nonexistent", {
+    const res = await request(app, "DELETE", "/friends/01ARZ3NDEKTSV4RRFFQ69G5FAW", {
       headers: { Authorization: `Bearer ${token}` },
     });
 
@@ -322,7 +322,7 @@ describe("DELETE /friends/:id", () => {
 
   it("deletes a friendship and returns 204", async () => {
     const fakeFriendship = {
-      id: "fs1",
+      id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
       requesterId: "user-test",
       addresseeId: "other-user",
       status: "ACCEPTED",
@@ -333,7 +333,7 @@ describe("DELETE /friends/:id", () => {
 
     const token = makeToken("user-test");
     const app = buildApp();
-    const res = await request(app, "DELETE", "/friends/fs1", {
+    const res = await request(app, "DELETE", "/friends/01ARZ3NDEKTSV4RRFFQ69G5FAV", {
       headers: { Authorization: `Bearer ${token}` },
     });
 

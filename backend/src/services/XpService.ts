@@ -1,5 +1,6 @@
 import { prisma } from "../models/prismaClient";
 import { generateId } from "../utils/ulid";
+import type { Prisma } from "@prisma/client";
 
 export interface XpAwardInput {
   playerId: string;
@@ -31,6 +32,8 @@ export function xpThresholdForLevel(currentLevel: number): number {
   return nextLevelThreshold;
 }
 
+export const xpToNextLevel = xpThresholdForLevel;
+
 function computeXpAward(rank: number, totalPlayers: number, score: number): number {
   const placementRatio = totalPlayers <= 1 ? 1 : (totalPlayers - rank + 1) / totalPlayers;
   const placementXp = Math.round(placementRatio * 200);
@@ -53,7 +56,7 @@ export async function awardMatchXp(
   });
   const currentXpMap = new Map(xpSums.map((row) => [row.userId, row._sum.amount ?? 0]));
 
-  const xpEventData: Parameters<typeof prisma.xpEvent.create>[0]["data"][] = [];
+  const xpEventData: Prisma.XpEventCreateManyInput[] = [];
 
   for (const player of players) {
     const xpAwarded = computeXpAward(player.rank, player.totalPlayers, player.score);
@@ -87,4 +90,4 @@ export async function awardMatchXp(
   return results;
 }
 
-export const xpService = { awardMatchXp, levelFromTotalXp, xpThresholdForLevel };
+export const xpService = { awardMatchXp, levelFromTotalXp, xpThresholdForLevel, xpToNextLevel };

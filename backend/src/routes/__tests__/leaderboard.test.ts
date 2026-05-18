@@ -119,7 +119,9 @@ describe("GET /leaderboard — global", () => {
 
   it("caps the limit at 500 when a larger value is requested", async () => {
     const app = buildApp();
-    await request(app, "GET", "/leaderboard?limit=9999");
+    await request(app, "GET", "/leaderboard?limit=9999", {
+      headers: { Authorization: `Bearer ${makeToken()}` },
+    });
 
     // prisma groupBy is called in the XP fallback path
     expect(prismaMock.xpEvent.groupBy).toHaveBeenCalledWith(
@@ -129,7 +131,9 @@ describe("GET /leaderboard — global", () => {
 
   it("uses the requested limit when it is within bounds", async () => {
     const app = buildApp();
-    await request(app, "GET", "/leaderboard?limit=50");
+    await request(app, "GET", "/leaderboard?limit=50", {
+      headers: { Authorization: `Bearer ${makeToken()}` },
+    });
 
     expect(prismaMock.xpEvent.groupBy).toHaveBeenCalledWith(
       expect.objectContaining({ take: 50 }),
@@ -138,7 +142,9 @@ describe("GET /leaderboard — global", () => {
 
   it("defaults to limit 100 when no limit query param is provided", async () => {
     const app = buildApp();
-    await request(app, "GET", "/leaderboard");
+    await request(app, "GET", "/leaderboard", {
+      headers: { Authorization: `Bearer ${makeToken()}` },
+    });
 
     expect(prismaMock.xpEvent.groupBy).toHaveBeenCalledWith(
       expect.objectContaining({ take: 100 }),
@@ -156,7 +162,9 @@ describe("GET /leaderboard — global", () => {
     ]);
 
     const app = buildApp();
-    const res = await request(app, "GET", "/leaderboard");
+    const res = await request(app, "GET", "/leaderboard", {
+      headers: { Authorization: `Bearer ${makeToken()}` },
+    });
 
     expect(res.status).toBe(200);
     const body = res.body as Array<{ rank: number; userId: string }>;
@@ -185,7 +193,9 @@ describe("GET /leaderboard — global", () => {
     ]);
 
     const app = buildApp();
-    const res = await request(app, "GET", "/leaderboard");
+    const res = await request(app, "GET", "/leaderboard", {
+      headers: { Authorization: `Bearer ${makeToken()}` },
+    });
 
     expect(res.status).toBe(200);
     const body = res.body as Array<{ rank: number; mmr: number }>;

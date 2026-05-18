@@ -143,7 +143,7 @@ Backend Agent must keep `backend/src/types/contracts.ts` in sync with the contra
 
 ```bash
 # 1. Clone & install root deps
-npm install
+npm ci
 
 # 2. Start infrastructure
 docker-compose up -d postgres redis
