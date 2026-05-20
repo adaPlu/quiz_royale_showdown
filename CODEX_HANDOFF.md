@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-10 — Iteration 13 sprint: runGameOver atomic CAS, XpEvent @@unique+GAME_FINISH:roomId, trackChallengeProgress $transaction, isEliminated guard on submitAnswer, GameViewModelTest+LobbyViewModelTest created, useGameSocket tests, client:heartbeat, ARIA radio group, LeaderboardApi DI fixed_
+_Last updated: 2026-05-20 — Iteration 14 sprint: full codebase audit + remediation — VAPID hardcoded key removed, AuthService/AuthStore dead code deleted, cookie-parser installed, POST /logout added, CSP unsafe-inline removed, per-socket rate limiting, handlePowerUp membership guard, scoreDelta bug fixed, matchmaking eviction on fill, leaderboard fallback fixed, challenge XP transactional, reconnect ULID guard + question preserve, Android fallbackToDestructiveMigration + apply(), 6 new test files_
 
 ---
 
@@ -75,22 +75,22 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 
 ### Month 2 — Security + Persistence (`e1c7cc3` backend, `c408560` webapp)
 - **HttpOnly cookies (LR3)**: `qrs.rt` cookie set on login/register, rotated on refresh, cleared on logout. Body fallback for Android. `formatAuthPayload` no longer leaks refresh token.
-- **Push subscription persistence (LR6)**: `PushSubscription` Prisma model added (applied via `db push`). Save/remove writes to Redis + DB. `sendToUser` falls back to DB when Redis unavailable.
+- **Push subscription persistence (LR6)**: `PushSubscription` Prisma model added through Prisma migrations. Save/remove writes to Redis + DB. `sendToUser` falls back to DB when Redis unavailable.
 - **Challenge tracking (LR7)**: `GameOrchestrator.runGameOver` tracks `win_a_game`, `top_3`, `play_3_games` via XP events with duplicate-award guard. Bots excluded.
 - Webapp: `withCredentials: true`, refresh interceptor sends empty body, `authStore` and `apiClient` strip all `refreshToken` state.
 
 ### FCM Token DB Persistence (`819a406` backend, `e9c25bb` android)
-- **schema.prisma**: `FcmToken` model added (`id`, `userId`, `token @unique`, timestamps, `@@index([userId])`); requires `prisma db push` on Railway to apply
+- **schema.prisma**: `FcmToken` model added (`id`, `userId`, `token @unique`, timestamps, `@@index([userId])`); apply through Prisma migrations on deploy
 - **PushNotificationService.saveFcmToken**: now writes to both Redis (when available) and Postgres; no longer silently drops token when Redis is down
 - **Android HomeViewModel**: uploads pending FCM token from SharedPreferences on every home screen load; closes gap where fresh-install first-login token was never uploaded
 
 ### Railway Deploy Config + Logger + Sentry (`e392a21` main)
-- **railway.toml**: `startCommand = "npx prisma db push && node dist/index.js"` — schema changes applied automatically on every Railway deploy
+- **railway.toml**: `startCommand = "cd backend && sh ./start.sh"`; `start.sh` runs `prisma migrate deploy` before launching `dist/index.js`
 - **logger.ts**: rewrote to wrap pino (NDJSON prod, pino-pretty dev) — same (msg, data?) API preserved
 - **sentry.ts**: `initSentry()` gated on `SENTRY_DSN` env var; errorHandler now calls `Sentry.captureException` on 5xx errors
 
 ### Season End Cron (`main` branch)
-- **schema.prisma**: `Season.rewardsAwardedAt DateTime?` field added (requires `prisma db push`)
+- **schema.prisma**: `Season.rewardsAwardedAt DateTime?` field added; apply through Prisma migrations
 - **SeasonScheduler.ts**: `processExpiredSeasons()` finds seasons where `endsAt < now && rewardsAwardedAt IS NULL`; awards top-3 players 500/300/150 XP via `XpEvent` rows with `reason: "SEASON_END:{seasonId}"`; marks season `rewardsAwardedAt = now`; bot-safe (only affects real season scores)
 - **index.ts**: `startSeasonScheduler()` called on boot — runs immediately then every hour
 
@@ -127,7 +127,7 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **XpService.awardMatchXp**: `xpToNextLevel` result now returns relative XP remaining (was absolute cumulative threshold) — clients now get correct progress-bar value
 - **env.ts**: `VAPID_SUBJECT` default changed from hardcoded personal email to `"mailto:admin@example.com"`; documented in `.env.example`
 - **rooms.ts**: `GET /rooms/join/:inviteCode` now guarded by `apiLimiter` (was rate-limit-free, brute-forceable)
-- **start.sh**: Created missing file (`#!/bin/sh; npx prisma db push --skip-generate; exec node dist/index.js`) — Dockerfile was referencing a nonexistent script
+- **start.sh**: Created missing file; current startup resolves known baseline migrations, runs `prisma migrate deploy`, then executes `node dist/index.js`
 - **schema.prisma**: Added 12 missing indexes (`User.email`, `Room[hostUserId/status/seasonId]`, `RoomPlayer[userId/roomId]`, `Round[roomId]`, `Answer[roundId/userId]`, `Friendship[requesterId]`, `Friendship[addresseeId,status]`); added `onDelete: Cascade` to both `Friendship` relation fields (prevents orphaned rows on user delete)
 
 **Webapp (`cde03e6` frontend branch)**
@@ -210,9 +210,40 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **gameStore.applyGameOver**: clears stale `question`/`result`/`countdownEndsAt`
 - **AppNavGraph**: `LaunchedEffect(roomCode)` — removed `state` key that caused repeated `joinRoom` calls
 - **HttpOnly cookies (LR3)**: `qrs.rt` cookie set on login/register, rotated on refresh, cleared on logout. Body fallback for Android. `formatAuthPayload` no longer leaks refresh token.
-- **Push subscription persistence (LR6)**: `PushSubscription` Prisma model added (applied via `db push`). Save/remove writes to Redis + DB. `sendToUser` falls back to DB when Redis unavailable.
+- **Push subscription persistence (LR6)**: `PushSubscription` Prisma model added through Prisma migrations. Save/remove writes to Redis + DB. `sendToUser` falls back to DB when Redis unavailable.
 - **Challenge tracking (LR7)**: `GameOrchestrator.runGameOver` tracks `win_a_game`, `top_3`, `play_3_games` via XP events with duplicate-award guard. Bots excluded.
 - Webapp: `withCredentials: true`, refresh interceptor sends empty body, `authStore` and `apiClient` strip all `refreshToken` state.
+
+### Iteration 14 Sprint — Full Codebase Audit Remediation (2026-05-20)
+
+**Backend (QuizGame-backend `feature/backend` branch)**
+- **PushNotificationService.ts**: removed hardcoded VAPID private key; startup throws if `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, or `VAPID_SUBJECT` env vars missing
+- **AuthService.ts / AuthStore.ts**: both deleted (unreferenced in-memory stubs; dead since auth was moved to Prisma)
+- **app.ts**: `cookie-parser` installed (`npm install cookie-parser @types/cookie-parser`) and wired — `app.use(cookieParser())` after `express.json()`
+- **routes/auth.ts**: `POST /logout` added — clears `refreshToken` cookie (`httpOnly`, `sameSite: strict`, `secure`) and returns 204
+- **socket/registerHandlers.ts**: per-socket rate limiter (5 actions/sec, module-scoped Map) — `handleSubmitAnswer` and `handlePowerUp` both check limit first; map entry deleted on disconnect
+- **socket/registerHandlers.ts handlePowerUp**: `prisma.roomPlayer.findUnique` check added — emits `FORBIDDEN` if player is not a room member or is eliminated
+- **services/GameOrchestrator.ts**: `scoreDelta` copy-paste bug fixed (was `answer.isCorrect ? 0 : 0`); now reads from answer metadata with `?? (isCorrect ? 100 : 0)` fallback
+- **services/RoomService.ts**: `removeFromMatchmaking(room.id)` called after join fills room to max capacity — prevents matchmade room from lingering in Redis queue
+- **routes/leaderboard.ts**: unreachable all-time fallback fixed — `seasonSlug` now `string | null`; guarded by `if (seasonSlug)` before Prisma `where` clause
+- **routes/challenges.ts**: challenge XP award wrapped in `prisma.$transaction([progressOp, ...rewardOp])` — prevents partial awards if DB fails mid-write
+
+**Webapp (QuizGame-webapp `feature/webapp` branch)**
+- **vercel.json** (QuizGame-main): `script-src 'unsafe-inline'` removed — CSP now only allows `'self'`
+- **hooks/useGameSocket.ts**: `hasConnectedRef` tracks first connect; emits `room:reconnect` on reconnect vs `room:join` on initial join; ULID guard prevents matchmaded roomId being passed as 6-char room code; `hasConnectedRef` and `joinedRef` both reset in cleanup (fixes multi-room navigation bug)
+- **stores/gameStore.ts**: `applyRoomState` preserves active question during `QUESTION_ACTIVE` reconnect if server sends no `currentQuestion`; `RoomStatePayload.room` type updated with `currentQuestion?: QuestionState`
+
+**Android (QuizGame-android `feature/android` branch)**
+- **AppModule.kt**: `.fallbackToDestructiveMigration()` added to Room `databaseBuilder` — prevents crash on schema change during dev
+- **AuthRepository.kt**: `editor.commit()` → `editor.apply()` — removes synchronous disk write from calling thread
+
+**New Tests**
+- `backend/src/socket/__tests__/handleSubmitAnswer.test.ts` (5 tests): eliminated player, duplicate lock, valid submission, Redis-down, timing window
+- `backend/src/socket/__tests__/handlePowerUp.test.ts` (3 tests): not in room, eliminated player, active member broadcasts powerup:activated
+- `backend/src/services/__tests__/RoomService.concurrent.test.ts` (2 tests): full room ConflictError, matchmaking eviction on fill
+- `webapp/src/components/__tests__/CountdownBar.test.tsx` (4 tests): initialScale=1 at now, initialScale=0 elapsed, clamp≥0, clamp≤1
+- `webapp/src/hooks/__tests__/useWebPush.test.ts` (4 tests): unsupported, already denied, subscribe flow, permission denied
+- `webapp/src/pages/__tests__/LoginPage.test.tsx` (5 tests): renders fields, empty validation, credentials passed to API, error shown on failure, navigate on success
 
 ### Iteration 13 Sprint — Critical/High Audit Remediations (`b177b24` main, `430de4f` frontend, `7868574` android)
 
@@ -247,12 +278,11 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 ### Remaining work (priority order)
 | Priority | Area | Issue |
 |---|---|---|
-| MEDIUM | Backend | RS-3: no DB membership check in usePowerup — activating player elimination not verified |
-| MEDIUM | Backend | matchmakeOrCreate: room not evicted from Redis queue when filled via direct joinRoom |
-| MEDIUM | Webapp | Mid-round reconnect: `applyRoomState` sets `question:null`; backend must include `currentQuestion` in `room:state_sync` when `QUESTION_ACTIVE` |
+| MEDIUM | Backend | Server-side reconnect: `handleReconnect` in registerHandlers.ts does not include `currentQuestion` in `room:state_sync` payload when `phase === QUESTION_ACTIVE` — only client-side preservation was added |
+| MEDIUM | Backend | `feature/backend` branch critically behind `main` — missing HttpOnly cookies, logout, token rotation, and Sentry wiring; needs rebase before deploy |
 | MEDIUM | Android | GameScreen two-column layout has no phone adaptation (< 600dp) |
 | MEDIUM | Android | `matchesRoom` over-accepts events from any room when roomId is blank (LevelUp, LootDrop apply globally) |
-| MEDIUM | Backend | gameActionLimiter defined but never applied to socket submitAnswer/usePowerup handlers |
+| MEDIUM | Android | `GameViewModelTest.kt` and `ProfileViewModelTest.kt` — no unit tests |
 | LOW | Backend | GET /rooms/:roomCode unauthenticated — exposes player lists |
 | LOW | Backend | SeasonScore MMR double-decrement if same player finishes two concurrent games |
 | LOW | Backend | reconnect.ts: correctAnswerIndex in type scope but stripped at emit — needs regression test |
@@ -511,8 +541,8 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 
 ### Prisma migration consolidation
 - `prisma migrate dev` fails with `P3006` — `RoomStatus` enum pre-exists in shadow DB.
-- All schema changes applied via `prisma db push` (safe for this project's Railway setup).
-- To fix: spin up a clean shadow DB and run `prisma migrate resolve --applied` for existing migrations, then squash. Low priority.
+- Schema changes now deploy through `prisma migrate deploy`; avoid `db push` outside disposable local databases.
+- To fix old shadow DB conflicts locally: spin up a clean shadow DB and run `prisma migrate resolve --applied` for existing migrations, then squash. Low priority.
 
 ### Android WebSocket reconnect coroutines (low priority — no known bugs)
 - App uses Socket.IO client (`io.socket:socket.io-client:2.1.1`) with built-in reconnect: `reconnectionAttempts = Int.MAX_VALUE`, `reconnectionDelay = 1s`, `reconnectionDelayMax = 16s` (exponential backoff).
@@ -549,7 +579,7 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **leaderboard auth gap**: ✅ DONE — `GET /leaderboard` now requires `requireAuth`.
 - **LeaderboardRow nullable fields**: `mmr: Int` non-nullable but API may return null for users with no SeasonScore — will crash with SerializationException at runtime.
 - **AppNavGraph LaunchedEffect key**: `LaunchedEffect(Unit)` on Channel collector — use `LaunchedEffect(viewModel)` to prevent duplicate subscriptions on re-entry.
-- **DB schema migration**: `prisma migrate dev` fails with P3006 shadow DB conflict — always use `prisma db push` for Railway. To fix permanently: spin up clean shadow DB and run `prisma migrate resolve --applied` then squash.
+- **DB schema migration**: `prisma migrate dev` can fail with P3006 shadow DB conflict on dirty local databases. Railway deploys should use `prisma migrate deploy`; fix local shadow DBs by running `prisma migrate resolve --applied` then squashing when ready.
 - **XpEvent/Answer archival**: Both tables grow forever. At scale needs a background archival job.
 - **Season cosmetic seeding**: `season:rank_1/2/3` `Cosmetic` rows must be seeded in the DB for `SeasonScheduler` cosmetic grants to have any effect.
 
@@ -557,7 +587,7 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 
 ## Known gotchas
 
-- `prisma migrate dev` — always use `prisma db push` for schema changes (shadow DB `RoomStatus` conflict).
+- `prisma migrate dev` can fail against dirty local shadow DBs; deploy with `prisma migrate deploy` and reserve `db push` for disposable local databases only.
 - Vercel watches `frontend` branch; root-level `vercel.json` sets `buildCommand: "npm run build -w webapp"` and `outputDirectory: "webapp/dist"`.
 - Railway watches `main` branch, root directory `/backend` in dashboard.
 - Socket envelope format: `{ type, version: "v1", payload }` — all events wrapped. Android clients may omit `version`; backend treats absence as v1.
