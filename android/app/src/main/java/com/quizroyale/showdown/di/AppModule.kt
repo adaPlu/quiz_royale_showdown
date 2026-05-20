@@ -127,6 +127,8 @@ object AppModule {
   @Provides
   @Singleton
   fun provideDatabase(@ApplicationContext context: Context): AppDatabase {
-    return Room.databaseBuilder(context, AppDatabase::class.java, "quiz_royale.db").build()
+    return Room.databaseBuilder(context, AppDatabase::class.java, "quiz_royale.db")
+        .fallbackToDestructiveMigration()
+        .build()
   }
 }
