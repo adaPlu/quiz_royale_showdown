@@ -12,6 +12,7 @@ export const useGameSocket = (roomId: string | undefined) => {
   useEffect(() => { navigateRef.current = navigate; });
   const accessToken = useAuthStore((state) => state.accessToken);
   const joinedRef = useRef(false);
+  const hasConnectedRef = useRef(false);
   const applyRoomState = useGameStore((state) => state.applyRoomState);
   const applyPlayerJoined = useGameStore((state) => state.applyPlayerJoined);
   const applyPlayerLeft = useGameStore((state) => state.applyPlayerLeft);
@@ -45,8 +46,16 @@ export const useGameSocket = (roomId: string | undefined) => {
     if (roomId && !joinedRef.current) {
       joinedRef.current = true;
       const roomCode = useGameStore.getState().code;
-      socketService.setActiveRoom(roomId, roomCode ?? undefined);
-      socketService.emit('room:join', { roomCode: roomCode ?? roomId });
+      // Guard: matchmade games store the ULID roomId as the code — don't pass it as a room code
+      const isUlid = roomCode ? /^[0-9A-Z]{26}$/.test(roomCode) : true;
+      const safeRoomCode = isUlid ? undefined : (roomCode ?? undefined);
+      socketService.setActiveRoom(roomId, safeRoomCode);
+      if (hasConnectedRef.current) {
+        socketService.emit('room:reconnect', { roomId, roomCode: safeRoomCode });
+      } else {
+        hasConnectedRef.current = true;
+        socketService.emit('room:join', { roomCode: safeRoomCode ?? roomId });
+      }
     }
 
     const unsubs = [
@@ -82,7 +91,8 @@ export const useGameSocket = (roomId: string | undefined) => {
 
     return () => {
       unsubs.forEach((unsubscribe) => unsubscribe());
-      joinedRef.current = false; // reset so next mount (new room) re-joins
+      joinedRef.current = false;
+      hasConnectedRef.current = false;
     };
   }, [roomId, accessToken]); // eslint-disable-line react-hooks/exhaustive-deps
 };

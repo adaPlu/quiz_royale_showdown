@@ -50,6 +50,7 @@ type RoomStatePayload = {
     roundNumber: number;
     totalRounds: number;
     players: PlayerSummary[];
+    currentQuestion?: QuestionState;
   };
 };
 
@@ -220,8 +221,11 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       roundNumber: payload.room.roundNumber,
       totalRounds: payload.room.totalRounds,
       players: payload.room.players,
-      // Clear stale round state so reconnect doesn't show previous round data
-      question: null,
+      // Preserve active question on reconnect — only clear when leaving QUESTION_ACTIVE
+      question:
+        get().phase === 'QUESTION_ACTIVE' && payload.room.phase === 'QUESTION_ACTIVE' && !payload.room.currentQuestion
+          ? get().question
+          : (payload.room.currentQuestion ?? null),
       lootDrop: null,
       ...resetRoundInteraction,
     });
