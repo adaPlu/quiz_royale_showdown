@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalConfiguration
 import com.quizroyale.showdown.ui.game.components.OwnedPowerup
 import com.quizroyale.showdown.ui.game.components.PowerUpTray
 
@@ -48,73 +49,65 @@ fun GameScreen(
   isReconnecting: Boolean = false,
 ) {
   Box(modifier = Modifier.fillMaxSize()) {
-    Row(
-      modifier = Modifier
-        .fillMaxSize()
-        .background(MaterialTheme.colorScheme.background)
-        .padding(20.dp),
-      horizontalArrangement = Arrangement.spacedBy(20.dp)
-    ) {
-      Column(
-        modifier = Modifier.weight(1f),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-      ) {
-        if (state is GameUiState.ActiveQuestion) {
-          key(state.questionId) {
-            CountdownRing(
-              timerSeconds = state.timerSeconds,
-              timeLimitSeconds = state.timeLimitMs / 1000
-            )
-          }
-        } else {
-          Spacer(modifier = Modifier.size(180.dp))
+    val isNarrowScreen = LocalConfiguration.current.screenWidthDp < 600
+
+    val mainColumnContent: @Composable () -> Unit = {
+      if (state is GameUiState.ActiveQuestion) {
+        key(state.questionId) {
+          CountdownRing(
+            timerSeconds = state.timerSeconds,
+            timeLimitSeconds = state.timeLimitMs / 1000
+          )
         }
-
-        when (state) {
-          is GameUiState.Countdown ->
-            ResultCard("Next question starts in ${state.seconds}s.")
-
-          is GameUiState.ActiveQuestion -> {
-            QuestionCard(state, onAnswerSelected)
-            if (ownedPowerups.isNotEmpty()) {
-              PowerUpTray(
-                powerups = ownedPowerups,
-                onActivate = onPowerupSelected
-              )
-            }
-          }
-
-          is GameUiState.RoundResult ->
-            ResultCard(state.summary)
-
-          is GameUiState.Elimination ->
-            ResultCard("Eliminated: ${state.eliminatedPlayerIds.joinToString().ifBlank { "none" }}")
-
-          is GameUiState.Finale ->
-            ResultCard("Final showdown: ${state.finalistIds.size} players remain.")
-
-          is GameUiState.GameOver ->
-            ResultCard("Winner: ${state.winnerId.ifBlank { "TBD" }} | XP awarded: ${state.xpAwarded}")
-
-          else ->
-            ResultCard("Waiting for the next round.")
-        }
+      } else {
+        Spacer(modifier = Modifier.size(180.dp))
       }
 
+      when (state) {
+        is GameUiState.Countdown ->
+          ResultCard("Next question starts in ${state.seconds}s.")
+
+        is GameUiState.ActiveQuestion -> {
+          QuestionCard(state, onAnswerSelected)
+          if (ownedPowerups.isNotEmpty()) {
+            PowerUpTray(
+              powerups = ownedPowerups,
+              onActivate = onPowerupSelected
+            )
+          }
+        }
+
+        is GameUiState.RoundResult ->
+          ResultCard(state.summary)
+
+        is GameUiState.Elimination ->
+          ResultCard("Eliminated: ${state.eliminatedPlayerIds.joinToString().ifBlank { "none" }}")
+
+        is GameUiState.Finale ->
+          ResultCard("Final showdown: ${state.finalistIds.size} players remain.")
+
+        is GameUiState.GameOver ->
+          ResultCard("Winner: ${state.winnerId.ifBlank { "TBD" }} | XP awarded: ${state.xpAwarded}")
+
+        else ->
+          ResultCard("Waiting for the next round.")
+      }
+    }
+
+    val playerListContent: @Composable () -> Unit = {
+      val players = when (state) {
+        is GameUiState.ActiveQuestion -> state.players
+        is GameUiState.RoundResult    -> state.players
+        is GameUiState.Lobby          -> state.players
+        is GameUiState.Countdown      -> state.players
+        is GameUiState.Elimination    -> state.players
+        is GameUiState.Finale         -> state.players
+        is GameUiState.GameOver       -> state.players
+        else                          -> emptyList()
+      }
       LazyColumn(
-        modifier = Modifier.weight(0.8f),
         verticalArrangement = Arrangement.spacedBy(12.dp)
       ) {
-        val players = when (state) {
-          is GameUiState.ActiveQuestion -> state.players
-          is GameUiState.RoundResult    -> state.players
-          is GameUiState.Lobby          -> state.players
-          is GameUiState.Countdown      -> state.players
-          is GameUiState.Elimination    -> state.players
-          is GameUiState.Finale         -> state.players
-          is GameUiState.GameOver       -> state.players
-          else                          -> emptyList()
-        }
         items(players) { player ->
           Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
@@ -122,6 +115,44 @@ fun GameScreen(
               Text(text = "${player.score} pts | streak ${player.streak}")
             }
           }
+        }
+      }
+    }
+
+    if (isNarrowScreen) {
+      Column(
+        modifier = Modifier
+          .fillMaxSize()
+          .background(MaterialTheme.colorScheme.background)
+          .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+      ) {
+        Column(
+          modifier = Modifier.fillMaxWidth(),
+          verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+          mainColumnContent()
+        }
+        Box(modifier = Modifier.fillMaxWidth().height(200.dp)) {
+          playerListContent()
+        }
+      }
+    } else {
+      Row(
+        modifier = Modifier
+          .fillMaxSize()
+          .background(MaterialTheme.colorScheme.background)
+          .padding(20.dp),
+        horizontalArrangement = Arrangement.spacedBy(20.dp)
+      ) {
+        Column(
+          modifier = Modifier.weight(1f),
+          verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+          mainColumnContent()
+        }
+        Box(modifier = Modifier.weight(0.8f)) {
+          playerListContent()
         }
       }
     }

@@ -411,7 +411,7 @@ class GameViewModel @Inject constructor(
   }
 
   private fun matchesRoom(currentRoomId: String, eventRoomId: String): Boolean =
-    currentRoomId.isBlank() || (eventRoomId.isNotBlank() && currentRoomId == eventRoomId)
+    currentRoomId.isNotBlank() && eventRoomId.isNotBlank() && currentRoomId == eventRoomId
 
   override fun onCleared() {
     timerJob?.cancel()
