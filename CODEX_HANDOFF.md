@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-20 — Iteration 14+15 sprints: full codebase audit + re-audit — level_up event type/routing/payload fixed, loot_drop emission format fixed, socket userId-room join, GET /rooms requireAuth, leaderboard 404, VAPID lazy init, PushService + contracts updated, 29 new tests (socket handlers, auth routes, leaderboard routes, Android GameViewModel+ProfileViewModel)_
+_Last updated: 2026-05-20 — Iteration 16 sprint: completeGame CAS guard, GameScreen responsive layout, matchesRoom fix, loot_drop Zod schema userId, correctAnswerIndex regression test; CountdownRing reset and apiClient circular-dep confirmed non-issues_
 
 ---
 
@@ -294,16 +294,28 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **LobbyViewModel.kt**: removed `allPlayersReady` dead field (never set, never read)
 - **GameScreen.kt**: removed `localLocked` dual-lock; `state.isAnswerLocked` is sole source of truth
 
+### Iteration 16 Sprint — Worker-team remediation (2026-05-20)
+
+**Backend (`feature/backend` branch)**
+- **GameOrchestrator.ts `completeGame`**: replaced `prisma.room.update(...)` with atomic CAS `updateMany({ where: { id, status: { not: "GAME_OVER" } } })` + early return on `claimed.count === 0` — prevents double XP/MMR awards on concurrent game-over calls. The entire function body (including `awardMatchXp`) is guarded by the early return.
+- **registerHandlers.test.ts**: added regression test `does not expose correctAnswerIndex in round:question_started during reconnect` — injects a Redis question with `correctAnswerIndex` via live ES module binding (`RedisModule.redisService`) and asserts the reconnect payload omits it. `afterEach` restores `redisService` to null. `afterEach` import added to vitest imports. Total registerHandlers tests: **8 passing**.
+
+**Android (`feature/android` branch)**
+- **GameScreen.kt**: responsive two-column → single-column layout for screens < 600dp. Added `import androidx.compose.ui.platform.LocalConfiguration`. `mainColumnContent` and `playerListContent` extracted as `@Composable` lambdas shared between both layouts. Narrow path wraps player list in `Box(height=200.dp)` with `LazyColumn(Modifier.fillMaxSize())` — `fillMaxSize` required to fill the constrained Box (without it LazyColumn clips to zero). Wide path keeps original `Row` with `weight()` sizing.
+- **GameViewModel.kt `matchesRoom`**: fixed — now requires BOTH ids non-blank and equal. Previously `currentRoomId.isBlank()` returned true, letting stale events from a prior room apply to a fresh Idle state.
+
+**Webapp (`frontend` branch)**
+- **lib/contracts.ts `powerup:loot_drop`**: added `userId: z.string()` to Zod schema. Backend was emitting `{ roomId, userId, powerupType, quantity }` but webapp schema omitted `userId` — Zod strict parse silently dropped the event.
+
+**Confirmed non-issues (no fix needed)**
+- `CountdownRing` animation reset: `key(state.questionId)` wrapper at GameScreen.kt line 63 already resets animation per question.
+- `apiClient` circular dependency: uses `registerTokenRefreshCallback` pattern — ESM-compatible, no circular dep at module evaluation time.
+
 ### Remaining work (priority order)
 | Priority | Area | Issue |
 |---|---|---|
 | MEDIUM | Backend | `feature/backend` branch critically behind `main` — missing HttpOnly cookies, token rotation, Sentry wiring; needs rebase before deploy |
-| MEDIUM | Android | GameScreen two-column layout has no phone adaptation (< 600dp) |
-| MEDIUM | Android | `matchesRoom` over-accepts events from any room when roomId is blank |
-| LOW | Backend | SeasonScore MMR double-decrement in concurrent games (Prisma increment is per-row atomic, but two concurrent runGameOvers can both pass CAS and double-award) |
-| LOW | Backend | reconnect.ts: correctAnswerIndex visible in type scope at emit — needs regression test |
-| LOW | Webapp | apiClient lazy-require circular dep: verify works in Vite prod build |
-| LOW | Android | GameScreen CountdownRing animation doesn't reset per question |
+| LOW | Backend | SeasonScore MMR: two concurrent `completeGame` calls can't both pass the CAS guard (only one wins the `updateMany`), but `seasonScore.upsert` uses `mmr: { increment: ... }` which is per-row atomic — safe in practice |
 
 ### Iteration 12 Sprint — Critical/High Audit Remediations (`a41bb03` main, `3bd7b62` frontend, `be777ce` android)
 
