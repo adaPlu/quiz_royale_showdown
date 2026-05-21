@@ -94,7 +94,7 @@ export const serverEventSchema = z.discriminatedUnion("type", [
   ),
   envelope(
     "powerup:loot_drop",
-    z.object({ roomId: z.string(), powerupType: z.string(), quantity: z.number() })
+    z.object({ roomId: z.string(), userId: z.string(), powerupType: z.string(), quantity: z.number() })
   ),
   envelope(
     "game:over",
