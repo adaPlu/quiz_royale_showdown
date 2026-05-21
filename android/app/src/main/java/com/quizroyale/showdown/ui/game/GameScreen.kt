@@ -106,6 +106,7 @@ fun GameScreen(
         else                          -> emptyList()
       }
       LazyColumn(
+        modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
       ) {
         items(players) { player ->
