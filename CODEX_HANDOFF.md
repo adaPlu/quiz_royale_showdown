@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-20 — Iteration 16 sprint: completeGame CAS guard, GameScreen responsive layout, matchesRoom fix, loot_drop Zod schema userId, correctAnswerIndex regression test; CountdownRing reset and apiClient circular-dep confirmed non-issues_
+_Last updated: 2026-05-20 — Iteration 17 sprint: feature/backend auth security fully ported from main (AuthService, HttpOnly cookies, rate limiters, token rotation/revocation, requestId middleware, GET /me). feature/backend branch now at parity with main on auth/infra. No remaining HIGH/MEDIUM issues._
 
 ---
 
@@ -311,11 +311,24 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - `CountdownRing` animation reset: `key(state.questionId)` wrapper at GameScreen.kt line 63 already resets animation per question.
 - `apiClient` circular dependency: uses `registerTokenRefreshCallback` pattern — ESM-compatible, no circular dep at module evaluation time.
 
+### Iteration 17 Sprint — Auth security port (2026-05-20)
+
+**Backend (`feature/backend` branch)**
+- **AuthService.ts** (new file): `hashRefreshToken` (SHA256), `persistRefreshToken`, `issueTokenPair`, `signTokenPair`, `verifyAccessToken`, `verifyRefreshToken`, `rotateRefreshToken` (atomic `$transaction` delete-old + insert-new, then cleanup expired), `revokeRefreshToken`, `findUserById`
+- **routes/auth.ts** (rewrite): `REFRESH_COOKIE_NAME = 'qrs.rt'` with `httpOnly:true, sameSite:'strict', secure:prod`. Per-route rate limiters (registerLimiter 5/hr, loginLimiter 5/15min, logoutLimiter 10/15min, refreshLimiter 5/15min, meLimiter 30/1min). POST /register and /login call `issueTokenPair` → sets cookie, returns `{ user, accessToken }` (no refreshToken in body). POST /refresh reads cookie first then body fallback, calls `rotateRefreshToken`. POST /logout calls `revokeRefreshToken` then clears cookie. GET /me added. `formatAuthPayload` strips refreshToken from response.
+- **middleware/requestId.ts** (new file): stamps `req.requestId = randomUUID()` + `x-request-id` response header; added as first middleware in app.ts
+- **app.ts**: `requestIdMiddleware` first, `express.json({ limit: "64kb" })`, `apiLimiter` applied to all `/api/v1` before mounting routers (auth gets per-route limiters), 404 handler before errorHandler, removed shared `authLimiter`
+- **routes/__tests__/auth.test.ts**: updated 12 tests — response shape now `{ user, accessToken }`, cookie cleared as `qrs.rt`, refresh 401 on no token, password empty→400, displayName omitted→400
+
+**Deferred (not ported — require npm installs)**
+- Pino logger (`pino`, `pino-pretty` not in package.json) — current hand-rolled logger is functionally equivalent
+- Sentry (`@sentry/node` not in package.json) — not critical for feature/backend
+
 ### Remaining work (priority order)
 | Priority | Area | Issue |
 |---|---|---|
-| MEDIUM | Backend | `feature/backend` branch critically behind `main` — missing HttpOnly cookies, token rotation, Sentry wiring; needs rebase before deploy |
 | LOW | Backend | SeasonScore MMR: two concurrent `completeGame` calls can't both pass the CAS guard (only one wins the `updateMany`), but `seasonScore.upsert` uses `mmr: { increment: ... }` which is per-row atomic — safe in practice |
+| LOW | Backend | Pino logger + Sentry not ported to `feature/backend` (require `npm install pino pino-pretty @sentry/node`) |
 
 ### Iteration 12 Sprint — Critical/High Audit Remediations (`a41bb03` main, `3bd7b62` frontend, `be777ce` android)
 
