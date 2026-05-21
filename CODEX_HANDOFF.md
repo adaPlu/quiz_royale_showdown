@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-20 — Iteration 17 sprint: feature/backend auth security fully ported from main (AuthService, HttpOnly cookies, rate limiters, token rotation/revocation, requestId middleware, GET /me). feature/backend branch now at parity with main on auth/infra. No remaining HIGH/MEDIUM issues._
+_Last updated: 2026-05-21 — Iteration 18 sprint: Pino logger + Sentry ported to feature/backend; 6 pre-existing test failures fixed (flushPromises pattern, missing prisma.roomPlayer.update mock, sadd/expire in RoomService fakeRedis). All 62 backend tests passing. feature/backend has no remaining open issues._
 
 ---
 
@@ -324,11 +324,22 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - Pino logger (`pino`, `pino-pretty` not in package.json) — current hand-rolled logger is functionally equivalent
 - Sentry (`@sentry/node` not in package.json) — not critical for feature/backend
 
+### Iteration 18 Sprint — Pino, Sentry, test fixes (2026-05-21)
+
+**Backend (`feature/backend` branch — commit `375bff3`)**
+- **utils/logger.ts**: replaced hand-rolled logger with Pino-based wrapper — same `(msg, data?)` API preserved; NDJSON in prod, pino-pretty in dev; `pino` + `pino-pretty` added to package.json
+- **utils/sentry.ts** (new file): `initSentry()` gated on `SENTRY_DSN` env var; `@sentry/node` added to package.json
+- **src/index.ts**: `import { initSentry } from "./utils/sentry"; initSentry();` added as very first import before all other imports
+- **handleSubmitAnswer.test.ts**: added `flushPromises()` (20× `setImmediate`) helper; all 5 test dispatches changed from `await handle(msg)` to `handle(msg); await flushPromises()` (handler uses `void handleEnvelope(...)` — fire-and-forget); added `prisma.roomPlayer.update: vi.fn()` to mock (missing mock caused silent `TypeError` caught by outer try-catch, preventing `$transaction` from ever being called)
+- **handlePowerUp.test.ts**: added `flushPromises()` helper; all 3 test dispatches changed to same pattern
+- **RoomService.concurrent.test.ts**: added `sadd: vi.fn().mockResolvedValue(undefined)` and `expire: vi.fn().mockResolvedValue(undefined)` to `fakeRedis` — `trackLivePlayer` calls both methods; mock was missing them
+
+**All 62 backend tests passing across 16 test files.**
+
 ### Remaining work (priority order)
 | Priority | Area | Issue |
 |---|---|---|
 | LOW | Backend | SeasonScore MMR: two concurrent `completeGame` calls can't both pass the CAS guard (only one wins the `updateMany`), but `seasonScore.upsert` uses `mmr: { increment: ... }` which is per-row atomic — safe in practice |
-| LOW | Backend | Pino logger + Sentry not ported to `feature/backend` (require `npm install pino pino-pretty @sentry/node`) |
 
 ### Iteration 12 Sprint — Critical/High Audit Remediations (`a41bb03` main, `3bd7b62` frontend, `be777ce` android)
 
