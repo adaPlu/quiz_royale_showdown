@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-20 — Iteration 14 sprint: full codebase audit + remediation — VAPID hardcoded key removed, AuthService/AuthStore dead code deleted, cookie-parser installed, POST /logout added, CSP unsafe-inline removed, per-socket rate limiting, handlePowerUp membership guard, scoreDelta bug fixed, matchmaking eviction on fill, leaderboard fallback fixed, challenge XP transactional, reconnect ULID guard + question preserve, Android fallbackToDestructiveMigration + apply(), 6 new test files_
+_Last updated: 2026-05-20 — Iteration 14+15 sprints: full codebase audit + re-audit — level_up event type/routing/payload fixed, loot_drop emission format fixed, socket userId-room join, GET /rooms requireAuth, leaderboard 404, VAPID lazy init, PushService + contracts updated, 29 new tests (socket handlers, auth routes, leaderboard routes, Android GameViewModel+ProfileViewModel)_
 
 ---
 
@@ -214,6 +214,25 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **Challenge tracking (LR7)**: `GameOrchestrator.runGameOver` tracks `win_a_game`, `top_3`, `play_3_games` via XP events with duplicate-award guard. Bots excluded.
 - Webapp: `withCredentials: true`, refresh interceptor sends empty body, `authStore` and `apiClient` strip all `refreshToken` state.
 
+### Iteration 15 Sprint — Re-audit and Remediation (2026-05-20)
+
+**Backend (QuizGame-backend `feature/backend` branch)**
+- **GameOrchestrator.ts**: level-up event completely fixed — type changed `player:level_up`→`game:level_up`, broadcast via `emitToRoom(io, roomId, ...)` instead of `io.to(playerId)` (which silently dropped), payload fields renamed `playerId`→`userId` and `xp`→`xpAwarded` to match webapp contracts
+- **GameOrchestrator.ts**: `powerup:loot_drop` emission fixed — was using `io.to(playerId).emit("v1:powerup:loot_drop", {...})` (wrong event name, wrong channel); now uses message envelope `{ type: "powerup:loot_drop", version: "v1", payload: { roomId, userId, powerupType, quantity } }`
+- **registerHandlers.ts**: socket joins `userId`-named room on connect — enables `io.to(userId)` to deliver user-specific events (level_up, loot_drop)
+- **registerHandlers.ts**: `localStartedRooms.delete(roomId)` called in `.finally()` after game loop — fixes unbounded memory leak on long-running servers
+- **routes/rooms.ts**: `GET /:roomCode` now requires `requireAuth` — was unauthenticated, exposing room+player info to anyone
+- **routes/leaderboard.ts**: returns 404 when explicit season slug not found (was silently falling back to all-time leaderboard)
+- **PushNotificationService.ts**: VAPID initialization now lazy (deferred to first use) — module-level throw was breaking GameOrchestrator test imports
+- **types/contracts.ts**: added `game:level_up` and `powerup:loot_drop` to `ServerEvents` — were missing, causing TS errors on `emitToRoom` calls
+
+**New Tests**
+- `backend/src/socket/__tests__/registerHandlers.test.ts` (7 tests): createRoom, joinRoom, roomReady, roomLeave, roomStart error path, handleReconnect, validation
+- `backend/src/routes/__tests__/auth.test.ts` (12 tests): login 200/401/400, register 201/409/400, logout 204, refresh 400/401
+- `backend/src/routes/__tests__/leaderboard.test.ts` (10 tests): all-time, season, current fallback, 404 on unknown slug, /friends 401
+- `android/.../GameViewModelTest.kt` (5 tests): submitAnswer lock guard, GameOver→ResultsStore, timer countdown, WAITING→Lobby, backoff reset
+- `android/.../ProfileViewModelTest.kt` (3 tests): Success state, IOException→Error, 401→Error
+
 ### Iteration 14 Sprint — Full Codebase Audit Remediation (2026-05-20)
 
 **Backend (QuizGame-backend `feature/backend` branch)**
@@ -278,16 +297,13 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 ### Remaining work (priority order)
 | Priority | Area | Issue |
 |---|---|---|
-| MEDIUM | Backend | Server-side reconnect: `handleReconnect` in registerHandlers.ts does not include `currentQuestion` in `room:state_sync` payload when `phase === QUESTION_ACTIVE` — only client-side preservation was added |
-| MEDIUM | Backend | `feature/backend` branch critically behind `main` — missing HttpOnly cookies, logout, token rotation, and Sentry wiring; needs rebase before deploy |
+| MEDIUM | Backend | `feature/backend` branch critically behind `main` — missing HttpOnly cookies, token rotation, Sentry wiring; needs rebase before deploy |
 | MEDIUM | Android | GameScreen two-column layout has no phone adaptation (< 600dp) |
-| MEDIUM | Android | `matchesRoom` over-accepts events from any room when roomId is blank (LevelUp, LootDrop apply globally) |
-| MEDIUM | Android | `GameViewModelTest.kt` and `ProfileViewModelTest.kt` — no unit tests |
-| LOW | Backend | GET /rooms/:roomCode unauthenticated — exposes player lists |
-| LOW | Backend | SeasonScore MMR double-decrement if same player finishes two concurrent games |
-| LOW | Backend | reconnect.ts: correctAnswerIndex in type scope but stripped at emit — needs regression test |
-| LOW | Webapp | apiClient lazy-require circular dep: verify works correctly in Vite prod build |
-| LOW | Android | GameScreen CountdownRing animation doesn't reset per question (visual jump at boundary) |
+| MEDIUM | Android | `matchesRoom` over-accepts events from any room when roomId is blank |
+| LOW | Backend | SeasonScore MMR double-decrement in concurrent games (Prisma increment is per-row atomic, but two concurrent runGameOvers can both pass CAS and double-award) |
+| LOW | Backend | reconnect.ts: correctAnswerIndex visible in type scope at emit — needs regression test |
+| LOW | Webapp | apiClient lazy-require circular dep: verify works in Vite prod build |
+| LOW | Android | GameScreen CountdownRing animation doesn't reset per question |
 
 ### Iteration 12 Sprint — Critical/High Audit Remediations (`a41bb03` main, `3bd7b62` frontend, `be777ce` android)
 
