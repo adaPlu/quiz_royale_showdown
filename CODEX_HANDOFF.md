@@ -1,6 +1,6 @@
 # CODEX Handoff — Quiz Royale Showdown
 
-_Last updated: 2026-05-21 — Iteration 18 sprint: Pino logger + Sentry ported to feature/backend; 6 pre-existing test failures fixed (flushPromises pattern, missing prisma.roomPlayer.update mock, sadd/expire in RoomService fakeRedis). All 62 backend tests passing. feature/backend has no remaining open issues._
+_Last updated: 2026-05-26 — Iteration 19 sprint: Full codebase audit remediation — admin CRUD routes, Prisma schema indexes + new models (PushSubscription/FcmToken/Friendship), leaderboard /friends fixed, vercel.json CSP wildcards, security hardening, 22 new tests. All 84 backend tests passing._
 
 ---
 
@@ -335,6 +335,35 @@ All worktrees share the same GitHub remote: `https://github.com/adaPlu/quiz_roya
 - **RoomService.concurrent.test.ts**: added `sadd: vi.fn().mockResolvedValue(undefined)` and `expire: vi.fn().mockResolvedValue(undefined)` to `fakeRedis` — `trackLivePlayer` calls both methods; mock was missing them
 
 **All 62 backend tests passing across 16 test files.**
+
+### Iteration 19 Sprint — Audit Remediation Phase 3 (2026-05-26)
+
+**Backend (`feature/backend` branch — commit `c7b0964`)**
+- **admin CRUD routes** (`src/routes/admin.ts`): full question bank administration — GET /questions (paginated, active filter), POST /questions (Zod validation), PUT /questions/:id (partial update, ULID guard), DELETE /questions/:id (soft-delete isActive=false), PATCH /questions/:id/activate (restore); all guarded by `requireAdminSecret` + `apiLimiter`; ULID validation via `/^[0-9A-HJKMNP-TV-Z]{26}$/i`
+- **requireAdminSecret middleware** (`src/middleware/auth.ts`): reads `process.env.ADMIN_SECRET` directly (not frozen `env` object) — allows tests to inject via `process.env.ADMIN_SECRET = "..."` in `startServer()` without the value being frozen at module load time; returns 401 when header missing, 403 when wrong or unconfigured
+- **Prisma schema indexes**: added 20+ missing performance indexes — `RefreshToken(userId)`, `Room(hostUserId)`, `Room(status)`, `RoomPlayer(userId)`, `RoomPlayer(roomId)`, `Round(roomId)`, `Answer(roundId)`, `Answer(userId)`, `PowerUpUse(userId)`, `PowerUpUse(roomId)`, `XpEvent(userId)`, `XpEvent(userId, createdAt)`
+- **Prisma new models**: `PushSubscription` (id, userId, endpoint @unique, p256dh, auth, @@index([userId])), `FcmToken` (id, userId, token @unique, @@index([userId])), `Friendship` (id, requesterId, addresseeId, status, @@unique([requesterId,addresseeId]), @@index([requesterId]), @@index([addresseeId,status]))
+- **Season.rewardsAwardedAt** field added to Prisma schema
+- **User model relations**: added `pushSubscriptions`, `fcmTokens`, `sentFriendships`, `receivedFriendships` relation fields
+- **leaderboard /friends** (`src/routes/leaderboard.ts`): fixed — now queries `prisma.friendship` for accepted status, builds `allIds = [userId, ...friendIds]`, groups XP by those IDs, returns ranked by totalXp. Was previously returning global top-N by MMR (wrong endpoint behavior, leaked data).
+- **ANSWER_LOCK_TTL_SECONDS**: fixed 3600→120 seconds in `registerHandlers.ts`
+- **VAPID_SUBJECT default**: changed from personal email `adapluguez@gmail.com` to `admin@example.com` in `env.ts` and `.env.example`
+- **env.ts**: added `adminSecret: z.string().optional()` to schema; exported as `env.adminSecret`
+- **app.ts**: wired admin router at `/api/v1/admin`
+
+**Webapp (both `frontend` and `main` branches)**
+- **vercel.json CSP**: `connect-src` widened from hardcoded production Railway hostname to `*.railway.app wss://*.railway.app *.quizroyale.gg wss://*.quizroyale.gg` — staging and preview deploys no longer blocked by CSP
+
+**New Tests (all passing)**
+- `backend/src/routes/__tests__/admin.test.ts` (17 tests): auth guard 401/403, GET paginated + filtered, POST 201/400, PUT 200/400/404, DELETE 204/400/404, PATCH activate 200/400/404
+- `backend/src/routes/__tests__/challenges.test.ts` (4 tests): 404 nonexistent, 200 first-call justCompleted+2-op-tx, 200 second-call idempotent+1-op-tx, 401 no-auth
+- `backend/src/routes/__tests__/leaderboard.test.ts` (+6 tests added): /friends 401 unauthenticated, 401 invalid token, 200 returns self+friends ranked by totalXp (no `rating` field), 200 returns only self when no friends
+
+**Test fixes**
+- `VALID_ULID` in admin.test.ts changed from `01HXYZ1234567890ABCDEFGHIJ` → `01HXYZ1234567890ABCDEFGHJK` (original contained `I` which is excluded from the ULID Crockford base32 alphabet)
+- `prisma.xpEvent.create` mock in challenges.test.ts now returns `{}` (truthy) so `rewardOp` is spread into the transaction array when `justCompleted=true`
+
+**All 84 backend tests passing across 18 test files.**
 
 ### Remaining work (priority order)
 | Priority | Area | Issue |
