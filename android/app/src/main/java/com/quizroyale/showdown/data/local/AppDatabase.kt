@@ -49,7 +49,7 @@ interface CachedPlayerDao {
 @Database(
   entities = [CachedRoomSnapshotEntity::class, CachedPlayerEntity::class],
   version = 1,
-  exportSchema = false
+  exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
   abstract fun cachedRoomDao(): CachedRoomDao

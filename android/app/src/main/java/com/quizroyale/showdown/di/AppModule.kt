@@ -128,7 +128,9 @@ object AppModule {
   @Singleton
   fun provideDatabase(@ApplicationContext context: Context): AppDatabase {
     return Room.databaseBuilder(context, AppDatabase::class.java, "quiz_royale.db")
-        .fallbackToDestructiveMigration()
+        // Never silently wipe on upgrade — add a Migration(from, to) object instead.
+        // Downgrade fallback is safe: we can't ship a lower versionCode to existing installs.
+        .fallbackToDestructiveMigrationOnDowngrade()
         .build()
   }
 }
