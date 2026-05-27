@@ -137,6 +137,7 @@ export type ServerEventPayload<E extends ServerEventType> = z.infer<(typeof Serv
 
 export type ClientEventType =
   | 'room:join'
+  | 'room:reconnect'
   | 'room:start'
   | 'room:leave'
   | 'round:submit_answer'
@@ -145,6 +146,7 @@ export type ClientEventType =
 
 type ClientEventPayloads = {
   'room:join': { roomCode: string };
+  'room:reconnect': { roomId: string; roomCode?: string };
   'room:start': { roomId: string };
   'room:leave': { roomId: string };
   'round:submit_answer': {
