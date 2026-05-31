@@ -7,6 +7,8 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.quizroyale.showdown.MainActivity
@@ -44,8 +46,14 @@ class QuizFcmService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
-            .edit().putString(PREF_TOKEN, token).apply()
+        val encryptedPrefs = EncryptedSharedPreferences.create(
+            this,
+            PREF_FILE,
+            MasterKey.Builder(this).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
+        encryptedPrefs.edit().putString(PREF_TOKEN, token).apply()
 
         // Upload immediately if the user is already logged in
         if (authRepository.currentAccessToken() != null) {
@@ -58,7 +66,10 @@ class QuizFcmService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
         val title = message.notification?.title ?: message.data["title"] ?: "Quiz Royale"
-        val body = message.notification?.body ?: message.data["body"] ?: return
+        val body = message.notification?.body ?: message.data["body"] ?: run {
+            android.util.Log.w("QuizFcmService", "Push received with missing body, data=${message.data}")
+            return
+        }
         showNotification(title, body)
     }
 

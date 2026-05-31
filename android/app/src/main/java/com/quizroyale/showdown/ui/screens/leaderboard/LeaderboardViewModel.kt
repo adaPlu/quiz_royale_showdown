@@ -2,7 +2,6 @@ package com.quizroyale.showdown.ui.screens.leaderboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.quizroyale.showdown.data.auth.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,7 +30,6 @@ data class LeaderboardUiState(
 
 @HiltViewModel
 class LeaderboardViewModel @Inject constructor(
-    private val authRepository: AuthRepository,
     private val leaderboardApi: LeaderboardApi
 ) : ViewModel() {
 
@@ -49,16 +47,11 @@ class LeaderboardViewModel @Inject constructor(
 
     private fun loadTab(tab: LeaderboardTab) {
         viewModelScope.launch {
-            val token = authRepository.currentAccessToken()
-            if (token == null) {
-                _uiState.update { it.copy(loading = false, entries = emptyList()) }
-                return@launch
-            }
             try {
                 val entries = when (tab) {
-                    LeaderboardTab.Season -> leaderboardApi.getSeason("Bearer $token")
-                    LeaderboardTab.Global -> leaderboardApi.getGlobal("Bearer $token")
-                    LeaderboardTab.Friends -> leaderboardApi.getFriends("Bearer $token")
+                    LeaderboardTab.Season -> leaderboardApi.getSeason()
+                    LeaderboardTab.Global -> leaderboardApi.getGlobal()
+                    LeaderboardTab.Friends -> leaderboardApi.getFriends()
                 }
                 _uiState.update {
                     it.copy(

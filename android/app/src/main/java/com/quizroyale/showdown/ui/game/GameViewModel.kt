@@ -140,13 +140,20 @@ class GameViewModel @Inject constructor(
               is GameEvent.LevelUp -> {
                 _sideEffects.trySend(GameSideEffect.ShowLevelUp(event.newLevel))
               }
-              is GameEvent.ServerError -> _sideEffects.trySend(GameSideEffect.ShowToast(event.message))
+              is GameEvent.ServerError -> {
+                android.util.Log.e("GameViewModel", "Server error received: ${event.message}")
+                _sideEffects.trySend(GameSideEffect.ShowToast("Something went wrong. Please try again."))
+              }
             }
           }
         } catch (e: CancellationException) {
           throw e
         } catch (e: Exception) {
-          android.util.Log.w("GameViewModel", "events flow closed, restarting: ${e.message}")
+          if (com.quizroyale.showdown.BuildConfig.DEBUG) {
+            android.util.Log.e("GameViewModel", "Connection error, restarting", e)
+          } else {
+            android.util.Log.e("GameViewModel", "Connection error, restarting: ${e.javaClass.simpleName}")
+          }
           delay(minOf(backoffMs, 30_000L))
           backoffMs = minOf(backoffMs * 2, 30_000L)
         }
@@ -183,7 +190,9 @@ class GameViewModel @Inject constructor(
   }
 
   private suspend fun handleQuestion(event: GameEvent.QuestionStarted) {
-    val inventory = runCatching { gameRepository.getPowerupInventory() }.getOrElse { emptyList() }
+    val inventory = runCatching { gameRepository.getPowerupInventory() }
+      .onFailure { e -> android.util.Log.w("GameViewModel", "Failed to load powerup inventory", e) }
+      .getOrElse { emptyList() }
     val ownedPowerups = inventory.map { item ->
       OwnedPowerup(
         code = item.code ?: item.id,
@@ -300,9 +309,13 @@ class GameViewModel @Inject constructor(
   private fun startHeartbeat(roomId: String) {
     heartbeatJob?.cancel()
     heartbeatJob = viewModelScope.launch {
-      while (true) {
+      while (isActive) {
         delay(30_000L)
-        gameRepository.sendHeartbeat(roomId)
+        try {
+          gameRepository.sendHeartbeat(roomId)
+        } catch (e: Exception) {
+          android.util.Log.w("GameViewModel", "Heartbeat failed for room $roomId", e)
+        }
       }
     }
   }

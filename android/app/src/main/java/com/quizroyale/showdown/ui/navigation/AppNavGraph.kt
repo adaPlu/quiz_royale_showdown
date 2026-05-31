@@ -59,13 +59,22 @@ fun AppNavGraph() {
       arguments = listOf(navArgument("roomId") { type = NavType.StringType }),
       deepLinks = listOf(navDeepLink { uriPattern = "quizroyale://lobby?invite={roomId}" })
     ) { backStackEntry ->
-      val roomCode = backStackEntry.arguments?.getString("roomId").orEmpty()
-      LobbyScreen(
-        roomCode = roomCode,
-        onGameStarted = { roomId ->
-          navController.navigate(Screen.Game.createRoute(roomId))
+      val rawRoomId = backStackEntry.arguments?.getString("roomId").orEmpty()
+      // Reject deep links with malformed room IDs (must be alphanumeric, 1-36 chars)
+      val roomCode = if (rawRoomId.matches(Regex("[A-Za-z0-9]{1,36}"))) rawRoomId else ""
+      if (roomCode.isBlank()) {
+        // Malformed deep link — navigate to home rather than showing a broken lobby
+        navController.navigate(Screen.Home.route) {
+          popUpTo(Screen.Home.route) { inclusive = true }
         }
-      )
+      } else {
+        LobbyScreen(
+          roomCode = roomCode,
+          onGameStarted = { roomId ->
+            navController.navigate(Screen.Game.createRoute(roomId))
+          }
+        )
+      }
     }
 
     composable(
@@ -110,6 +119,10 @@ fun AppNavGraph() {
       }
 
 
+      // Guard: only fire joinRoom when roomCode is non-blank AND the game state is Idle.
+      // The roomCode guard prevents joining with an empty code from malformed navigation.
+      // The Idle guard prevents double-join on recomposition — if the state has already
+      // advanced past Idle (e.g. Lobby) a recomposition would otherwise trigger a second join.
       LaunchedEffect(roomCode) {
         if (state is GameUiState.Idle && roomCode.isNotBlank()) {
           viewModel.joinRoom(roomCode)

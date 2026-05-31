@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.quizroyale.showdown.data.auth.AuthRepository
 import com.quizroyale.showdown.data.user.UserApi
+import com.quizroyale.showdown.ui.common.toUiMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -52,7 +53,7 @@ class ProfileViewModel @Inject constructor(
                     gamesPlayed = profile.gamesPlayed,
                 )
             } catch (e: Exception) {
-                _uiState.value = ProfileUiState.Error("Unable to load profile. Please try again.")
+                _uiState.value = ProfileUiState.Error(e.toUiMessage())
             }
         }
     }

@@ -140,6 +140,10 @@ class GameRepository @Inject constructor(
       val envelope = JSONObject(raw)
       val type = (envelope.optString("type").ifBlank { envelope.optString("eventType") })
         .removePrefix("v1:")
+      val version = envelope.optString("version", "v1")
+      if (version != "v1") {
+        android.util.Log.w("GameRepository", "Unsupported event version: $version, type=$type")
+      }
       val payload = envelope.optJSONObject("payload") ?: envelope
 
       when (type) {
@@ -215,7 +219,8 @@ class GameRepository @Inject constructor(
         )
         else -> null
       }
-    }.getOrNull()
+    }.onFailure { e -> android.util.Log.e("GameRepository", "Failed to parse event, raw=$raw", e) }
+      .getOrNull()
   }
 
   private fun parseRoom(room: JSONObject): RoomSnapshot {

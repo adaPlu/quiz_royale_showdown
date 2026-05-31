@@ -80,8 +80,13 @@ fun GameScreen(
         is GameUiState.RoundResult ->
           ResultCard(state.summary)
 
-        is GameUiState.Elimination ->
-          ResultCard("Eliminated: ${state.eliminatedPlayerIds.joinToString().ifBlank { "none" }}")
+        is GameUiState.Elimination -> {
+          val eliminatedNames = state.players
+            .filter { it.id in state.eliminatedPlayerIds }
+            .map { it.displayName }
+            .joinToString(", ")
+          ResultCard("Eliminated: ${eliminatedNames.ifBlank { "A player" }}")
+        }
 
         is GameUiState.Finale ->
           ResultCard("Final showdown: ${state.finalistIds.size} players remain.")

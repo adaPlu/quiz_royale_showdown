@@ -51,7 +51,10 @@ class AuthRepository @Inject constructor(
 
   fun currentUserId(): String {
     return prefs.getString(KEY_USER_ID, null)
-      ?: currentAccessToken()?.let { token -> tokenClaim(token, "sub") }
+      ?: run {
+        android.util.Log.w("AuthRepository", "userId not cached — extracting from JWT")
+        currentAccessToken()?.let { token -> tokenClaim(token, "sub") }
+      }
       ?: ""
   }
 
@@ -80,9 +83,17 @@ class AuthRepository @Inject constructor(
     editor.apply()
   }
 
+  // JWT claims are extracted for local UX only (display name, userId caching).
+  // Signature verification is intentionally skipped — the server validates all
+  // requests via the Authorization header. Never use these claims for authorization.
   private fun tokenClaim(token: String, key: String): String? {
     return runCatching {
-      val payload = token.split(".").getOrNull(1) ?: return null
+      val parts = token.split(".")
+      if (parts.size != 3) {
+        android.util.Log.w("AuthRepository", "Malformed JWT: expected 3 parts, got ${parts.size}")
+        return null
+      }
+      val payload = parts[1]
       val decoded = Base64.decode(payload, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
       JSONObject(String(decoded, Charsets.UTF_8)).optString(key).takeIf { it.isNotBlank() }
     }.getOrNull()

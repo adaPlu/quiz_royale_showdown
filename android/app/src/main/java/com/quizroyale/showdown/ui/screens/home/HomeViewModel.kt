@@ -3,11 +3,14 @@ package com.quizroyale.showdown.ui.screens.home
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import com.quizroyale.showdown.data.auth.AuthRepository
 import com.quizroyale.showdown.data.game.GameRepository
 import com.quizroyale.showdown.data.push.FcmTokenRequest
 import com.quizroyale.showdown.data.push.PushApi
 import com.quizroyale.showdown.service.QuizFcmService
+import com.quizroyale.showdown.ui.common.toUiMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,13 +43,18 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun uploadPendingFcmToken() {
-        val token = context.getSharedPreferences(QuizFcmService.PREF_FILE, Context.MODE_PRIVATE)
-            .getString(QuizFcmService.PREF_TOKEN, null) ?: return
+        val encryptedPrefs = EncryptedSharedPreferences.create(
+            context,
+            QuizFcmService.PREF_FILE,
+            MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
+        val token = encryptedPrefs.getString(QuizFcmService.PREF_TOKEN, null) ?: return
         viewModelScope.launch {
             runCatching { pushApi.registerFcmToken(FcmTokenRequest(token)) }
                 .onSuccess {
-                    context.getSharedPreferences(QuizFcmService.PREF_FILE, Context.MODE_PRIVATE)
-                        .edit().remove(QuizFcmService.PREF_TOKEN).apply()
+                    encryptedPrefs.edit().remove(QuizFcmService.PREF_TOKEN).apply()
                 }
                 .onFailure { android.util.Log.w("HomeViewModel", "FCM upload failed", it) }
         }
@@ -60,7 +68,7 @@ class HomeViewModel @Inject constructor(
             _uiState.update { it.copy(isLoading = true, error = null) }
             runCatching { gameRepository.getRoom(code) }
                 .onSuccess { room -> _uiState.update { it.copy(navigateToRoomId = room.code, isLoading = false) } }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message ?: "Failed to join", isLoading = false) } }
+                .onFailure { e -> _uiState.update { it.copy(error = e.toUiMessage(), isLoading = false) } }
         }
     }
 
@@ -71,7 +79,7 @@ class HomeViewModel @Inject constructor(
             _uiState.update { it.copy(isLoading = true, error = null) }
             runCatching { gameRepository.createRoom(isPrivate = isPrivate, maxPlayers = 8) }
                 .onSuccess { room -> _uiState.update { it.copy(navigateToRoomId = room.code, isLoading = false) } }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message ?: "Failed to create room", isLoading = false) } }
+                .onFailure { e -> _uiState.update { it.copy(error = e.toUiMessage(), isLoading = false) } }
         }
     }
 }

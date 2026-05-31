@@ -1,5 +1,6 @@
 package com.quizroyale.showdown.data.socket
 
+import com.quizroyale.showdown.BuildConfig
 import io.socket.client.IO
 import io.socket.client.Socket
 import java.net.URI
@@ -10,6 +11,8 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
+import okhttp3.CertificatePinner
+import okhttp3.OkHttpClient
 import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -25,7 +28,7 @@ data class SocketEnvelope(
 class WebSocketManager @Inject constructor(
 ) {
   private val _events = MutableSharedFlow<String>(
-    replay = 0,
+    replay = 1,
     extraBufferCapacity = 64,
     onBufferOverflow = BufferOverflow.DROP_OLDEST,
   )
@@ -37,6 +40,26 @@ class WebSocketManager @Inject constructor(
   private var socket: Socket? = null
   private var latestUrl: String? = null
   private var latestAccessToken: String? = null
+
+  private val okHttpClient: OkHttpClient by lazy {
+    if (!BuildConfig.DEBUG && PROD_CERT_FINGERPRINT.startsWith("sha256/AAAA")) {
+      throw IllegalStateException(
+        "PROD_CERT_FINGERPRINT is still the placeholder value. " +
+          "Replace it with the real SHA-256 fingerprint before shipping a release build. " +
+          "Run: openssl s_client -connect $PROD_WS_HOSTNAME:443 | openssl x509 -noout -fingerprint -sha256"
+      )
+    }
+    OkHttpClient.Builder()
+      .apply {
+        if (!BuildConfig.DEBUG) {
+          val pinner = CertificatePinner.Builder()
+            .add(PROD_WS_HOSTNAME, PROD_CERT_FINGERPRINT)
+            .build()
+          certificatePinner(pinner)
+        }
+      }
+      .build()
+  }
 
   fun connect(url: String, accessToken: String) {
     if (url == latestUrl && accessToken == latestAccessToken && socket?.connected() == true) {
@@ -55,6 +78,10 @@ class WebSocketManager @Inject constructor(
       reconnectionDelay = 1_000
       reconnectionDelayMax = 16_000
       extraHeaders = mapOf("Authorization" to listOf("Bearer $accessToken"))
+      if (!BuildConfig.DEBUG) {
+        callFactory = okHttpClient
+        webSocketFactory = okHttpClient
+      }
     }
 
     socket = IO.socket(socketIoBaseUrl(url), options).apply {
@@ -112,5 +139,11 @@ class WebSocketManager @Inject constructor(
 
   companion object {
     private const val SOCKET_IO_PATH = "/ws"
+    private const val PROD_WS_HOSTNAME = "api.quizroyale.gg"
+
+    // TODO: Replace with the actual SHA-256 certificate fingerprint from the production server.
+    // Run: openssl s_client -connect api.quizroyale.gg:443 | openssl x509 -noout -fingerprint -sha256
+    // Then convert to base64. DO NOT SHIP TO PRODUCTION without a real fingerprint.
+    private const val PROD_CERT_FINGERPRINT = "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
   }
 }

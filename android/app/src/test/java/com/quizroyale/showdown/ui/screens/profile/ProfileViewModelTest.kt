@@ -16,6 +16,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import java.io.IOException
+import java.net.UnknownHostException
+import retrofit2.HttpException
 
 /**
  * Unit tests for [ProfileViewModel].
@@ -167,6 +169,135 @@ class ProfileViewModelTest {
             assertEquals(
                 "Unable to load profile. Please try again.",
                 (errorState as ProfileUiState.Error).message
+            )
+
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Helper: build a minimal HttpException for a given HTTP status code
+    // ---------------------------------------------------------------------------
+    private fun httpException(code: Int): HttpException {
+        val response = mockk<retrofit2.Response<*>> { every { code() } returns code }
+        return HttpException(response)
+    }
+
+    // ---------------------------------------------------------------------------
+    // Test 4 (QW-6 / S2-7): Network error → "No internet connection."
+    // ---------------------------------------------------------------------------
+
+    @Test
+    fun `loadProfile emits No internet connection error when UnknownHostException is thrown`() = runTest {
+        val userApi = mockk<UserApi>()
+        val authRepository = mockk<AuthRepository>(relaxed = true)
+
+        coEvery { userApi.getMe() } throws UnknownHostException("Unable to resolve host")
+
+        val viewModel = ProfileViewModel(authRepository, userApi)
+
+        viewModel.uiState.test {
+            assertTrue("Initial state must be Loading", awaitItem() is ProfileUiState.Loading)
+
+            val errorState = awaitItem()
+            assertTrue("Expected Error after UnknownHostException", errorState is ProfileUiState.Error)
+            assertEquals(
+                "No internet connection.",
+                (errorState as ProfileUiState.Error).message
+            )
+
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Test 5: HTTP 404 → "Not found."
+    // ---------------------------------------------------------------------------
+
+    @Test
+    fun `loadProfile emits Not found error when HttpException 404 is thrown`() = runTest {
+        val userApi = mockk<UserApi>()
+        val authRepository = mockk<AuthRepository>(relaxed = true)
+
+        coEvery { userApi.getMe() } throws httpException(404)
+
+        val viewModel = ProfileViewModel(authRepository, userApi)
+
+        viewModel.uiState.test {
+            assertTrue("Initial state must be Loading", awaitItem() is ProfileUiState.Loading)
+
+            val errorState = awaitItem()
+            assertTrue("Expected Error after 404", errorState is ProfileUiState.Error)
+            assertEquals(
+                "Not found.",
+                (errorState as ProfileUiState.Error).message
+            )
+
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Test 6: HTTP 500 → "Server error. Please try again later."
+    // ---------------------------------------------------------------------------
+
+    @Test
+    fun `loadProfile emits Server error when HttpException 500 is thrown`() = runTest {
+        val userApi = mockk<UserApi>()
+        val authRepository = mockk<AuthRepository>(relaxed = true)
+
+        coEvery { userApi.getMe() } throws httpException(500)
+
+        val viewModel = ProfileViewModel(authRepository, userApi)
+
+        viewModel.uiState.test {
+            assertTrue("Initial state must be Loading", awaitItem() is ProfileUiState.Loading)
+
+            val errorState = awaitItem()
+            assertTrue("Expected Error after 500", errorState is ProfileUiState.Error)
+            assertEquals(
+                "Server error. Please try again later.",
+                (errorState as ProfileUiState.Error).message
+            )
+
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Test 7: Loading state is emitted before coroutines advance
+    // ---------------------------------------------------------------------------
+
+    @Test
+    fun `loadProfile emits Loading state before the API call resolves`() = runTest {
+        val userApi = mockk<UserApi>()
+        val authRepository = mockk<AuthRepository>(relaxed = true)
+
+        // Use coAnswers with a suspending delay so we can observe Loading before Success
+        coEvery { userApi.getMe() } coAnswers {
+            kotlinx.coroutines.delay(1_000)
+            UserMeResponse(
+                id = "u1",
+                email = "test@example.com",
+                displayName = "Tester",
+                avatarUrl = null,
+                totalXp = 0,
+                level = 1,
+                xpToNextLevel = 150,
+                wins = 0,
+                gamesPlayed = 0,
+                mmr = 1000
+            )
+        }
+
+        val viewModel = ProfileViewModel(authRepository, userApi)
+
+        viewModel.uiState.test {
+            // The very first state emission must be Loading
+            val firstState = awaitItem()
+            assertTrue(
+                "Expected Loading as first state but was $firstState",
+                firstState is ProfileUiState.Loading
             )
 
             cancelAndIgnoreRemainingEvents()

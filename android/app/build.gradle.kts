@@ -27,6 +27,9 @@ android {
 
   buildTypes {
     debug {
+      // Explicit to prevent accidental ProGuard activation if Android's defaults ever change.
+      isMinifyEnabled = false
+      isShrinkResources = false
       buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:4000/api/v1/\"")
       buildConfigField("String", "WS_BASE_URL", "\"ws://10.0.2.2:4000/ws\"")
     }
@@ -39,6 +42,17 @@ android {
       )
       buildConfigField("String", "API_BASE_URL", "\"https://api.quizroyale.gg/api/v1/\"")
       buildConfigField("String", "WS_BASE_URL", "\"wss://api.quizroyale.gg/ws\"")
+    }
+    create("staging") {
+      initWith(getByName("release"))
+      applicationIdSuffix = ".staging"
+      versionNameSuffix = "-staging"
+      isDebuggable = true
+      isMinifyEnabled = false
+      isShrinkResources = false
+      signingConfig = signingConfigs.getByName("debug")
+      buildConfigField("String", "API_BASE_URL", "\"https://staging-api.quizroyale.gg/api/v1/\"")
+      buildConfigField("String", "WS_BASE_URL", "\"wss://staging-api.quizroyale.gg/ws\"")
     }
   }
 

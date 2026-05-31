@@ -7,6 +7,7 @@ import com.quizroyale.showdown.data.auth.AuthRepository
 import com.quizroyale.showdown.data.game.GameEvent
 import com.quizroyale.showdown.data.game.GameRepository
 import com.quizroyale.showdown.domain.model.GamePlayer
+import com.quizroyale.showdown.ui.common.toUiMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.channels.Channel
@@ -87,7 +88,7 @@ class LobbyViewModel @Inject constructor(
     viewModelScope.launch {
       runCatching { gameRepository.startRoom(roomId) }
         .onFailure { error ->
-          _uiState.update { it.copy(error = error.message ?: "Failed to start game.") }
+          _uiState.update { it.copy(error = error.toUiMessage()) }
         }
     }
   }
@@ -97,7 +98,7 @@ class LobbyViewModel @Inject constructor(
     viewModelScope.launch {
       runCatching { gameRepository.leaveRoom(roomId) }
         .onFailure { error ->
-          _uiState.update { it.copy(error = error.message ?: "Failed to leave room.") }
+          _uiState.update { it.copy(error = error.toUiMessage()) }
         }
     }
   }
@@ -154,6 +155,9 @@ class LobbyViewModel @Inject constructor(
 
   private fun updateIfRoomMatches(roomId: String, transform: (LobbyUiState) -> LobbyUiState) {
     _uiState.update { state ->
+      // Both roomId and roomCode are checked because server events use the internal roomId while
+      // the user-facing join flow uses the short roomCode. During the join handshake both
+      // identifiers may appear in event payloads before the server confirms the canonical ID.
       if (state.roomId.isBlank() || (roomId.isNotBlank() && (roomId == state.roomId || roomId == state.roomCode))) {
         transform(state)
       } else {
