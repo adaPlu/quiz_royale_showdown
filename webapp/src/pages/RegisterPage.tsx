@@ -41,7 +41,7 @@ export default function RegisterPage() {
         password: data.password,
       });
       setTokens({ accessToken: response.data.accessToken });
-      setUser({ ...response.data.user, username: data.username });
+      setUser(response.data.user);
       navigate('/home', { replace: true });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Registration failed. Please try again.';

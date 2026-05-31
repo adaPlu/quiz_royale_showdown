@@ -21,6 +21,7 @@ function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
 export function useWebPush() {
   const user = useAuthStore((s) => s.user);
   const [pushState, setPushState] = useState<PushState>('unsubscribed');
+  const [isPending, setIsPending] = useState(false);
 
   useEffect(() => {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
@@ -33,7 +34,9 @@ export function useWebPush() {
   }, []);
 
   const subscribe = async () => {
+    if (isPending) return;
     if (!user || pushState === 'unsupported') return;
+    setIsPending(true);
     try {
       const permission = await Notification.requestPermission();
       if (permission !== 'granted') { setPushState('denied'); return; }
@@ -50,10 +53,14 @@ export function useWebPush() {
     } catch (err) {
       console.warn('[useWebPush] subscribe failed', err);
       setPushState('denied'); // treat any failure as denied so button re-enables
+    } finally {
+      setIsPending(false);
     }
   };
 
   const unsubscribe = async () => {
+    if (isPending) return;
+    setIsPending(true);
     try {
       const registration = await navigator.serviceWorker.ready;
       const subscription = await registration.pushManager.getSubscription();
@@ -62,8 +69,10 @@ export function useWebPush() {
         await subscription.unsubscribe();
       }
       setPushState('unsubscribed');
-    } catch { /* ignore */ }
+    } catch { /* ignore */ } finally {
+      setIsPending(false);
+    }
   };
 
-  return { pushState, subscribe, unsubscribe };
+  return { pushState, isPending, subscribe, unsubscribe };
 }

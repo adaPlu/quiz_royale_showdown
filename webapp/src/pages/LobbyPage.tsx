@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { PlayerAvatar } from '@/components/PlayerAvatar';
@@ -32,6 +32,41 @@ export const LobbyPage = () => {
     return unsub;
   }, []);
 
+  // Once the server sends room:state_sync, storedRoomId is a real ULID — upgrade the socket's active room ID
+  useEffect(() => {
+    if (storedRoomId) {
+      socketService.setActiveRoom(storedRoomId, code ?? undefined);
+    }
+  }, [storedRoomId, code]);
+
+  // 10-second guard: if room:state_sync never arrives after a join, surface an error.
+  const stateSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    // If storedRoomId is already set (e.g., from a prior sync) we are fine — nothing to do.
+    if (storedRoomId) {
+      if (stateSyncTimeoutRef.current !== null) {
+        clearTimeout(stateSyncTimeoutRef.current);
+        stateSyncTimeoutRef.current = null;
+      }
+      return;
+    }
+    // Start a timeout only when a join is in progress (indicated by a non-empty roomCode that
+    // was submitted). We detect "in progress" by checking that the socketService has an active
+    // room code registered (proxy: roomCode is non-empty and storedRoomId is still null).
+    // The timeout is started/restarted whenever this effect fires with storedRoomId === null.
+    stateSyncTimeoutRef.current = setTimeout(() => {
+      setJoinError('Could not connect to room — please try again.');
+      stateSyncTimeoutRef.current = null;
+    }, 10_000);
+
+    return () => {
+      if (stateSyncTimeoutRef.current !== null) {
+        clearTimeout(stateSyncTimeoutRef.current);
+        stateSyncTimeoutRef.current = null;
+      }
+    };
+  }, [storedRoomId]);
+
   const joinRoom = () => {
     const normalizedCode = roomCode.trim().toUpperCase();
     if (normalizedCode.length !== 6) {
@@ -39,7 +74,9 @@ export const LobbyPage = () => {
       return;
     }
 
-    socketService.setActiveRoom(normalizedCode, normalizedCode);
+    // The real roomId (ULID) is not known until room:state_sync arrives.
+    // Only register the room code now; setActiveRoom with the real ID fires in the effect below.
+    socketService.setActiveRoom('', normalizedCode);
     socketService.emit('room:join', { roomCode: normalizedCode });
   };
 

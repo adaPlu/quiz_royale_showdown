@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { PlayerAvatar } from '@components/PlayerAvatar';
 import { api } from '@services/apiClient';
+import { socketService } from '@services/socketService';
 import { useAuthStore } from '@stores/authStore';
 
 type RoomResponse = {
@@ -16,6 +17,7 @@ export default function HomePage() {
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
   const clearAuth = useAuthStore((state) => state.clearAuth);
+  const accessToken = useAuthStore((state) => state.accessToken);
 
   const handleLogout = () => {
     clearAuth();
@@ -35,6 +37,9 @@ export default function HomePage() {
 
     setIsJoining(true);
     try {
+      if (!socketService.isConnected() && accessToken) {
+        socketService.connect(accessToken);
+      }
       const response = await api.post<RoomResponse>('/rooms/join', { roomCode: normalizedCode });
       navigate(`/lobby/${response.data.room.code}`);
     } catch (error) {
@@ -48,6 +53,9 @@ export default function HomePage() {
     setError(null);
     setIsJoining(true);
     try {
+      if (!socketService.isConnected() && accessToken) {
+        socketService.connect(accessToken);
+      }
       const response = await api.post<RoomResponse>('/rooms/join', {});
       navigate(`/lobby/${response.data.room.code}`);
     } catch (error) {
@@ -61,6 +69,9 @@ export default function HomePage() {
     setError(null);
     setIsJoining(true);
     try {
+      if (!socketService.isConnected() && accessToken) {
+        socketService.connect(accessToken);
+      }
       const response = await api.post<RoomResponse>('/rooms', { isPrivate: true });
       navigate(`/lobby/${response.data.room.code}`);
     } catch (error) {

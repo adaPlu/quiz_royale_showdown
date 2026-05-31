@@ -59,12 +59,21 @@ export const useAuthStore = create<AuthState>()(
       setUser: (user) => set({ user: normalizeUser(user) }),
       setAccessToken: (token) => {
         setApiAccessToken(token);
-        socketService.connect(token);
+        try {
+          socketService.connect(token);
+        } catch (err) {
+          console.error('[authStore] socket connect failed after setAccessToken:', err);
+          socketService.disconnect();
+        }
         set({ accessToken: token });
       },
       setTokens: (tokens) => {
         setApiAccessToken(tokens.accessToken);
-        socketService.connect(tokens.accessToken);
+        try {
+          socketService.connect(tokens.accessToken);
+        } catch (err) {
+          console.error('[authStore] socket connect failed after setTokens:', err);
+        }
         set({ accessToken: tokens.accessToken, authError: null });
       },
       clearAuth: () => {
@@ -88,7 +97,7 @@ export const useAuthStore = create<AuthState>()(
             const profileResp = await apiClient.get<AuthUserInput>('/users/me');
             set({ user: normalizeUser(profileResp.data) });
           } catch (e) {
-            console.warn('[authStore] /users/me fetch failed, using cached user', e);
+            console.error('[authStore] /users/me fetch failed, using cached user', e);
           }
         } catch {
           // refresh failed — user must log in

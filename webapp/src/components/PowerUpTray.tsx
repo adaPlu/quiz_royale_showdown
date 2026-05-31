@@ -32,6 +32,7 @@ const POWER_UP_META: Record<PowerUpType, { label: string; icon: string; color: s
 
 export const PowerUpTray = ({ slots, roomId, disabled = false }: PowerUpTrayProps) => {
   const activatePowerUp = (type: PowerUpType) => {
+    if (!roomId) return;
     socketService.emit('powerup:activate', { roomId, powerUpId: type });
   };
 

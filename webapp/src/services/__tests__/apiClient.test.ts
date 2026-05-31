@@ -158,6 +158,48 @@ describe('apiClient', () => {
     expect(getAccessToken()).toBe('refreshed-token');
   });
 
+  it('5xx response does not clear auth state', async () => {
+    const interceptor = mockInterceptorCapture.responseRejected;
+    if (!interceptor) return;
+
+    setAccessToken('valid-token');
+    const error = {
+      response: { status: 503 },
+      config: { url: '/some/endpoint', _retry: false, headers: {} as Record<string, string> },
+      message: 'Service Unavailable',
+    };
+    // Should throw (non-401 is re-thrown as ApiError) but NOT clear the token
+    await expect(interceptor(error)).rejects.toBeDefined();
+    expect(getAccessToken()).toBe('valid-token');
+  });
+
+  it('two concurrent 401s result in only one refresh call (deduplication)', async () => {
+    const interceptor = mockInterceptorCapture.responseRejected;
+    if (!interceptor) return;
+
+    setAccessToken('stale-token');
+    let resolveRefresh!: (v: { data: { accessToken: string } }) => void;
+    const refreshPending = new Promise<{ data: { accessToken: string } }>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    mockAxiosPost.mockReturnValueOnce(refreshPending);
+    mockAxiosRequest.mockResolvedValue({ data: 'ok' });
+
+    const error1 = { response: { status: 401 }, config: { url: '/ep1', _retry: false, headers: {} as Record<string, string> }, message: '' };
+    const error2 = { response: { status: 401 }, config: { url: '/ep2', _retry: false, headers: {} as Record<string, string> }, message: '' };
+
+    // Fire both concurrently before resolving refresh
+    const p1 = interceptor(error1);
+    const p2 = interceptor(error2);
+
+    resolveRefresh({ data: { accessToken: 'deduped-token' } });
+    await Promise.allSettled([p1, p2]);
+
+    // Only one refresh call despite two concurrent 401s
+    expect(mockAxiosPost).toHaveBeenCalledTimes(1);
+    expect(getAccessToken()).toBe('deduped-token');
+  });
+
   it('refresh interceptor clears auth and redirects on refresh failure', async () => {
     const interceptor = mockInterceptorCapture.responseRejected;
     if (!interceptor) return;

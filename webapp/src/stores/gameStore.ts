@@ -143,6 +143,7 @@ type GameState = {
   timeBoostActive: boolean;
   activePowerupEffect: ActivePowerupEffect | null;
   lootDrop: { powerupType: string; ts: number } | null;
+  socketError: string | null;
 };
 
 type GameActions = {
@@ -165,6 +166,8 @@ type GameActions = {
   applyServerEvent: (event: ServerEvent) => void;
   setLootDrop: (code: string) => void;
   clearLootDrop: () => void;
+  setSocketError: (message: string) => void;
+  clearSocketError: () => void;
 };
 
 const initialState: GameState = {
@@ -188,6 +191,7 @@ const initialState: GameState = {
   timeBoostActive: false,
   activePowerupEffect: null,
   lootDrop: null,
+  socketError: null,
 };
 
 const resetRoundInteraction: Pick<
@@ -221,11 +225,8 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       roundNumber: payload.room.roundNumber,
       totalRounds: payload.room.totalRounds,
       players: payload.room.players,
-      // Preserve active question on reconnect — only clear when leaving QUESTION_ACTIVE
-      question:
-        get().phase === 'QUESTION_ACTIVE' && payload.room.phase === 'QUESTION_ACTIVE' && !payload.room.currentQuestion
-          ? get().question
-          : (payload.room.currentQuestion ?? null),
+      // Always use server truth — the server sends currentQuestion on reconnect during QUESTION_ACTIVE
+      question: payload.room.currentQuestion ?? null,
       lootDrop: null,
       ...resetRoundInteraction,
     });
@@ -340,7 +341,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
 
   applyPowerupEffect: (payload) => {
     const effectType = String(payload.effect.type ?? '');
-    const affectedPlayerIds = [payload.userId].filter(Boolean);
+    const affectedPlayerIds = (payload.effect.affectedPlayerIds as string[] | undefined) ?? [payload.userId].filter(Boolean);
     const effect = {
       effectType,
       affectedPlayerIds,
@@ -397,7 +398,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
     set((state) => ({ levelUpQueue: state.levelUpQueue.slice(1) }));
   },
 
-  resetRoom: () => set({ ...initialState }),
+  resetRoom: () => set({ ...initialState, fiftyFiftyEliminated: [] }),
 
   applyServerEvent: (event) => {
     switch (event.type) {
@@ -437,9 +438,11 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       case 'powerup:effect':
         get().applyPowerupEffect(event.payload);
         break;
-      case 'powerup:loot_drop':
-        get().setLootDrop((event.payload as { powerupType: string }).powerupType);
+      case 'powerup:loot_drop': {
+        const pt = (event.payload as { powerupType?: string }).powerupType;
+        if (pt) get().setLootDrop(pt);
         break;
+      }
       case 'game:level_up':
         get().applyLevelUp(event.payload as LevelUpPayload);
         break;
@@ -448,6 +451,8 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
 
   setLootDrop: (code) => set({ lootDrop: { powerupType: code, ts: Date.now() } }),
   clearLootDrop: () => set({ lootDrop: null }),
+  setSocketError: (message) => set({ socketError: message }),
+  clearSocketError: () => set({ socketError: null }),
 }));
 
 export const selectLeaderboard = (state: GameState): PlayerSummary[] =>

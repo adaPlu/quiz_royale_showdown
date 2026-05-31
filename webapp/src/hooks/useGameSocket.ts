@@ -13,30 +13,19 @@ export const useGameSocket = (roomId: string | undefined) => {
   const accessToken = useAuthStore((state) => state.accessToken);
   const joinedRef = useRef(false);
   const hasConnectedRef = useRef(false);
-  const applyRoomState = useGameStore((state) => state.applyRoomState);
-  const applyPlayerJoined = useGameStore((state) => state.applyPlayerJoined);
-  const applyPlayerLeft = useGameStore((state) => state.applyPlayerLeft);
-  const applyCountdown = useGameStore((state) => state.applyCountdown);
-  const applyQuestion = useGameStore((state) => state.applyQuestion);
-  const applyAnswerLocked = useGameStore((state) => state.applyAnswerLocked);
-  const applyRoundResult = useGameStore((state) => state.applyRoundResult);
-  const applyElimination = useGameStore((state) => state.applyElimination);
-  const applyFinaleStarted = useGameStore((state) => state.applyFinaleStarted);
-  const applyPowerupUsed = useGameStore((state) => state.applyPowerupUsed);
-  const applyPowerupEffect = useGameStore((state) => state.applyPowerupEffect);
-  const applyGameOver = useGameStore((state) => state.applyGameOver);
-  const applyLevelUp = useGameStore((state) => state.applyLevelUp);
-  const updateXp = useProfileStore((state) => state.updateXp);
 
   const activeRoomId = roomId;
+  const phase = useGameStore((state) => state.phase);
 
   useEffect(() => {
     if (!activeRoomId) return;
+    const heartbeatPhases = ['QUESTION_ACTIVE', 'ANSWER_LOCKED'];
+    if (!heartbeatPhases.includes(phase)) return;
     const id = setInterval(() => {
       socketService.emit('client:heartbeat', { roomId: activeRoomId, sentAt: new Date().toISOString() });
     }, 15_000);
     return () => clearInterval(id);
-  }, [activeRoomId]);
+  }, [activeRoomId, phase]);
 
   useEffect(() => {
     if (accessToken) {
@@ -58,34 +47,61 @@ export const useGameSocket = (roomId: string | undefined) => {
       }
     }
 
+    // All gameStore action selectors are read via getState() inside callbacks so that
+    // Zustand's stable action references never need to be listed as effect dependencies.
     const unsubs = [
-      socketService.on('room:state_sync', applyRoomState),
-      socketService.on('room:player_joined', applyPlayerJoined),
-      socketService.on('room:player_left', applyPlayerLeft),
+      socketService.on('room:state_sync', (payload) => {
+        useGameStore.getState().applyRoomState(payload);
+      }),
+      socketService.on('room:player_joined', (payload) => {
+        useGameStore.getState().applyPlayerJoined(payload);
+      }),
+      socketService.on('room:player_left', (payload) => {
+        useGameStore.getState().applyPlayerLeft(payload);
+      }),
       socketService.on('round:countdown_started', (payload) => {
-        applyCountdown(payload);
+        if (payload.roomId !== activeRoomId) return;
+        useGameStore.getState().applyCountdown(payload);
         navigateRef.current(`/game/${payload.roomId}`, { replace: true });
       }),
       socketService.on('round:question_started', (payload) => {
-        applyQuestion(payload);
+        if (payload.roomId !== activeRoomId) return;
+        useGameStore.getState().applyQuestion(payload);
         navigateRef.current(`/game/${payload.roomId}`, { replace: true });
       }),
-      socketService.on('round:answer_locked', applyAnswerLocked),
-      socketService.on('round:result', applyRoundResult),
-      socketService.on('round:elimination', applyElimination),
-      socketService.on('round:finale_started', applyFinaleStarted),
-      socketService.on('powerup:activated', applyPowerupUsed),
-      socketService.on('powerup:effect', applyPowerupEffect),
+      socketService.on('round:answer_locked', (payload) => {
+        useGameStore.getState().applyAnswerLocked(payload);
+      }),
+      socketService.on('round:result', (payload) => {
+        useGameStore.getState().applyRoundResult(payload);
+      }),
+      socketService.on('round:elimination', (payload) => {
+        useGameStore.getState().applyElimination(payload);
+      }),
+      socketService.on('round:finale_started', (payload) => {
+        useGameStore.getState().applyFinaleStarted(payload);
+      }),
+      socketService.on('powerup:activated', (payload) => {
+        useGameStore.getState().applyPowerupUsed(payload);
+      }),
+      socketService.on('powerup:effect', (payload) => {
+        useGameStore.getState().applyPowerupEffect(payload);
+      }),
       socketService.on('game:over', (payload) => {
-        applyGameOver(payload);
+        useGameStore.getState().applyGameOver(payload);
         navigateRef.current(`/results/${payload.roomId}`);
       }),
       socketService.on('game:level_up', (payload) => {
-        applyLevelUp(payload);
-        updateXp(payload.xpAwarded, payload.newLevel, payload.xpToNextLevel);
+        useGameStore.getState().applyLevelUp(payload);
+        useProfileStore.getState().updateXp(payload.xpAwarded, payload.newLevel, payload.xpToNextLevel);
       }),
       socketService.on('powerup:loot_drop', (payload) => {
         useGameStore.getState().setLootDrop(payload.powerupType);
+      }),
+      // Surface socket-level errors as a dismissible banner in GamePage (TASK 4 / S1-3).
+      socketService.on('error', (payload) => {
+        const msg = payload.message ?? payload.error ?? 'A socket error occurred.';
+        useGameStore.getState().setSocketError(msg);
       }),
     ];
 
@@ -94,5 +110,7 @@ export const useGameSocket = (roomId: string | undefined) => {
       joinedRef.current = false;
       hasConnectedRef.current = false;
     };
-  }, [roomId, accessToken]); // eslint-disable-line react-hooks/exhaustive-deps
+    // roomId and accessToken are the only runtime variables that should trigger a reconnect.
+    // All store actions are accessed via getState() to avoid stale-closure deps.
+  }, [roomId, accessToken]);
 };

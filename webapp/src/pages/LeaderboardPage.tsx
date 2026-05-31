@@ -94,7 +94,7 @@ export default function LeaderboardPage() {
                 <span className="w-8 text-center text-sm font-bold text-white/40">
                   {e.rank <= 3 ? ['🥇', '🥈', '🥉'][e.rank - 1] : e.rank}
                 </span>
-                <PlayerAvatar player={{ id: e.userId, displayName: e.displayName, avatarUrl: e.avatarUrl, score: 0, streak: 0, isEliminated: false }} />
+                <PlayerAvatar player={{ id: e.userId, displayName: e.displayName, avatarUrl: e.avatarUrl, score: e.totalXp ?? e.mmr ?? 0, streak: 0, isEliminated: false }} />
                 <span className="flex-1 truncate text-sm font-medium">{e.displayName}</span>
                 <span className="font-bold tabular-nums text-[#FFD700]">
                   {e.mmr ? `${e.mmr} MMR` : e.totalXp ? `${e.totalXp.toLocaleString()} XP` : ''}

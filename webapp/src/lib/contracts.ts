@@ -9,6 +9,15 @@ export const playerSummarySchema = z.object({
   isEliminated: z.boolean()
 });
 
+const currentQuestionSchema = z.object({
+  roundId: z.string(),
+  questionId: z.string(),
+  prompt: z.string(),
+  answers: z.array(z.string()).length(4),
+  timeLimitMs: z.number(),
+  startedAt: z.string(),
+});
+
 export const roomSnapshotSchema = z.object({
   roomId: z.string(),
   code: z.string(),
@@ -25,7 +34,8 @@ export const roomSnapshotSchema = z.object({
   ]),
   roundNumber: z.number(),
   totalRounds: z.number(),
-  players: z.array(playerSummarySchema)
+  players: z.array(playerSummarySchema),
+  currentQuestion: currentQuestionSchema.optional(),
 });
 
 const envelope = <TType extends string, TPayload extends z.ZodTypeAny>(type: TType, payload: TPayload) =>

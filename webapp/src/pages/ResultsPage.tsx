@@ -32,12 +32,10 @@ export default function ResultsPage() {
   const user = useAuthStore((state) => state.user);
   const finalScores = useGameStore((state) => state.finalScores);
   const winnerId = useGameStore((state) => state.winnerId);
-  const resetRoom = useGameStore((state) => state.resetRoom);
   const players = useGameStore((state) => state.players) ?? [];
 
-  useEffect(() => {
-    return () => resetRoom();
-  }, [resetRoom]);
+  // Game state is preserved so users can revisit results via browser back button.
+  // Reset happens when a new game starts (handled in the game flow).
 
   const nameMap = new Map(players.map((p) => [p.id, p.displayName]));
 

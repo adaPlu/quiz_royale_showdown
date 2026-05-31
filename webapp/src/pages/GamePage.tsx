@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { CountdownBar } from '@/components/CountdownBar';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { PowerUpActivationFx } from '@/components/PowerUpActivationFx';
 import { PowerUpTray, type PowerUpSlot, type PowerUpType } from '@/components/PowerUpTray';
@@ -83,36 +84,47 @@ export const GamePage = () => {
   const audio = useGameAudio();
   const [activeFx, setActiveFx] = useState<{ code: PowerUpType; userId: string } | null>(null);
   const onFxComplete = useCallback(() => setActiveFx(null), []);
+  const activePowerupEffect = useGameStore((state) => state.activePowerupEffect);
 
   // Audio reactions to game events
   useEffect(() => {
     if (result === null || myAnswer === null) return;
     if (myAnswer === result.correctAnswerIndex) audio.playCorrect();
     else audio.playWrong();
-  }, [result]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [audio, result?.correctAnswerIndex, myAnswer]);
 
   useEffect(() => {
     if (phase === 'ELIMINATION') audio.playElimination();
     if (phase === 'GAME_OVER') audio.playVictory();
-  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [audio, phase]);
 
-  // Power-up activation FX
+  // Derive power-up FX from store state (avoids duplicate socket subscription)
   useEffect(() => {
-    const unsub = socketService.on('powerup:activated', (payload) => {
-      setActiveFx({ code: payload.powerUpId as PowerUpType, userId: payload.userId });
-      audio.playPowerup();
-    });
-    return unsub;
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!activePowerupEffect) return;
+    const userId = activePowerupEffect.affectedPlayerIds[0] ?? '';
+    setActiveFx({ code: activePowerupEffect.effectType as PowerUpType, userId });
+    audio.playPowerup();
+  }, [audio, activePowerupEffect]);
 
   const storedRoomId = useGameStore((state) => state.roomId);
+  const socketError = useGameStore((state) => state.socketError);
+  const clearSocketError = useGameStore((state) => state.clearSocketError);
+
+  // Auto-dismiss socket error banner after 4 seconds.
+  useEffect(() => {
+    if (!socketError) return;
+    const id = setTimeout(() => clearSocketError(), 4000);
+    return () => clearTimeout(id);
+  }, [socketError, clearSocketError]);
 
   const correctIndex = result?.correctAnswerIndex ?? null;
   const isQuestionActive = phase === 'QUESTION_ACTIVE' && !!question;
   const isLocked = !isQuestionActive || myAnswer !== null;
   const isLockedRef = useRef(isLocked);
   useEffect(() => { isLockedRef.current = isLocked; }, [isLocked]);
-  const submitAnswerRef = useRef(submitAnswer);
+  // Stable ref so the keydown listener (mounted once) always calls the latest submitAnswer.
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  const submitAnswerRef = useRef<(index: number) => void>(() => {});
   useEffect(() => { submitAnswerRef.current = submitAnswer; });
   const durationSec = question ? Math.max(1, question.timeLimitMs / 1000) : 20;
 
@@ -141,6 +153,8 @@ export const GamePage = () => {
   };
 
   const handleLeave = () => {
+    const activePhases: typeof phase[] = ['COUNTDOWN', 'QUESTION_ACTIVE', 'ANSWER_LOCKED', 'ROUND_RESULT', 'ELIMINATION', 'FINALE'];
+    if (activePhases.includes(phase) && !window.confirm('Leave the game? Your progress will be lost.')) return;
     if (activeRoomId) socketService.emit('room:leave', { roomId: activeRoomId });
     navigate('/home');
   };
@@ -167,9 +181,16 @@ export const GamePage = () => {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    // Refs (isLockedRef, submitAnswerRef) are stable — no deps needed
+  }, []);
 
   return (
+    <ErrorBoundary fallback={
+      <div role="alert" style={{ padding: "2rem", textAlign: "center" }}>
+        <h2>Game Error</h2>
+        <p>An unexpected error occurred. Please return to the lobby.</p>
+      </div>
+    }>
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(255,215,0,0.12),_transparent_40%),linear-gradient(180deg,#101020,#06060C)] px-4 py-6 text-white md:px-8">
       <AnimatePresence>
         {phase === 'ELIMINATION' && (
@@ -270,6 +291,15 @@ export const GamePage = () => {
             <p className="text-xs uppercase tracking-[0.25em] text-white/40">Power-ups</p>
             <PowerUpTray slots={powerUpSlots} roomId={activeRoomId} disabled={!isQuestionActive || !activeRoomId} />
           </div>
+
+          {socketError && (
+            <div
+              role="alert"
+              className="mt-3 rounded-xl border border-answer-wrong/40 bg-answer-wrong/20 px-4 py-2 text-sm text-answer-wrong"
+            >
+              {socketError}
+            </div>
+          )}
         </section>
 
         <aside className="rounded-[32px] border border-white/10 bg-game-surface/80 p-5 backdrop-blur">
@@ -323,5 +353,6 @@ export const GamePage = () => {
         onComplete={onFxComplete}
       />
     </main>
+    </ErrorBoundary>
   );
 };

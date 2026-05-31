@@ -40,7 +40,7 @@ export const useProfileStore = create<ProfileState>((set) => ({
   powerupInventory: EMPTY_INVENTORY,
   setProfile: (data) => set((s) => ({ ...s, ...data })),
   updateXp: (xpDelta, newLevel, xpToNextLevel) => set((s) => ({
-    xp: s.xp + xpDelta,
+    xp: Math.max(0, s.xp + xpDelta),
     level: newLevel,
     ...(xpToNextLevel !== undefined ? { xpToNextLevel } : {}),
   })),

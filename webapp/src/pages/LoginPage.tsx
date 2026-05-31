@@ -1,4 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
+import axios from 'axios';
 import { useForm } from 'react-hook-form';
 import { Link, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
@@ -32,8 +33,10 @@ export default function LoginPage() {
       setUser(response.data.user);
       navigate('/home', { replace: true });
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Login failed. Check your credentials.';
-      setError('root', { message });
+      const msg = axios.isAxiosError(error)
+        ? (error.response?.data?.message ?? error.message)
+        : (error instanceof Error ? error.message : 'Login failed. Check your credentials.');
+      setError('root', { message: msg });
     }
   };
 

@@ -10,6 +10,15 @@ const PlayerSchema = z.object({
   isEliminated: z.boolean(),
 });
 
+const CurrentQuestionSchema = z.object({
+  roundId: z.string(),
+  questionId: z.string(),
+  prompt: z.string(),
+  answers: z.array(z.string()).length(4),
+  timeLimitMs: z.number(),
+  startedAt: z.string(),
+});
+
 const RoomStatePayload = z.object({
   room: z.object({
     roomId: z.string(),
@@ -28,6 +37,7 @@ const RoomStatePayload = z.object({
     roundNumber: z.number(),
     totalRounds: z.number(),
     players: z.array(PlayerSchema),
+    currentQuestion: CurrentQuestionSchema.optional(),
   }),
 });
 
@@ -126,7 +136,7 @@ export const ServerEventSchemas = {
   'round:finale_started': FinaleStartedPayload,
   'powerup:activated': PowerupActivatedPayload,
   'powerup:effect': PowerupEffectPayload,
-  'powerup:loot_drop': z.object({ roomId: z.string(), powerupType: z.string(), quantity: z.number() }),
+  'powerup:loot_drop': z.object({ roomId: z.string(), userId: z.string(), powerupType: z.string(), quantity: z.number() }),
   'game:over': GameOverPayload,
   'game:level_up': LevelUpPayload,
   error: ErrorPayload,
@@ -176,6 +186,10 @@ class SocketService {
   private listeners = new Map<ServerEventType, Set<(payload: unknown) => void>>();
   private statusListeners = new Set<(status: ConnectionStatus) => void>();
 
+  isConnected(): boolean {
+    return this.socket?.connected ?? false;
+  }
+
   onStatusChange(handler: (status: ConnectionStatus) => void): Unsubscribe {
     this.statusListeners.add(handler);
     return () => this.statusListeners.delete(handler);
@@ -194,7 +208,11 @@ class SocketService {
       this.disconnect();
     }
 
-    const wsUrl = import.meta.env.VITE_WS_BASE_URL ?? 'http://localhost:4000';
+    let wsUrl = import.meta.env.VITE_WS_BASE_URL ?? 'http://localhost:4000';
+    const hostname = window.location.hostname;
+    if (wsUrl.startsWith('ws://') && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+      wsUrl = 'wss://' + wsUrl.slice('ws://'.length);
+    }
     this.accessToken = accessToken;
     this.socket = io(wsUrl, {
       path: '/ws',
@@ -223,6 +241,7 @@ class SocketService {
     this.accessToken = null;
     this.activeRoomId = null;
     this.activeRoomCode = null;
+    this.listeners.forEach((set) => set.clear());
   }
 
   setActiveRoom(roomId: string, roomCode?: string): void {
@@ -243,6 +262,9 @@ class SocketService {
     }
 
     const handlers = this.listeners.get(event)!;
+    if (import.meta.env.DEV && handlers.has(handler as (payload: unknown) => void)) {
+      console.warn('[socketService] Handler already registered for event:', event);
+    }
     handlers.add(handler as (payload: unknown) => void);
     return () => {
       handlers.delete(handler as (payload: unknown) => void);

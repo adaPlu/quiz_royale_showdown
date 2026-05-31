@@ -257,6 +257,79 @@ describe('gameStore — server event pipeline', () => {
     expect(state.result).toBeNull();
   });
 
+  it('applyPowerupEffect FIFTY_FIFTY sets fiftyFiftyEliminated from maskedAnswerIndices', () => {
+    act(() =>
+      useGameStore.getState().applyServerEvent({
+        type: 'powerup:effect',
+        version: 'v1',
+        payload: {
+          roomId: 'room-42',
+          userId: 'user-1',
+          powerUpId: 'pu-1',
+          effect: { type: 'FIFTY_FIFTY', maskedAnswerIndices: [1, 3] },
+        },
+      }),
+    );
+    const state = useGameStore.getState();
+    expect(state.fiftyFiftyEliminated).toEqual([1, 3]);
+    expect(state.activePowerupEffect?.effectType).toBe('FIFTY_FIFTY');
+  });
+
+  it('applyPowerupEffect REVEAL sets revealedOptionIndex', () => {
+    act(() =>
+      useGameStore.getState().applyServerEvent({
+        type: 'powerup:effect',
+        version: 'v1',
+        payload: {
+          roomId: 'room-42',
+          userId: 'user-1',
+          powerUpId: 'pu-2',
+          effect: { type: 'REVEAL', revealedAnswerIndex: 2 },
+        },
+      }),
+    );
+    expect(useGameStore.getState().revealedOptionIndex).toBe(2);
+  });
+
+  it('applyPowerupEffect TIME_BOOST sets timeBoostActive', () => {
+    act(() =>
+      useGameStore.getState().applyServerEvent({
+        type: 'powerup:effect',
+        version: 'v1',
+        payload: {
+          roomId: 'room-42',
+          userId: 'user-1',
+          powerUpId: 'pu-3',
+          effect: { type: 'TIME_BOOST' },
+        },
+      }),
+    );
+    expect(useGameStore.getState().timeBoostActive).toBe(true);
+  });
+
+  it('applyFinaleStarted sets phase=FINALE and marks non-finalists as eliminated', () => {
+    act(() =>
+      useGameStore.setState({
+        players: [
+          { id: 'p1', displayName: 'Alice', score: 200, streak: 2, isEliminated: false },
+          { id: 'p2', displayName: 'Bob', score: 150, streak: 1, isEliminated: false },
+          { id: 'p3', displayName: 'Carol', score: 50, streak: 0, isEliminated: false },
+        ],
+      }),
+    );
+    act(() =>
+      useGameStore.getState().applyServerEvent({
+        type: 'round:finale_started',
+        version: 'v1',
+        payload: { roomId: 'room-42', finalistIds: ['p1', 'p2'] },
+      }),
+    );
+    const state = useGameStore.getState();
+    expect(state.phase).toBe('FINALE');
+    expect(state.players.find((p) => p.id === 'p3')?.isEliminated).toBe(true);
+    expect(state.players.find((p) => p.id === 'p1')?.isEliminated).toBe(false);
+  });
+
   it('setMyAnswer sets myAnswerIndex; resetRoom resets everything to initial state', () => {
     act(() => {
       useGameStore.setState({

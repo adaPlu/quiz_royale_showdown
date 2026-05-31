@@ -122,7 +122,16 @@ apiClient.interceptors.response.use(
       };
       return apiClient.request(originalRequest);
     } catch (refreshError) {
-      setAccessToken(null);
+      // Only clear auth on explicit credential rejection (401/403).
+      // For transient 5xx or network errors, keep the user logged in so they can retry.
+      const refreshStatus = axios.isAxiosError(refreshError)
+        ? (refreshError as AxiosError).response?.status ?? 0
+        : 0;
+      if (refreshStatus === 401 || refreshStatus === 403) {
+        setAccessToken(null);
+      } else {
+        console.error('[apiClient] token refresh failed with non-auth error (status', refreshStatus, ') — keeping auth state:', refreshError);
+      }
       if (refreshError instanceof ApiError) throw refreshError;
       if (axios.isAxiosError(refreshError)) throw toApiError(refreshError as AxiosError<ErrorBody>);
       throw new ApiError(0, 'REFRESH_FAILED', refreshError instanceof Error ? refreshError.message : 'Token refresh failed');
