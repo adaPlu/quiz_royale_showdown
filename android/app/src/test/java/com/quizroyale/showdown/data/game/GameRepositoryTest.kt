@@ -7,12 +7,15 @@ import com.quizroyale.showdown.data.local.CachedPlayerDao
 import com.quizroyale.showdown.data.local.CachedRoomSnapshotDao
 import com.quizroyale.showdown.data.socket.WebSocketManager
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -103,6 +106,79 @@ class GameRepositoryTest {
             rawEvents.emit(unknown)
             expectNoEvents()
             cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // joinRoom — authenticated
+    // ---------------------------------------------------------------------------
+    @Test
+    fun `joinRoom when authenticated sends room join envelope and returns true`() {
+        every { authRepository.currentAccessToken() } returns "tok-abc"
+
+        val result = repository.joinRoom("ABC123")
+
+        assertTrue(result)
+        verify {
+            webSocketManager.send(match { msg ->
+                msg.contains("\"type\":\"room:join\"") && msg.contains("\"roomCode\":\"ABC123\"")
+            })
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // joinRoom — unauthenticated
+    // ---------------------------------------------------------------------------
+    @Test
+    fun `joinRoom when unauthenticated does not send and returns false`() {
+        every { authRepository.currentAccessToken() } returns null
+
+        val result = repository.joinRoom("ABC123")
+
+        assertFalse(result)
+        verify(exactly = 0) { webSocketManager.send(any()) }
+    }
+
+    // ---------------------------------------------------------------------------
+    // leaveRoom — calls API and disconnects
+    // ---------------------------------------------------------------------------
+    @Test
+    fun `leaveRoom calls gameApi leaveRoom and webSocketManager disconnect`() = runTest {
+        repository.leaveRoom("room-1")
+
+        coVerify { gameApi.leaveRoom("room-1") }
+        verify { webSocketManager.disconnect() }
+    }
+
+    // ---------------------------------------------------------------------------
+    // submitAnswer — correct envelope
+    // ---------------------------------------------------------------------------
+    @Test
+    fun `submitAnswer sends correct envelope with all fields`() {
+        repository.submitAnswer("room-1", "q-1", 2)
+
+        verify {
+            webSocketManager.send(match { msg ->
+                msg.contains("\"type\":\"round:submit_answer\"") &&
+                    msg.contains("\"roomId\":\"room-1\"") &&
+                    msg.contains("\"questionId\":\"q-1\"") &&
+                    msg.contains("\"answerIndex\":2")
+            })
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // sendHeartbeat — correct envelope
+    // ---------------------------------------------------------------------------
+    @Test
+    fun `sendHeartbeat sends heartbeat envelope with type and roomId`() {
+        repository.sendHeartbeat("room-1")
+
+        verify {
+            webSocketManager.send(match { msg ->
+                msg.contains("\"type\":\"client:heartbeat\"") &&
+                    msg.contains("\"roomId\":\"room-1\"")
+            })
         }
     }
 

@@ -10,7 +10,7 @@ import com.quizroyale.showdown.data.auth.TokenRefreshInterceptor
 import com.quizroyale.showdown.data.cosmetics.CosmeticsApi
 import com.quizroyale.showdown.data.friends.FriendsApi
 import com.quizroyale.showdown.data.game.GameApi
-import com.quizroyale.showdown.ui.screens.leaderboard.LeaderboardApi
+import com.quizroyale.showdown.data.leaderboard.LeaderboardApi
 import com.quizroyale.showdown.data.local.AppDatabase
 import com.quizroyale.showdown.data.push.PushApi
 import com.quizroyale.showdown.data.user.UserApi

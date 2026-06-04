@@ -2,6 +2,7 @@ package com.quizroyale.showdown.ui.screens.leaderboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.quizroyale.showdown.data.leaderboard.LeaderboardApi
 import com.quizroyale.showdown.ui.common.toUiMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow

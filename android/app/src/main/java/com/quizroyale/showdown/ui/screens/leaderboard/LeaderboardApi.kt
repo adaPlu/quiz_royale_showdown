@@ -1,26 +1,8 @@
+// Moved to data/leaderboard/LeaderboardApi.kt
 package com.quizroyale.showdown.ui.screens.leaderboard
 
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
-import retrofit2.http.GET
+@Deprecated("Use com.quizroyale.showdown.data.leaderboard.LeaderboardApi instead")
+typealias LeaderboardApi = com.quizroyale.showdown.data.leaderboard.LeaderboardApi
 
-@Serializable
-data class LeaderboardRow(
-    @SerialName("userId") val userId: String,
-    @SerialName("displayName") val displayName: String,
-    @SerialName("mmr") val mmr: Int,
-    @SerialName("totalXp") val totalXp: Int,
-    @SerialName("level") val level: Int
-)
-
-// Auth header is added by the OkHttp interceptor — do not add it manually here.
-interface LeaderboardApi {
-    @GET("leaderboard?season=current&limit=100")
-    suspend fun getSeason(): List<LeaderboardRow>
-
-    @GET("leaderboard?limit=100")
-    suspend fun getGlobal(): List<LeaderboardRow>
-
-    @GET("leaderboard/friends?limit=50")
-    suspend fun getFriends(): List<LeaderboardRow>
-}
+@Deprecated("Use com.quizroyale.showdown.data.leaderboard.LeaderboardRow instead")
+typealias LeaderboardRow = com.quizroyale.showdown.data.leaderboard.LeaderboardRow
