@@ -2,6 +2,7 @@ package com.quizroyale.showdown.ui.screens.leaderboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.quizroyale.showdown.ui.common.toUiMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -66,7 +67,7 @@ class LeaderboardViewModel @Inject constructor(
                     )
                 }
             } catch (e: Exception) {
-                _uiState.update { it.copy(loading = false, entries = emptyList(), error = e.message ?: "Failed to load leaderboard") }
+                _uiState.update { it.copy(loading = false, entries = emptyList(), error = e.toUiMessage()) }
             }
         }
     }

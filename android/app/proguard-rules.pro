@@ -50,3 +50,9 @@
 
 # Data models (prevent obfuscation of JSON-mapped fields)
 -keep class com.quizroyale.showdown.data.** { *; }
+
+# Preserve WebSocketManager backing fields accessed via reflection in unit tests
+-keepclassmembers class com.quizroyale.showdown.data.socket.WebSocketManager {
+    kotlinx.coroutines.flow.MutableSharedFlow _events;
+    kotlinx.coroutines.flow.MutableStateFlow _isConnected;
+}
