@@ -27,12 +27,14 @@ vi.mock('@/services/socketService', () => ({
 // ─── Store mocks ──────────────────────────────────────────────────────────────
 
 const mockSetLootDrop = vi.fn();
+const mockSetSocketError = vi.fn();
 const mockUpdateXp = vi.fn();
 
 vi.mock('@/stores/gameStore', () => {
   const state = {
     code: null as string | null,
     setLootDrop: mockSetLootDrop,
+    setSocketError: mockSetSocketError,
     applyRoomState: vi.fn(),
     applyPlayerJoined: vi.fn(),
     applyPlayerLeft: vi.fn(),
@@ -46,6 +48,7 @@ vi.mock('@/stores/gameStore', () => {
     applyPowerupEffect: vi.fn(),
     applyGameOver: vi.fn(),
     applyLevelUp: vi.fn(),
+    socketError: null as string | null,
   };
 
   const useGameStore = (selector: (s: typeof state) => unknown) => selector(state);
@@ -84,6 +87,8 @@ function reset() {
   vi.clearAllMocks();
   // Restore default: on() returns an unsubscribe stub
   mockOn.mockReturnValue(vi.fn());
+  // Restore setSocketError mock so getState() calls return the current mock
+  mockSetSocketError.mockReset();
 }
 
 beforeEach(reset);
@@ -191,6 +196,45 @@ describe('useGameSocket', () => {
 
       lootDropHandler!({ roomId: 'room-abc', powerupType: undefined, powerupId: 'time_boost', quantity: 1 });
       expect(mockSetLootDrop).toHaveBeenCalledWith('time_boost');
+    });
+  });
+
+  describe('error event', () => {
+    function captureErrorHandler() {
+      let errorHandler: ((payload: unknown) => void) | null = null;
+      mockOn.mockImplementation((event: string, handler: (payload: unknown) => void) => {
+        if (event === 'error') errorHandler = handler;
+        return vi.fn();
+      });
+      renderHook(() => useGameSocket('room-abc'));
+      return errorHandler;
+    }
+
+    it('sets socketError to payload.message when message is present', () => {
+      const handler = captureErrorHandler();
+      expect(handler).not.toBeNull();
+
+      handler!({ message: 'Room is full', error: undefined });
+
+      expect(mockSetSocketError).toHaveBeenCalledWith('Room is full');
+    });
+
+    it('falls back to payload.error when message is undefined', () => {
+      const handler = captureErrorHandler();
+      expect(handler).not.toBeNull();
+
+      handler!({ message: undefined, error: 'Invalid token' });
+
+      expect(mockSetSocketError).toHaveBeenCalledWith('Invalid token');
+    });
+
+    it('uses default message when both message and error are undefined', () => {
+      const handler = captureErrorHandler();
+      expect(handler).not.toBeNull();
+
+      handler!({ message: undefined, error: undefined });
+
+      expect(mockSetSocketError).toHaveBeenCalledWith('A socket error occurred.');
     });
   });
 });

@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Hoisted mock state ────────────────────────────────────────────────────────
 
@@ -15,6 +16,7 @@ const {
   mockPlayVictory,
   mockPlayPowerup,
   mockGameStoreState,
+  mockNavigate,
 } = vi.hoisted(() => {
   const defaultState = {
     phase: 'WAITING' as string,
@@ -37,10 +39,13 @@ const {
     usedPowerUps: [] as string[],
     levelUpQueue: [] as Array<{ userId: string; newLevel: number; xpAwarded: number; xpToNextLevel: number }>,
     lootDrop: null as null | { powerupType: string; ts: number },
-    setMyAnswer: () => {},
-    clearLootDrop: () => {},
-    dismissLevelUp: () => {},
+    setMyAnswer: vi.fn(),
+    clearLootDrop: vi.fn(),
+    dismissLevelUp: vi.fn(),
+    clearSocketError: vi.fn(),
     roomId: 'room-123' as string | null,
+    socketError: null as string | null,
+    activePowerupEffect: null as null | { effectType: string; affectedPlayerIds: string[] },
   };
 
   return {
@@ -54,10 +59,16 @@ const {
     mockPlayVictory: vi.fn(),
     mockPlayPowerup: vi.fn(),
     mockGameStoreState: defaultState,
+    mockNavigate: vi.fn(),
   };
 });
 
 // ─── Module mocks ──────────────────────────────────────────────────────────────
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+  return { ...actual, useNavigate: () => mockNavigate };
+});
 
 vi.mock('@/hooks/useGameSocket', () => ({
   useGameSocket: vi.fn(),
@@ -184,10 +195,13 @@ function resetGameState() {
     usedPowerUps: [],
     levelUpQueue: [],
     lootDrop: null,
-    setMyAnswer: () => {},
-    clearLootDrop: () => {},
-    dismissLevelUp: () => {},
+    setMyAnswer: vi.fn(),
+    clearLootDrop: vi.fn(),
+    dismissLevelUp: vi.fn(),
+    clearSocketError: vi.fn(),
     roomId: 'room-123',
+    socketError: null,
+    activePowerupEffect: null,
   });
 }
 
@@ -201,12 +215,16 @@ function renderPage() {
   );
 }
 
-// ─── Tests ────────────────────────────────────────────────────────────────────
+// ─── Tests ───────────────────────────────────────────────────────────────────
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockOn.mockReturnValue(vi.fn());
   resetGameState();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('GamePage smoke tests', () => {
@@ -273,5 +291,181 @@ describe('GamePage smoke tests', () => {
 
     expect(screen.getByTestId('level-up-toast')).toBeInTheDocument();
     expect(screen.getByText(/level 5/i)).toBeInTheDocument();
+  });
+});
+
+describe('GamePage — socket error banner', () => {
+  it('renders alert banner when socketError is set', () => {
+    setGameState({ socketError: 'Room is full' });
+    renderPage();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Room is full');
+  });
+
+  it('auto-dismisses after 4000ms by calling clearSocketError', async () => {
+    vi.useFakeTimers();
+    const clearSocketError = vi.fn();
+    setGameState({ socketError: 'Room is full', clearSocketError });
+    renderPage();
+
+    // Banner should be visible
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+
+    // Advance timers past the 4-second auto-dismiss
+    await act(async () => {
+      vi.advanceTimersByTime(4000);
+    });
+
+    expect(clearSocketError).toHaveBeenCalled();
+  });
+
+  it('does not render alert banner when socketError is null', () => {
+    setGameState({ socketError: null });
+    renderPage();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
+describe('GamePage — answer buttons for active question', () => {
+  const makeQuestion = (answers = ['Alpha', 'Beta', 'Gamma', 'Delta']) => ({
+    roundId: 'r1',
+    questionId: 'q1',
+    prompt: 'Test question?',
+    answers,
+    timeLimitMs: 20000,
+    startedAt: new Date().toISOString(),
+  });
+
+  it('renders 4 answer buttons labeled A / B / C / D', () => {
+    setGameState({ phase: 'QUESTION_ACTIVE', question: makeQuestion() });
+    renderPage();
+
+    expect(screen.getByText('A')).toBeInTheDocument();
+    expect(screen.getByText('B')).toBeInTheDocument();
+    expect(screen.getByText('C')).toBeInTheDocument();
+    expect(screen.getByText('D')).toBeInTheDocument();
+  });
+
+  it('calls socketService.emit with round:submit_answer and correct answerIndex on click', async () => {
+    const question = makeQuestion(['Option A', 'Option B', 'Option C', 'Option D']);
+    setGameState({ phase: 'QUESTION_ACTIVE', question, myAnswerIndex: null });
+    renderPage();
+
+    // Click the second answer button (index 1 = "B" label, "Option B" text)
+    const optionBButton = screen.getByText('Option B').closest('button') as HTMLElement;
+    await userEvent.click(optionBButton);
+
+    expect(mockEmit).toHaveBeenCalledWith(
+      'round:submit_answer',
+      expect.objectContaining({
+        roomId: expect.any(String),
+        questionId: question.questionId,
+        answerIndex: 1,
+        clientSentAt: expect.any(String),
+      }),
+    );
+  });
+});
+
+describe('GamePage — correct answer highlighting', () => {
+  it('applies correct-answer class to the button at result.correctAnswerIndex', () => {
+    const question = {
+      roundId: 'r1',
+      questionId: 'q1',
+      prompt: 'Who wrote Hamlet?',
+      answers: ['Marlowe', 'Shakespeare', 'Chaucer', 'Donne'],
+      timeLimitMs: 15000,
+      startedAt: new Date().toISOString(),
+    };
+    // correctAnswerIndex = 1 → "Shakespeare"
+    setGameState({
+      phase: 'ROUND_RESULT',
+      question,
+      result: { correctAnswerIndex: 1, rankings: [] },
+      myAnswerIndex: null,
+    });
+    renderPage();
+
+    const correctButton = screen.getByText('Shakespeare').closest('button') as HTMLElement;
+    // answerButtonClass returns 'border-answer-correct ...' for the correct index
+    expect(correctButton.className).toMatch(/border-answer-correct/);
+  });
+});
+
+describe('GamePage — leave button confirmation', () => {
+  it('calls window.confirm when leaving during an active phase', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    setGameState({ phase: 'QUESTION_ACTIVE', question: null });
+    renderPage();
+
+    await userEvent.click(screen.getByRole('button', { name: /← back/i }));
+
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/leave the game/i));
+    confirmSpy.mockRestore();
+  });
+
+  it('does NOT navigate when the user cancels the leave confirmation', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    setGameState({ phase: 'QUESTION_ACTIVE', question: null });
+    renderPage();
+
+    await userEvent.click(screen.getByRole('button', { name: /← back/i }));
+
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('navigates to /home when user confirms leave', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    setGameState({ phase: 'QUESTION_ACTIVE', question: null });
+    renderPage();
+
+    await userEvent.click(screen.getByRole('button', { name: /← back/i }));
+
+    expect(mockNavigate).toHaveBeenCalledWith('/home');
+  });
+});
+
+describe('GamePage — leaderboard sorted by score', () => {
+  it('renders players in descending score order', () => {
+    setGameState({
+      phase: 'WAITING',
+      players: [
+        { id: 'p1', displayName: 'Alice', score: 100, streak: 0, isEliminated: false },
+        { id: 'p2', displayName: 'Charlie', score: 300, streak: 0, isEliminated: false },
+        { id: 'p3', displayName: 'Bob', score: 200, streak: 0, isEliminated: false },
+      ],
+    });
+    renderPage();
+
+    const avatars = screen.getAllByTestId('player-avatar');
+    // The leaderboard is sorted desc: Charlie (300), Bob (200), Alice (100)
+    expect(avatars[0]).toHaveTextContent('Charlie');
+    expect(avatars[1]).toHaveTextContent('Bob');
+    expect(avatars[2]).toHaveTextContent('Alice');
+  });
+});
+
+describe('GamePage — host start game', () => {
+  it('shows "Start Game" button when user is host in WAITING phase', () => {
+    setGameState({ phase: 'WAITING', hostId: 'u1' });
+    renderPage();
+
+    expect(screen.getByRole('button', { name: /start game/i })).toBeInTheDocument();
+  });
+
+  it('does NOT show "Start Game" when user is not the host', () => {
+    setGameState({ phase: 'WAITING', hostId: 'other-user' });
+    renderPage();
+
+    expect(screen.queryByRole('button', { name: /start game/i })).toBeNull();
+  });
+
+  it('clicking "Start Game" emits room:start with the roomId', async () => {
+    setGameState({ phase: 'WAITING', hostId: 'u1', roomId: 'room-123' });
+    renderPage();
+
+    await userEvent.click(screen.getByRole('button', { name: /start game/i }));
+
+    expect(mockEmit).toHaveBeenCalledWith('room:start', { roomId: 'room-123' });
   });
 });
