@@ -228,6 +228,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       // Always use server truth — the server sends currentQuestion on reconnect during QUESTION_ACTIVE
       question: payload.room.currentQuestion ?? null,
       lootDrop: null,
+      socketError: null,
       ...resetRoundInteraction,
     });
   },
