@@ -45,7 +45,7 @@ const BASE_URL =
 
 const axiosInstance: AxiosInstance = axios.create({
   baseURL: BASE_URL,
-  withCredentials: false,
+  withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -84,22 +84,19 @@ function shouldAttemptRefresh(url?: string): boolean {
 export async function refreshAuthSession(): Promise<RefreshResponse> {
   const refreshToken = tokenStore.getRefreshToken();
 
-  if (!refreshToken) {
-    throw new ApiError(401, 'AUTH_REFRESH_MISSING', 'No refresh token available');
-  }
-
   try {
     const response = await axios.post<RefreshResponse>(
       `${BASE_URL}/auth/refresh`,
-      { refreshToken },
+      refreshToken ? { refreshToken } : {},
       {
         headers: { 'Content-Type': 'application/json' },
+        withCredentials: true,
       },
     );
 
     const tokens = {
       accessToken: response.data.accessToken,
-      refreshToken: response.data.refreshToken ?? refreshToken,
+      refreshToken: response.data.refreshToken ?? null,
     };
 
     tokenStore.setTokens(tokens);

@@ -35,13 +35,15 @@ interface TestResponse {
   status: number;
   body: unknown;
   text: string;
+  headers: Headers;
 }
 
 async function request(
   app: Express,
   method: string,
   path: string,
-  body?: unknown
+  body?: unknown,
+  headers?: Record<string, string>
 ): Promise<TestResponse> {
   const server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, resolve));
@@ -54,7 +56,10 @@ async function request(
   try {
     const response = await fetch(`http://127.0.0.1:${address.port}${path}`, {
       method,
-      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+      headers: {
+        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+        ...headers,
+      },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const text = await response.text();
@@ -63,6 +68,7 @@ async function request(
       status: response.status,
       text,
       body: text ? (JSON.parse(text) as unknown) : null,
+      headers: response.headers,
     };
   } finally {
     await new Promise<void>((resolve, reject) => {
@@ -118,6 +124,8 @@ describe("auth routes", () => {
       accessToken: "access-token",
       refreshToken: "refresh-token",
     });
+    expect(response.headers.get("set-cookie")).toContain("quiz_refresh=refresh-token");
+    expect(response.headers.get("set-cookie")).toContain("HttpOnly");
     expect(prismaMock.user.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -126,6 +134,61 @@ describe("auth routes", () => {
         }),
       })
     );
+  });
+
+  it("sets the refresh cookie from login while preserving the JSON refresh token", async () => {
+    const bcrypt = (await import("bcrypt")).default;
+    vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
+    const user = {
+      id: "user-1",
+      email: "login@example.com",
+      displayName: "Login User",
+      passwordHash: "hashed-password",
+    };
+    prismaMock.user.findUnique.mockResolvedValue(user);
+    authServiceMock.issueTokenPair.mockResolvedValue({
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+    });
+    const app = await createAuthTestApp();
+
+    const response = await request(app, "POST", "/api/v1/auth/login", {
+      email: "LOGIN@EXAMPLE.COM",
+      password: "password123",
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+    });
+    expect(response.headers.get("set-cookie")).toContain("quiz_refresh=refresh-token");
+    expect(response.headers.get("set-cookie")).toContain("HttpOnly");
+  });
+
+  it("refreshes tokens from the HttpOnly refresh cookie without a body token", async () => {
+    authServiceMock.rotateRefreshToken.mockResolvedValue({
+      accessToken: "next-access-token",
+      refreshToken: "next-refresh-token",
+    });
+    const app = await createAuthTestApp();
+
+    const response = await request(
+      app,
+      "POST",
+      "/api/v1/auth/refresh",
+      {},
+      { Cookie: `quiz_refresh=${encodeURIComponent("r".repeat(20))}` }
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      accessToken: "next-access-token",
+      refreshToken: "next-refresh-token",
+    });
+    expect(authServiceMock.rotateRefreshToken).toHaveBeenCalledWith("r".repeat(20));
+    expect(response.headers.get("set-cookie")).toContain("quiz_refresh=next-refresh-token");
+    expect(response.headers.get("set-cookie")).toContain("HttpOnly");
   });
 
   it("returns structured 400 validation errors from register", async () => {
@@ -154,5 +217,24 @@ describe("auth routes", () => {
     expect(response.status).toBe(204);
     expect(response.text).toBe("");
     expect(authServiceMock.revokeRefreshToken).toHaveBeenCalledWith("r".repeat(20));
+    expect(response.headers.get("set-cookie")).toContain("quiz_refresh=");
+  });
+
+  it("returns 204 from logout using only the refresh cookie", async () => {
+    authServiceMock.revokeRefreshToken.mockResolvedValue(undefined);
+    const app = await createAuthTestApp();
+
+    const response = await request(
+      app,
+      "POST",
+      "/api/v1/auth/logout",
+      {},
+      { Cookie: `quiz_refresh=${encodeURIComponent("c".repeat(20))}` }
+    );
+
+    expect(response.status).toBe(204);
+    expect(response.text).toBe("");
+    expect(authServiceMock.revokeRefreshToken).toHaveBeenCalledWith("c".repeat(20));
+    expect(response.headers.get("set-cookie")).toContain("quiz_refresh=");
   });
 });

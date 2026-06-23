@@ -1,5 +1,6 @@
 import bcrypt from "bcrypt";
 import { Prisma } from "@prisma/client";
+import type { Request, Response } from "express";
 import { Router } from "express";
 import { z } from "zod";
 
@@ -15,6 +16,7 @@ import {
 import { ConflictError, UnauthorizedError } from "../utils/errors";
 import { generateId } from "../utils/ulid";
 import { logger } from "../utils/logger";
+import { env } from "../config/env";
 
 const BCRYPT_ROUNDS = 12;
 
@@ -41,9 +43,15 @@ const loginSchema = z.object({
   password: z.string().min(1)
 });
 
-const refreshSchema = z.object({
-  refreshToken: z.string().min(20)
-});
+const optionalRefreshSchema = z
+  .object({
+    refreshToken: z.string().min(20).optional()
+  })
+  .default({});
+
+const REFRESH_COOKIE_NAME = "quiz_refresh";
+const REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const refreshCookieSameSite = env.isProduction ? "none" : "lax";
 
 export const authRouter = Router();
 
@@ -64,6 +72,50 @@ function formatAuthPayload(
     accessToken: tokens.accessToken,
     refreshToken: tokens.refreshToken
   };
+}
+
+function setRefreshCookie(res: Response, refreshToken: string): void {
+  res.cookie(REFRESH_COOKIE_NAME, refreshToken, {
+    httpOnly: true,
+    secure: env.isProduction,
+    sameSite: refreshCookieSameSite,
+    path: "/api/v1/auth",
+    maxAge: REFRESH_COOKIE_MAX_AGE_MS
+  });
+}
+
+function clearRefreshCookie(res: Response): void {
+  res.clearCookie(REFRESH_COOKIE_NAME, {
+    httpOnly: true,
+    secure: env.isProduction,
+    sameSite: refreshCookieSameSite,
+    path: "/api/v1/auth"
+  });
+}
+
+function getCookieValue(req: Request, name: string): string | null {
+  const cookieHeader = req.headers.cookie;
+  if (!cookieHeader) return null;
+
+  for (const cookie of cookieHeader.split(";")) {
+    const [rawName, ...rawValueParts] = cookie.trim().split("=");
+    if (rawName !== name) continue;
+
+    const rawValue = rawValueParts.join("=");
+    if (!rawValue) return null;
+
+    try {
+      return decodeURIComponent(rawValue);
+    } catch {
+      return rawValue;
+    }
+  }
+
+  return null;
+}
+
+function getRequestRefreshToken(req: Request): string | null {
+  return getCookieValue(req, REFRESH_COOKIE_NAME) ?? (req.body as { refreshToken?: string }).refreshToken ?? null;
 }
 
 authRouter.post("/register", validate({ body: registerSchema }), async (req, res, next) => {
@@ -104,6 +156,7 @@ authRouter.post("/register", validate({ body: registerSchema }), async (req, res
 
     logger.info("User registered", { userId: user.id });
 
+    setRefreshCookie(res, tokens.refreshToken);
     res.status(201).json(formatAuthPayload(user, tokens));
   } catch (error) {
     if (isUniqueConstraintError(error)) {
@@ -148,19 +201,25 @@ authRouter.post("/login", validate({ body: loginSchema }), async (req, res, next
 
     logger.info("User logged in", { userId: user.id });
 
+    setRefreshCookie(res, tokens.refreshToken);
     res.json(formatAuthPayload(user, tokens));
   } catch (error) {
     next(error);
   }
 });
 
-authRouter.post("/refresh", validate({ body: refreshSchema }), async (req, res, next) => {
+authRouter.post("/refresh", validate({ body: optionalRefreshSchema }), async (req, res, next) => {
   try {
-    const { refreshToken } = req.body as z.infer<typeof refreshSchema>;
+    const refreshToken = getRequestRefreshToken(req);
+    if (!refreshToken) {
+      throw new UnauthorizedError("Missing refresh token");
+    }
+
     const tokens = await rotateRefreshToken(refreshToken);
 
     logger.info("Tokens refreshed");
 
+    setRefreshCookie(res, tokens.refreshToken);
     res.json({
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken
@@ -170,12 +229,15 @@ authRouter.post("/refresh", validate({ body: refreshSchema }), async (req, res, 
   }
 });
 
-authRouter.post("/logout", validate({ body: refreshSchema }), async (req, res, next) => {
+authRouter.post("/logout", validate({ body: optionalRefreshSchema }), async (req, res, next) => {
   try {
-    const { refreshToken } = req.body as z.infer<typeof refreshSchema>;
+    const refreshToken = getRequestRefreshToken(req);
 
-    await revokeRefreshToken(refreshToken);
+    if (refreshToken) {
+      await revokeRefreshToken(refreshToken);
+    }
 
+    clearRefreshCookie(res);
     res.status(204).send();
   } catch (error) {
     next(error);

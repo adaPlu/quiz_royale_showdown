@@ -52,6 +52,7 @@ export interface LeaveRoomResult {
 
 const MATCHMAKING_QUEUE_KEY = "matchmaking:queue";
 const ROOM_PLAYERS_TTL_SECONDS = 60 * 60 * 2;
+const JOIN_ROOM_MAX_ATTEMPTS = 3;
 const DEFAULT_ROOM_CONFIG: RoomConfig = {
   isPrivate: true,
   maxPlayers: 8,
@@ -75,6 +76,10 @@ const roomWithPlayersInclude = Prisma.validator<Prisma.RoomInclude>()({
 type RoomWithPlayers = Prisma.RoomGetPayload<{
   include: typeof roomWithPlayersInclude;
 }>;
+
+interface JoinRoomPlayerResult {
+  joined: boolean;
+}
 
 export class RoomService {
   async createRoom(
@@ -114,27 +119,9 @@ export class RoomService {
       room = await this.matchmakeOrCreate(userId);
     }
 
-    const existing = await prisma.roomPlayer.findUnique({
-      where: { roomId_userId: { roomId: room.id, userId } },
-    });
-
-    if (!existing) {
-      const config = await this.getRoomConfig(room.id);
-      const seatCount = await prisma.roomPlayer.count({ where: { roomId: room.id } });
-
-      if (seatCount >= config.maxPlayers) {
-        throw new ConflictError("Room is full");
-      }
-
-      await prisma.roomPlayer.create({
-        data: {
-          id: generateId(),
-          roomId: room.id,
-          userId,
-          seatIndex: seatCount,
-        },
-      });
-
+    const config = await this.getRoomConfig(room.id);
+    const joinResult = await this.joinRoomPlayer(room.id, userId, config);
+    if (joinResult.joined) {
       await this.addLivePlayer(room.id, userId);
 
       logger.info("Player joined room", { userId, roomId: room.id });
@@ -397,6 +384,91 @@ export class RoomService {
     }
 
     return config;
+  }
+
+  private async joinRoomPlayer(
+    roomId: string,
+    userId: string,
+    config: RoomConfig
+  ): Promise<JoinRoomPlayerResult> {
+    for (let attempt = 1; attempt <= JOIN_ROOM_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        return await prisma.$transaction(
+          async (tx) => {
+            const room = await tx.room.findUnique({
+              where: { id: roomId },
+              select: { id: true, status: true },
+            });
+
+            if (!room) {
+              throw new NotFoundError(`Room ${roomId} not found`);
+            }
+
+            const existing = await tx.roomPlayer.findUnique({
+              where: { roomId_userId: { roomId, userId } },
+              select: { id: true },
+            });
+
+            if (existing) {
+              return { joined: false };
+            }
+
+            if (room.status !== "WAITING") {
+              throw new ForbiddenError("Room is no longer accepting players");
+            }
+
+            const players = await tx.roomPlayer.findMany({
+              where: { roomId },
+              select: { seatIndex: true },
+              orderBy: { seatIndex: "asc" },
+            });
+
+            if (players.length >= config.maxPlayers) {
+              throw new ConflictError("Room is full");
+            }
+
+            const occupiedSeats = new Set(players.map((player) => player.seatIndex));
+            let seatIndex = 0;
+            while (occupiedSeats.has(seatIndex) && seatIndex < config.maxPlayers) {
+              seatIndex += 1;
+            }
+
+            if (seatIndex >= config.maxPlayers) {
+              throw new ConflictError("Room is full");
+            }
+
+            await tx.roomPlayer.create({
+              data: {
+                id: generateId(),
+                roomId,
+                userId,
+                seatIndex,
+              },
+            });
+
+            return { joined: true };
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+        );
+      } catch (error) {
+        if (this.isSerializationConflict(error) && attempt < JOIN_ROOM_MAX_ATTEMPTS) {
+          continue;
+        }
+
+        throw error;
+      }
+    }
+
+    throw new ConflictError("Room could not be joined safely");
+  }
+
+  private isSerializationConflict(error: unknown): boolean {
+    return (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as { code?: string }).code === "P2034"
+    );
   }
 
   private async createRoomEntity(

@@ -201,7 +201,7 @@ export class PowerUpService {
     }
 
     const code = normalizePowerUpCode(powerUp.code);
-    this.validateActivationInput(input, code);
+    await this.validateActivationInput(input, code);
 
     const used = await redisService.setnx(
       usedKey(input.roomId, input.userId, powerUp.id),
@@ -212,41 +212,36 @@ export class PowerUpService {
       throw new ForbiddenError("Power-up already used in this room");
     }
 
-    const inventory = await prisma.playerPowerUp.findUnique({
-      where: {
-        userId_powerUpId: {
-          userId: input.userId,
-          powerUpId: powerUp.id,
-        },
-      },
-      select: { quantity: true },
-    });
-    if (!inventory || inventory.quantity < 1) {
-      await redisService.del(usedKey(input.roomId, input.userId, powerUp.id));
-      throw new ForbiddenError("Power-up is not available in inventory");
-    }
-
-    await prisma.$transaction([
-      prisma.playerPowerUp.update({
-        where: {
-          userId_powerUpId: {
+    try {
+      await prisma.$transaction(async (tx) => {
+        const inventoryUpdate = await tx.playerPowerUp.updateMany({
+          where: {
             userId: input.userId,
             powerUpId: powerUp.id,
+            quantity: { gt: 0 },
           },
-        },
-        data: { quantity: { decrement: 1 } },
-      }),
-      prisma.powerUpUse.create({
-        data: {
-          id: generateId(),
-          roomId: input.roomId,
-          roundId: input.roundId ?? null,
-          userId: input.userId,
-          powerUpId: powerUp.id,
-          targetPlayerId: input.targetPlayerId ?? null,
-        },
-      }),
-    ]);
+          data: { quantity: { decrement: 1 } },
+        });
+
+        if (inventoryUpdate.count === 0) {
+          throw new ForbiddenError("Power-up is not available in inventory");
+        }
+
+        await tx.powerUpUse.create({
+          data: {
+            id: generateId(),
+            roomId: input.roomId,
+            roundId: input.roundId ?? null,
+            userId: input.userId,
+            powerUpId: powerUp.id,
+            targetPlayerId: input.targetPlayerId ?? null,
+          },
+        });
+      });
+    } catch (error) {
+      await redisService.del(usedKey(input.roomId, input.userId, powerUp.id));
+      throw error;
+    }
 
     const result = await this.applyEffect({ ...input, powerUpId: powerUp.id }, code, io);
 
@@ -307,6 +302,17 @@ export class PowerUpService {
     }
     await redisService.del(key);
     return true;
+  }
+
+  private async assertRoomParticipant(roomId: string, userId: string): Promise<void> {
+    const player = await prisma.roomPlayer.findUnique({
+      where: { roomId_userId: { roomId, userId } },
+      select: { id: true },
+    });
+
+    if (!player) {
+      throw new BadRequestError("Target player is not in this room");
+    }
   }
 
   private async applyEffect(
@@ -381,9 +387,19 @@ export class PowerUpService {
     return value;
   }
 
-  private validateActivationInput(input: PowerUpActivationInput, code: PowerUpCode): void {
-    if (code === "SABOTAGE" && !input.targetPlayerId) {
-      throw new BadRequestError("SABOTAGE requires targetPlayerId");
+  private async validateActivationInput(input: PowerUpActivationInput, code: PowerUpCode): Promise<void> {
+    await this.assertRoomParticipant(input.roomId, input.userId);
+
+    if (code === "FIFTY_FIFTY") {
+      this.requireCorrectAnswerIndex(input.correctAnswerIndex);
+    }
+
+    if (code === "SABOTAGE") {
+      if (!input.targetPlayerId) {
+        throw new BadRequestError("SABOTAGE requires targetPlayerId");
+      }
+
+      await this.assertRoomParticipant(input.roomId, input.targetPlayerId);
     }
   }
 }

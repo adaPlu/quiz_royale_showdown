@@ -12,10 +12,25 @@ function emptyRouter(): Router {
   return express.Router();
 }
 
+function mountedRouter(route: string): Router {
+  const router = express.Router();
+  router.get("/__mounted", (_req, res) => {
+    res.json({ route });
+  });
+  return router;
+}
+
 vi.mock("../middleware/rateLimiter", () => limiterMocks);
 vi.mock("../routes/auth", () => ({ authRouter: emptyRouter() }));
+vi.mock("../routes/admin", () => ({ adminRouter: mountedRouter("admin") }));
+vi.mock("../routes/challenges", () => ({ default: mountedRouter("challenges") }));
+vi.mock("../routes/cosmetics", () => ({ default: mountedRouter("cosmetics") }));
 vi.mock("../routes/health", () => ({ healthRouter: emptyRouter() }));
+vi.mock("../routes/leaderboard", () => ({ default: mountedRouter("leaderboard") }));
+vi.mock("../routes/powerups", () => ({ default: mountedRouter("powerups") }));
+vi.mock("../routes/push", () => ({ default: mountedRouter("push") }));
 vi.mock("../routes/rooms", () => ({ roomsRouter: emptyRouter() }));
+vi.mock("../routes/users", () => ({ default: mountedRouter("users") }));
 
 async function request(app: express.Express, path: string) {
   const server = http.createServer(app);
@@ -70,5 +85,27 @@ describe("createApp", () => {
       error: "Route not found",
       code: "NOT_FOUND"
     });
+  });
+
+  it("mounts the existing resource routers under /api/v1", async () => {
+    const { createApp } = await import("../app");
+    const app = createApp();
+
+    const routes = [
+      "admin",
+      "challenges",
+      "cosmetics",
+      "leaderboard",
+      "powerups",
+      "push",
+      "users"
+    ];
+
+    for (const route of routes) {
+      const response = await request(app, `/api/v1/${route}/__mounted`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ route });
+    }
   });
 });
