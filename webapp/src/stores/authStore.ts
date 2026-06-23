@@ -59,6 +59,7 @@ interface AuthState {
 }
 
 let bootstrapPromise: Promise<void> | null = null;
+const COOKIE_REFRESH_SESSION = 'cookie-refresh-session-present';
 
 function decodeAccessToken(accessToken: string): AccessTokenClaims | null {
   try {
@@ -118,6 +119,23 @@ function restoreUserFromAccessToken(accessToken: string, fallback?: User | null)
   );
 }
 
+function removePersistedRefreshToken(persistedState: unknown): Partial<AuthState> {
+  if (!persistedState || typeof persistedState !== 'object') {
+    return {};
+  }
+
+  const { refreshToken: _refreshToken, ...stateWithoutRefreshToken } =
+    persistedState as Partial<AuthState> & { refreshToken?: string | null };
+
+  return {
+    ...stateWithoutRefreshToken,
+    accessToken: null,
+    refreshToken: null,
+    authResolved: false,
+    isBootstrapping: false,
+  };
+}
+
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
@@ -132,7 +150,7 @@ export const useAuthStore = create<AuthState>()(
         set((state) => ({
           user: normalizeAuthUser(session.user, state.user),
           accessToken: session.accessToken,
-          refreshToken: session.refreshToken,
+          refreshToken: COOKIE_REFRESH_SESSION,
           authResolved: true,
           isBootstrapping: false,
         })),
@@ -146,9 +164,9 @@ export const useAuthStore = create<AuthState>()(
         }),
 
       setTokens: ({ accessToken, refreshToken }) =>
-        set((state) => ({
+        set(() => ({
           accessToken,
-          refreshToken: refreshToken ?? state.refreshToken,
+          refreshToken: refreshToken ? COOKIE_REFRESH_SESSION : null,
           authResolved: true,
           isBootstrapping: false,
         })),
@@ -160,21 +178,10 @@ export const useAuthStore = create<AuthState>()(
           return bootstrapPromise;
         }
 
-        const { accessToken, refreshToken, user } = get();
+        const { accessToken, user } = get();
 
         if (accessToken && user) {
           set({ authResolved: true, isBootstrapping: false });
-          return;
-        }
-
-        if (!refreshToken) {
-          set({
-            user: null,
-            accessToken: null,
-            refreshToken: null,
-            authResolved: true,
-            isBootstrapping: false,
-          });
           return;
         }
 
@@ -191,7 +198,7 @@ export const useAuthStore = create<AuthState>()(
             set({
               user: restoredUser,
               accessToken: nextAccessToken,
-              refreshToken: nextRefreshToken,
+              refreshToken: nextRefreshToken ? COOKIE_REFRESH_SESSION : null,
               authResolved: true,
               isBootstrapping: false,
             });
@@ -223,9 +230,10 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'qr-auth',
+      version: 1,
+      migrate: removePersistedRefreshToken,
       partialize: (state) => ({
         user: state.user,
-        refreshToken: state.refreshToken,
       }),
       onRehydrateStorage: () => (state, error) => {
         if (error) {

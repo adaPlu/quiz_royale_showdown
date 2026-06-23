@@ -77,7 +77,7 @@ async function bootstrap(): Promise<void> {
 
   // ─── Graceful shutdown ────────────────────────────────────────────────────
 
-  const shutdown = async (signal: string): Promise<void> => {
+  const shutdown = async (signal: string, exitCode = 0): Promise<void> => {
     logger.info(`Received ${signal} — shutting down gracefully`);
 
     // Stop accepting new HTTP connections
@@ -95,7 +95,7 @@ async function bootstrap(): Promise<void> {
     logger.info("Redis disconnected");
 
     logger.info("Graceful shutdown complete");
-    process.exit(0);
+    process.exit(exitCode);
   };
 
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
@@ -103,13 +103,14 @@ async function bootstrap(): Promise<void> {
 
   process.on("uncaughtException", (error) => {
     logger.fatal("Uncaught exception", { message: error.message, stack: error.stack });
-    void shutdown("uncaughtException").then(() => process.exit(1));
+    void shutdown("uncaughtException", 1);
   });
 
   process.on("unhandledRejection", (reason) => {
     logger.fatal("Unhandled rejection", {
       reason: reason instanceof Error ? reason.message : String(reason)
     });
+    void shutdown("unhandledRejection", 1);
   });
 }
 

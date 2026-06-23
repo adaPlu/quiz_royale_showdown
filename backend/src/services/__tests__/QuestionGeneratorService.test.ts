@@ -42,24 +42,28 @@ vi.mock("openai", () => {
   });
 
   return {
-    default: vi.fn().mockImplementation(() => ({
-      chat: {
-        completions: {
-          create: mockChatCompletionsCreate,
+    default: vi.fn().mockImplementation(function OpenAI() {
+      return {
+        chat: {
+          completions: {
+            create: mockChatCompletionsCreate,
+          },
         },
-      },
-    })),
+      };
+    }),
   };
 });
 
 vi.mock("@prisma/client", () => ({
-  PrismaClient: vi.fn(() => ({
-    questionBank: {
-      count: mockCount,
-      findFirst: mockFindFirst,
-      create: mockCreate,
-    },
-  })),
+  PrismaClient: vi.fn().mockImplementation(function PrismaClient() {
+    return {
+      questionBank: {
+        count: mockCount,
+        findFirst: mockFindFirst,
+        create: mockCreate,
+      },
+    };
+  }),
   Difficulty: { EASY: "EASY", MEDIUM: "MEDIUM", HARD: "HARD" },
 }));
 

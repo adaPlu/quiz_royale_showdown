@@ -9,7 +9,7 @@ import './styles.css';
 
 configureApiClient({
   getAccessToken: () => useAuthStore.getState().accessToken,
-  getRefreshToken: () => useAuthStore.getState().refreshToken,
+  getRefreshToken: () => null,
   setTokens: (tokens) => useAuthStore.getState().setTokens(tokens),
   clearAuth: () => useAuthStore.getState().clearAuth(),
 });

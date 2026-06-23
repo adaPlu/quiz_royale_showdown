@@ -37,13 +37,7 @@ fun AppNavGraph() {
       HomeScreen(
         onNavigateToLobby = { roomCode ->
           navController.navigate(Screen.Lobby.createRoute(roomCode))
-        },
-        onNavigateToProfile = {
-          navController.navigate(Screen.Profile.route)
-        },
-        onNavigateToLeaderboard = {
-          navController.navigate(Screen.Leaderboard.route)
-        },
+        }
       )
     }
 
@@ -54,8 +48,13 @@ fun AppNavGraph() {
     ) { backStackEntry ->
       val roomCode = backStackEntry.arguments?.getString("roomId").orEmpty()
       LobbyScreen(
-        onJoinRoom = {
-          navController.navigate(Screen.Game.createRoute(roomCode.ifBlank { it }))
+        onNavigateHome = {
+          navController.navigate(Screen.Home.route) {
+            popUpTo(Screen.Home.route) { inclusive = true }
+          }
+        },
+        onOpenGameplay = { activeRoomCode ->
+          navController.navigate(Screen.Game.createRoute(activeRoomCode.ifBlank { roomCode }))
         }
       )
     }
@@ -80,7 +79,7 @@ fun AppNavGraph() {
             is GameSideEffect.NavigateToResults ->
               navController.navigate(Screen.Results.createRoute(effect.roomId))
             is GameSideEffect.ShowLootDrop ->
-              snackbarHostState.showSnackbar("You received a ${effect.powerupCode} power-up!")
+              snackbarHostState.showSnackbar("You received a ${effect.powerupType} power-up!")
             else -> Unit
           }
         }
@@ -99,12 +98,12 @@ fun AppNavGraph() {
         GameScreen(
           state = state,
           onAnswerSelected = viewModel::submitAnswer,
-          onPowerupSelected = { code ->
-            runCatching { PowerupType.valueOf(code) }.getOrNull()?.let { type ->
-              viewModel.onIntent(GameIntent.UsePowerup(type))
-            }
-          },
+          sideEffects = viewModel.sideEffects,
+          onIntent = viewModel::onIntent,
           isReconnecting = isReconnecting,
+          onNavigateToResults = { resultRoomId ->
+            navController.navigate(Screen.Results.createRoute(resultRoomId))
+          },
         )
       }
     }

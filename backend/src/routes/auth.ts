@@ -1,9 +1,11 @@
 import bcrypt from "bcrypt";
 import { Prisma } from "@prisma/client";
+import type { Request, Response } from "express";
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
 
+import { env } from "../config/env";
 import { requireAuth } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { prisma } from "../models/prismaClient";
@@ -19,14 +21,9 @@ import { logger } from "../utils/logger";
 
 const BCRYPT_ROUNDS = 12;
 
-const REFRESH_COOKIE_NAME = 'qrs.rt';
-const REFRESH_COOKIE_OPTS = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'strict' as const,
-  path: '/api/v1/auth',
-  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in ms
-};
+const REFRESH_COOKIE_NAME = "qrs.rt";
+const REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const REFRESH_COOKIE_SAME_SITE = env.isProduction ? "none" : "lax";
 
 const registerSchema = z
   .object({
@@ -51,48 +48,50 @@ const loginSchema = z.object({
   password: z.string().min(1).max(128)
 });
 
-const refreshSchema = z.object({
-  refreshToken: z.string().min(20).optional()
-});
+const refreshSchema = z
+  .object({
+    refreshToken: z.string().min(20).optional()
+  })
+  .default({});
 
 const registerLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
+  windowMs: 60 * 60 * 1000,
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Too many registration attempts, please try again later.' },
+  message: { error: "Too many registration attempts, please try again later." },
 });
 
 const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 15 * 60 * 1000,
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Too many login attempts, please try again later.' },
+  message: { error: "Too many login attempts, please try again later." },
 });
 
 const logoutLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 15 * 60 * 1000,
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Too many logout attempts, please try again later.' },
+  message: { error: "Too many logout attempts, please try again later." },
 });
 
 const refreshLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 15 * 60 * 1000,
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Too many refresh attempts, please try again later.' },
+  message: { error: "Too many refresh attempts, please try again later." },
 });
 
 const meLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
+  windowMs: 60 * 1000,
   max: 30,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Too many requests to /me, please try again later.' },
+  message: { error: "Too many requests to /me, please try again later." },
 });
 
 export const authRouter = Router();
@@ -111,8 +110,32 @@ function formatAuthPayload(
       email: user.email,
       displayName: user.displayName
     },
-    accessToken: tokens.accessToken
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken
   };
+}
+
+function setRefreshCookie(res: Response, refreshToken: string): void {
+  res.cookie(REFRESH_COOKIE_NAME, refreshToken, {
+    httpOnly: true,
+    secure: env.isProduction,
+    sameSite: REFRESH_COOKIE_SAME_SITE,
+    path: "/api/v1/auth",
+    maxAge: REFRESH_COOKIE_MAX_AGE_MS,
+  });
+}
+
+function clearRefreshCookie(res: Response): void {
+  res.clearCookie(REFRESH_COOKIE_NAME, {
+    httpOnly: true,
+    secure: env.isProduction,
+    sameSite: REFRESH_COOKIE_SAME_SITE,
+    path: "/api/v1/auth",
+  });
+}
+
+function getRequestRefreshToken(req: Request): string | null {
+  return req.cookies?.[REFRESH_COOKIE_NAME] ?? (req.body as { refreshToken?: string }).refreshToken ?? null;
 }
 
 authRouter.post("/register", registerLimiter, validate({ body: registerSchema }), async (req, res, next) => {
@@ -153,7 +176,7 @@ authRouter.post("/register", registerLimiter, validate({ body: registerSchema })
 
     logger.info("User registered", { userId: user.id });
 
-    res.cookie(REFRESH_COOKIE_NAME, tokens.refreshToken, REFRESH_COOKIE_OPTS);
+    setRefreshCookie(res, tokens.refreshToken);
     res.status(201).json(formatAuthPayload(user, tokens));
   } catch (error) {
     if (isUniqueConstraintError(error)) {
@@ -198,7 +221,7 @@ authRouter.post("/login", loginLimiter, validate({ body: loginSchema }), async (
 
     logger.info("User logged in", { userId: user.id });
 
-    res.cookie(REFRESH_COOKIE_NAME, tokens.refreshToken, REFRESH_COOKIE_OPTS);
+    setRefreshCookie(res, tokens.refreshToken);
     res.json(formatAuthPayload(user, tokens));
   } catch (error) {
     next(error);
@@ -207,36 +230,35 @@ authRouter.post("/login", loginLimiter, validate({ body: loginSchema }), async (
 
 authRouter.post("/refresh", refreshLimiter, validate({ body: refreshSchema }), async (req, res, next) => {
   try {
-    const refreshToken =
-      req.cookies?.[REFRESH_COOKIE_NAME] ??
-      (req.body as z.infer<typeof refreshSchema>).refreshToken;
+    const refreshToken = getRequestRefreshToken(req);
 
     if (!refreshToken) {
-      throw new UnauthorizedError('No refresh token');
+      throw new UnauthorizedError("Missing refresh token");
     }
 
     const tokens = await rotateRefreshToken(refreshToken);
 
     logger.info("Tokens refreshed");
 
-    res.cookie(REFRESH_COOKIE_NAME, tokens.refreshToken, REFRESH_COOKIE_OPTS);
-    res.json({ accessToken: tokens.accessToken });
+    setRefreshCookie(res, tokens.refreshToken);
+    res.json({
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken
+    });
   } catch (error) {
     next(error);
   }
 });
 
-authRouter.post("/logout", logoutLimiter, async (req, res, next) => {
+authRouter.post("/logout", logoutLimiter, validate({ body: refreshSchema }), async (req, res, next) => {
   try {
-    const refreshToken =
-      req.cookies?.[REFRESH_COOKIE_NAME] ??
-      (req.body as { refreshToken?: string }).refreshToken;
+    const refreshToken = getRequestRefreshToken(req);
 
     if (refreshToken) {
       await revokeRefreshToken(refreshToken);
     }
 
-    res.clearCookie(REFRESH_COOKIE_NAME, { path: '/api/v1/auth' });
+    clearRefreshCookie(res);
     res.status(204).send();
   } catch (error) {
     next(error);

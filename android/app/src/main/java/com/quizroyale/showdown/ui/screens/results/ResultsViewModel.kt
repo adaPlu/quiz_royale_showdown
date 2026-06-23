@@ -20,7 +20,7 @@ data class ResultsUiState(
 class ResultsViewModel @Inject constructor(
     private val authRepository: AuthRepository,
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(ResultsUiState(currentUserId = authRepository.currentUserId()))
+    private val _uiState = MutableStateFlow(ResultsUiState(currentUserId = authRepository.currentUserId().orEmpty()))
     val uiState: StateFlow<ResultsUiState> = _uiState.asStateFlow()
 
     fun setResults(leaderboard: List<LeaderboardEntry>, xpEarned: Int) {

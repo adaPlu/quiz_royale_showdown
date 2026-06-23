@@ -56,10 +56,24 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        manualChunks: {
-          react: ["react", "react-dom", "react-router-dom"],
-          motion: ["framer-motion"],
-          socket: ["socket.io-client", "zustand", "axios", "zod"],
+        manualChunks(id: string) {
+          if (!id.includes("node_modules")) {
+            return undefined;
+          }
+
+          if (/[\\/]node_modules[\\/](react|react-dom|react-router-dom)[\\/]/.test(id)) {
+            return "react";
+          }
+
+          if (/[\\/]node_modules[\\/]framer-motion[\\/]/.test(id)) {
+            return "motion";
+          }
+
+          if (/[\\/]node_modules[\\/](socket\.io-client|zustand|axios|zod)[\\/]/.test(id)) {
+            return "socket";
+          }
+
+          return undefined;
         },
       },
     },

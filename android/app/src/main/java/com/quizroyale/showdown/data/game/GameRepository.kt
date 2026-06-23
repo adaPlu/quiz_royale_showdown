@@ -3,8 +3,7 @@ package com.quizroyale.showdown.data.game
 import com.quizroyale.showdown.BuildConfig
 import com.quizroyale.showdown.data.auth.AuthRepository
 import com.quizroyale.showdown.data.local.AppDatabase
-import com.quizroyale.showdown.data.local.CachedPlayerEntity
-import com.quizroyale.showdown.data.local.CachedRoomSnapshotEntity
+import com.quizroyale.showdown.data.local.entity.GameCacheEntity
 import com.quizroyale.showdown.data.socket.WebSocketManager
 import com.quizroyale.showdown.domain.model.GamePlayer
 import java.time.Instant
@@ -102,26 +101,14 @@ class GameRepository @Inject constructor(
   }
 
   private suspend fun cacheRoom(snapshot: RoomSnapshot) {
-    database.cachedRoomDao().upsert(
-      CachedRoomSnapshotEntity(
+    database.gameCacheDao().upsert(
+      GameCacheEntity(
         roomId = snapshot.roomId,
-        code = snapshot.code,
+        roomCode = snapshot.code,
         phase = snapshot.phase,
         roundNumber = snapshot.roundNumber,
         totalRounds = snapshot.totalRounds
       )
-    )
-    database.cachedPlayerDao().upsertAll(
-      snapshot.players.map { player ->
-        CachedPlayerEntity(
-          id = player.id,
-          roomId = snapshot.roomId,
-          displayName = player.displayName,
-          score = player.score,
-          streak = player.streak,
-          isEliminated = player.isEliminated
-        )
-      }
     )
   }
 

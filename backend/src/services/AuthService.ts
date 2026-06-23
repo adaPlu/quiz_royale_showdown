@@ -122,53 +122,50 @@ export function verifyRefreshToken(token: string): JwtPayload {
 
 export async function rotateRefreshToken(incomingRefreshToken: string): Promise<AuthTokenPair> {
   const payload = verifyRefreshToken(incomingRefreshToken);
-  const existingToken = await prisma.refreshToken.findFirst({
-    where: {
-      tokenHash: hashRefreshToken(incomingRefreshToken),
-      expiresAt: {
-        gt: new Date()
+  const incomingTokenHash = hashRefreshToken(incomingRefreshToken);
+
+  return prisma.$transaction(async (tx) => {
+    const consumeResult = await tx.refreshToken.deleteMany({
+      where: {
+        tokenHash: incomingTokenHash,
+        userId: payload.sub,
+        expiresAt: {
+          gt: new Date()
+        }
       }
-    },
-    select: {
-      id: true,
-      userId: true
-    }
-  });
-
-  if (!existingToken || existingToken.userId !== payload.sub) {
-    throw new UnauthorizedError("Refresh token revoked");
-  }
-
-  const user = await findUserById(payload.sub);
-  if (!user) {
-    await prisma.refreshToken.deleteMany({
-      where: { id: existingToken.id }
     });
-    throw new UnauthorizedError("User not found");
-  }
 
-  const accessToken = signAccessToken(user);
-  const refreshToken = signRefreshToken(user);
+    if (consumeResult.count !== 1) {
+      throw new UnauthorizedError("Refresh token revoked");
+    }
 
-  await prisma.$transaction([
-    prisma.refreshToken.deleteMany({
-      where: { id: existingToken.id }
-    }),
-    prisma.refreshToken.create({
+    const user = await tx.user.findUnique({
+      where: { id: payload.sub },
+      select: { id: true, email: true, displayName: true }
+    });
+
+    if (!user) {
+      throw new UnauthorizedError("User not found");
+    }
+
+    const accessToken = signAccessToken(user);
+    const refreshToken = signRefreshToken(user);
+
+    await tx.refreshToken.create({
       data: {
         id: ulid(),
         userId: user.id,
         tokenHash: hashRefreshToken(refreshToken),
         expiresAt: getRefreshTokenExpiry(refreshToken)
       }
-    })
-  ]);
+    });
 
-  await prisma.refreshToken.deleteMany({
-    where: { userId: user.id, expiresAt: { lt: new Date() } }
+    await tx.refreshToken.deleteMany({
+      where: { userId: user.id, expiresAt: { lt: new Date() } }
+    });
+
+    return { accessToken, refreshToken };
   });
-
-  return { accessToken, refreshToken };
 }
 
 export async function revokeRefreshToken(token: string): Promise<void> {

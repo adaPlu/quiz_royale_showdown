@@ -10,6 +10,7 @@ const { prismaMock, redisServiceMock } = vi.hoisted(() => {
       findUnique: vi.fn(),
       findMany: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn(),
       createMany: vi.fn(),
     },
     powerUpUse: {
@@ -70,9 +71,10 @@ function primeActivation(code: PowerUpCode): void {
   prismaMock.powerUp.findFirst.mockResolvedValue({ id: powerUpIdFor(code), code });
   prismaMock.playerPowerUp.findUnique.mockResolvedValue({ quantity: 1 });
   prismaMock.playerPowerUp.update.mockReturnValue({ operation: "update" });
+  prismaMock.playerPowerUp.updateMany.mockResolvedValue({ count: 1 });
   prismaMock.powerUpUse.create.mockReturnValue({ operation: "create" });
-  prismaMock.$transaction.mockResolvedValue([{ quantity: 0 }, { id: "usage-id" }]);
-  prismaMock.roomPlayer.findUnique.mockResolvedValue({ isEliminated: false });
+  prismaMock.roomPlayer.findUnique.mockResolvedValue({ id: "target-room-player", isEliminated: false });
+  prismaMock.$transaction.mockImplementation(async (callback) => callback(prismaMock));
 
   redisServiceMock.setnx.mockResolvedValue(true);
   redisServiceMock.del.mockResolvedValue(1);
@@ -263,6 +265,43 @@ describe("PowerUpService canonical activation effects", () => {
     expect(prismaMock.$transaction).not.toHaveBeenCalled();
   });
 
+  it("rejects activations from users outside the room before consuming inventory", async () => {
+    primeActivation("SHIELD");
+    prismaMock.roomPlayer.findUnique.mockResolvedValue(null);
+
+    await expect(new PowerUpService().activatePowerUp(activationInput("SHIELD"))).rejects.toThrow(
+      "Target player is not in this room",
+    );
+
+    expect(prismaMock.roomPlayer.findUnique).toHaveBeenCalledWith({
+      where: { roomId_userId: { roomId: ROOM_ID, userId: USER_ID } },
+      select: { id: true },
+    });
+    expect(redisServiceMock.setnx).not.toHaveBeenCalled();
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects SABOTAGE targets outside the room before consuming inventory", async () => {
+    primeActivation("SABOTAGE");
+    prismaMock.roomPlayer.findUnique
+      .mockResolvedValueOnce({ id: "activating-room-player" })
+      .mockResolvedValueOnce(null);
+
+    await expect(
+      new PowerUpService().activatePowerUp({
+        ...activationInput("SABOTAGE"),
+        targetPlayerId: "not-in-room",
+      }),
+    ).rejects.toThrow("Target player is not in this room");
+
+    expect(prismaMock.roomPlayer.findUnique).toHaveBeenCalledWith({
+      where: { roomId_userId: { roomId: ROOM_ID, userId: "not-in-room" } },
+      select: { id: true },
+    });
+    expect(redisServiceMock.setnx).not.toHaveBeenCalled();
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
+  });
+
   it("stores SABOTAGE against the targeted player", async () => {
     primeActivation("SABOTAGE");
 
@@ -277,5 +316,27 @@ describe("PowerUpService canonical activation effects", () => {
       POWERUP_STATE_TTL_SECONDS,
     );
     expect(result.publicEffect).toEqual({ type: "SABOTAGE", targetPlayerId: "target-player" });
+  });
+
+  it("does not decrement inventory below zero when conditional consumption fails", async () => {
+    primeActivation("SHIELD");
+    prismaMock.playerPowerUp.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(new PowerUpService().activatePowerUp(activationInput("SHIELD"))).rejects.toThrow(
+      "Power-up is not available in inventory",
+    );
+
+    expect(prismaMock.playerPowerUp.updateMany).toHaveBeenCalledWith({
+      where: {
+        userId: USER_ID,
+        powerUpId: powerUpIdFor("SHIELD"),
+        quantity: { gt: 0 },
+      },
+      data: { quantity: { decrement: 1 } },
+    });
+    expect(prismaMock.powerUpUse.create).not.toHaveBeenCalled();
+    expect(redisServiceMock.del).toHaveBeenCalledWith(
+      `powerup:${ROOM_ID}:${USER_ID}:${powerUpIdFor("SHIELD")}:used`,
+    );
   });
 });

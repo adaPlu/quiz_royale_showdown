@@ -323,7 +323,7 @@ class GameViewModel @Inject constructor(
                 val obj = JSONObject(json)
                 val keys = obj.keys()
                 while (keys.hasNext()) {
-                    val key = keys.next()
+                    val key = keys.next().toString()
                     val type = runCatching { PowerupType.valueOf(key) }.getOrNull() ?: continue
                     powerupInventory[type] = obj.optInt(key, 0)
                 }

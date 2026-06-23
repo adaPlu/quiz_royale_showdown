@@ -8,16 +8,16 @@ import { requireAuth } from "./middleware/auth";
 import { errorHandler } from "./middleware/errorHandler";
 import { apiLimiter } from "./middleware/rateLimiter";
 import { requestIdMiddleware } from "./middleware/requestId";
-import { authRouter } from "./routes/auth";
-import { healthRouter } from "./routes/health";
-import { roomsRouter } from "./routes/rooms";
 import { adminRouter } from "./routes/admin";
+import { authRouter } from "./routes/auth";
 import challengesRouter from "./routes/challenges";
 import cosmeticsRouter from "./routes/cosmetics";
 import friendsRouter from "./routes/friends";
+import { healthRouter } from "./routes/health";
 import leaderboardRouter from "./routes/leaderboard";
 import powerupsRouter from "./routes/powerups";
 import pushRouter from "./routes/push";
+import { roomsRouter } from "./routes/rooms";
 import usersRouter from "./routes/users";
 import { NotFoundError } from "./utils/errors";
 
@@ -39,7 +39,6 @@ export const createApp = () => {
 
   app.use("/health", healthRouter);
 
-  // Apply rate limiting: general limit on all API routes, then mount routers.
   app.use("/api/v1", apiLimiter);
   app.use("/api/v1/auth", authRouter);
   app.use("/api/v1/rooms", roomsRouter);
