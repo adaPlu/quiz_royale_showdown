@@ -39,24 +39,18 @@ export const socketAuthMiddleware = async (
 
     const payload = verifyAccessToken(rawToken);
 
-    try {
-      const dbUser = await prisma.user.findUnique({
-        where: { id: payload.sub },
-        select: { id: true, displayName: true, email: true }
-      });
+    const dbUser = await prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: { id: true, displayName: true, email: true }
+    });
 
-      if (!dbUser) {
-        return next(new Error("User not found"));
-      }
-
-      socket.data.userId = dbUser.id;
-      socket.data.displayName = dbUser.displayName;
-      socket.data.email = dbUser.email;
-    } catch {
-      socket.data.userId = payload.sub;
-      socket.data.displayName = payload.displayName;
-      socket.data.email = payload.email;
+    if (!dbUser) {
+      return next(new Error("User not found"));
     }
+
+    socket.data.userId = dbUser.id;
+    socket.data.displayName = dbUser.displayName;
+    socket.data.email = dbUser.email;
 
     logger.debug("Socket authenticated", {
       socketId: socket.id,

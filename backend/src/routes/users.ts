@@ -45,10 +45,11 @@ router.get("/search", requireAuth, async (req, res, next) => {
 });
 
 // GET /users/:displayName/profile — public profile
-router.get("/:displayName/profile", async (req, res, next) => {
+router.get("/:displayName/profile", requireAuth, async (req, res, next) => {
   try {
+    const displayName = String(req.params.displayName);
     const user = await prisma.user.findFirst({
-      where: { displayName: req.params.displayName },
+      where: { displayName },
       select: {
         id: true,
         displayName: true,

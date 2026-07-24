@@ -1,5 +1,5 @@
 import { VitePWA } from "vite-plugin-pwa";
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 
@@ -48,6 +48,13 @@ export default defineConfig({
       "@pages": path.resolve(__dirname, "src/pages"),
       "@services": path.resolve(__dirname, "src/services"),
       "@stores": path.resolve(__dirname, "src/stores"),
+      "@hookform/resolvers": path.resolve(__dirname, "../node_modules/@hookform/resolvers"),
+      "react-hook-form": path.resolve(__dirname, "../node_modules/react-hook-form"),
+      "react-router-dom": path.resolve(__dirname, "../node_modules/react-router-dom"),
+      "react-dom": path.resolve(__dirname, "../node_modules/react-dom"),
+      react: path.resolve(__dirname, "../node_modules/react"),
+      zod: path.resolve(__dirname, "../node_modules/zod"),
+      zustand: path.resolve(__dirname, "../node_modules/zustand"),
     },
   },
   build: {
@@ -75,5 +82,10 @@ export default defineConfig({
         },
       },
     },
+  },
+  test: {
+    environment: "node",
+    globals: true,
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
   },
 });

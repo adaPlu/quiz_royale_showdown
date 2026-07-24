@@ -13,7 +13,7 @@ import {
   revokeRefreshToken,
   rotateRefreshToken
 } from "../services/AuthService";
-import { ConflictError, UnauthorizedError } from "../utils/errors";
+import { ConflictError, ForbiddenError, UnauthorizedError } from "../utils/errors";
 import { generateId } from "../utils/ulid";
 import { logger } from "../utils/logger";
 import { env } from "../config/env";
@@ -51,6 +51,8 @@ const optionalRefreshSchema = z
 
 const REFRESH_COOKIE_NAME = "quiz_refresh";
 const REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const CSRF_HEADER_NAME = "x-csrf-protection";
+const REFRESH_TOKEN_RESPONSE_HEADER = "x-refresh-token-response";
 const refreshCookieSameSite = env.isProduction ? "none" : "lax";
 
 export const authRouter = Router();
@@ -61,7 +63,8 @@ function isUniqueConstraintError(error: unknown): error is Prisma.PrismaClientKn
 
 function formatAuthPayload(
   user: { id: string; email: string; displayName: string },
-  tokens: { accessToken: string; refreshToken: string }
+  tokens: { accessToken: string; refreshToken: string },
+  includeRefreshToken: boolean
 ) {
   return {
     user: {
@@ -70,7 +73,7 @@ function formatAuthPayload(
       displayName: user.displayName
     },
     accessToken: tokens.accessToken,
-    refreshToken: tokens.refreshToken
+    ...(includeRefreshToken ? { refreshToken: tokens.refreshToken } : {})
   };
 }
 
@@ -114,8 +117,26 @@ function getCookieValue(req: Request, name: string): string | null {
   return null;
 }
 
-function getRequestRefreshToken(req: Request): string | null {
-  return getCookieValue(req, REFRESH_COOKIE_NAME) ?? (req.body as { refreshToken?: string }).refreshToken ?? null;
+function wantsRefreshTokenInBody(req: Request): boolean {
+  return req.get(REFRESH_TOKEN_RESPONSE_HEADER)?.toLowerCase() !== "cookie";
+}
+
+function assertCookieCsrfHeader(req: Request): void {
+  if (req.get(CSRF_HEADER_NAME) !== "1") {
+    throw new ForbiddenError("Missing CSRF protection header");
+  }
+}
+
+function getRequestRefreshToken(req: Request): { token: string | null; fromCookie: boolean } {
+  const cookieToken = getCookieValue(req, REFRESH_COOKIE_NAME);
+  if (cookieToken) {
+    return { token: cookieToken, fromCookie: true };
+  }
+
+  return {
+    token: (req.body as { refreshToken?: string }).refreshToken ?? null,
+    fromCookie: false
+  };
 }
 
 authRouter.post("/register", validate({ body: registerSchema }), async (req, res, next) => {
@@ -157,7 +178,7 @@ authRouter.post("/register", validate({ body: registerSchema }), async (req, res
     logger.info("User registered", { userId: user.id });
 
     setRefreshCookie(res, tokens.refreshToken);
-    res.status(201).json(formatAuthPayload(user, tokens));
+    res.status(201).json(formatAuthPayload(user, tokens, wantsRefreshTokenInBody(req)));
   } catch (error) {
     if (isUniqueConstraintError(error)) {
       next(new ConflictError("Email is already taken"));
@@ -202,7 +223,7 @@ authRouter.post("/login", validate({ body: loginSchema }), async (req, res, next
     logger.info("User logged in", { userId: user.id });
 
     setRefreshCookie(res, tokens.refreshToken);
-    res.json(formatAuthPayload(user, tokens));
+    res.json(formatAuthPayload(user, tokens, wantsRefreshTokenInBody(req)));
   } catch (error) {
     next(error);
   }
@@ -211,18 +232,22 @@ authRouter.post("/login", validate({ body: loginSchema }), async (req, res, next
 authRouter.post("/refresh", validate({ body: optionalRefreshSchema }), async (req, res, next) => {
   try {
     const refreshToken = getRequestRefreshToken(req);
-    if (!refreshToken) {
+    if (!refreshToken.token) {
       throw new UnauthorizedError("Missing refresh token");
     }
 
-    const tokens = await rotateRefreshToken(refreshToken);
+    if (refreshToken.fromCookie) {
+      assertCookieCsrfHeader(req);
+    }
+
+    const tokens = await rotateRefreshToken(refreshToken.token);
 
     logger.info("Tokens refreshed");
 
     setRefreshCookie(res, tokens.refreshToken);
     res.json({
       accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken
+      ...(wantsRefreshTokenInBody(req) ? { refreshToken: tokens.refreshToken } : {})
     });
   } catch (error) {
     next(error);
@@ -233,8 +258,12 @@ authRouter.post("/logout", validate({ body: optionalRefreshSchema }), async (req
   try {
     const refreshToken = getRequestRefreshToken(req);
 
-    if (refreshToken) {
-      await revokeRefreshToken(refreshToken);
+    if (refreshToken.fromCookie) {
+      assertCookieCsrfHeader(req);
+    }
+
+    if (refreshToken.token) {
+      await revokeRefreshToken(refreshToken.token);
     }
 
     clearRefreshCookie(res);

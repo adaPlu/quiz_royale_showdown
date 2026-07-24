@@ -18,6 +18,14 @@ export const apiLimiter = rateLimit({
   message: { error: "Too many requests, please try again later.", code: "RATE_LIMITED" },
 });
 
+export const adminLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many admin requests, please try again later.", code: "RATE_LIMITED" },
+});
+
 // Game action limit — one answer submit per second per client
 export const gameActionLimiter = rateLimit({
   windowMs: 1000,

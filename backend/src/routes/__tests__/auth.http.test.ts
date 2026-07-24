@@ -166,7 +166,42 @@ describe("auth routes", () => {
     expect(response.headers.get("set-cookie")).toContain("HttpOnly");
   });
 
-  it("refreshes tokens from the HttpOnly refresh cookie without a body token", async () => {
+  it("omits the JSON refresh token when cookie transport is requested", async () => {
+    const bcrypt = (await import("bcrypt")).default;
+    vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
+    const user = {
+      id: "user-1",
+      email: "login@example.com",
+      displayName: "Login User",
+      passwordHash: "hashed-password",
+    };
+    prismaMock.user.findUnique.mockResolvedValue(user);
+    authServiceMock.issueTokenPair.mockResolvedValue({
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+    });
+    const app = await createAuthTestApp();
+
+    const response = await request(
+      app,
+      "POST",
+      "/api/v1/auth/login",
+      {
+        email: "LOGIN@EXAMPLE.COM",
+        password: "password123",
+      },
+      { "x-refresh-token-response": "cookie" }
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      accessToken: "access-token",
+    });
+    expect(response.body).not.toHaveProperty("refreshToken");
+    expect(response.headers.get("set-cookie")).toContain("quiz_refresh=refresh-token");
+  });
+
+  it("refreshes tokens from the HttpOnly refresh cookie without returning a JSON refresh token", async () => {
     authServiceMock.rotateRefreshToken.mockResolvedValue({
       accessToken: "next-access-token",
       refreshToken: "next-refresh-token",
@@ -178,17 +213,55 @@ describe("auth routes", () => {
       "POST",
       "/api/v1/auth/refresh",
       {},
-      { Cookie: `quiz_refresh=${encodeURIComponent("r".repeat(20))}` }
+      {
+        Cookie: `quiz_refresh=${encodeURIComponent("r".repeat(20))}`,
+        "x-csrf-protection": "1",
+        "x-refresh-token-response": "cookie",
+      }
     );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      accessToken: "next-access-token",
+    });
+    expect(response.body).not.toHaveProperty("refreshToken");
+    expect(authServiceMock.rotateRefreshToken).toHaveBeenCalledWith("r".repeat(20));
+    expect(response.headers.get("set-cookie")).toContain("quiz_refresh=next-refresh-token");
+    expect(response.headers.get("set-cookie")).toContain("HttpOnly");
+  });
+
+  it("refreshes tokens from a body token without CSRF compatibility headers", async () => {
+    authServiceMock.rotateRefreshToken.mockResolvedValue({
+      accessToken: "next-access-token",
+      refreshToken: "next-refresh-token",
+    });
+    const app = await createAuthTestApp();
+
+    const response = await request(app, "POST", "/api/v1/auth/refresh", {
+      refreshToken: "b".repeat(20),
+    });
 
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
       accessToken: "next-access-token",
       refreshToken: "next-refresh-token",
     });
-    expect(authServiceMock.rotateRefreshToken).toHaveBeenCalledWith("r".repeat(20));
-    expect(response.headers.get("set-cookie")).toContain("quiz_refresh=next-refresh-token");
-    expect(response.headers.get("set-cookie")).toContain("HttpOnly");
+    expect(authServiceMock.rotateRefreshToken).toHaveBeenCalledWith("b".repeat(20));
+  });
+
+  it("rejects cookie-backed refresh without the CSRF header", async () => {
+    const app = await createAuthTestApp();
+
+    const response = await request(
+      app,
+      "POST",
+      "/api/v1/auth/refresh",
+      {},
+      { Cookie: `quiz_refresh=${encodeURIComponent("r".repeat(20))}` }
+    );
+
+    expect(response.status).toBe(403);
+    expect(authServiceMock.rotateRefreshToken).not.toHaveBeenCalled();
   });
 
   it("returns structured 400 validation errors from register", async () => {
@@ -229,12 +302,30 @@ describe("auth routes", () => {
       "POST",
       "/api/v1/auth/logout",
       {},
-      { Cookie: `quiz_refresh=${encodeURIComponent("c".repeat(20))}` }
+      {
+        Cookie: `quiz_refresh=${encodeURIComponent("c".repeat(20))}`,
+        "x-csrf-protection": "1",
+      }
     );
 
     expect(response.status).toBe(204);
     expect(response.text).toBe("");
     expect(authServiceMock.revokeRefreshToken).toHaveBeenCalledWith("c".repeat(20));
     expect(response.headers.get("set-cookie")).toContain("quiz_refresh=");
+  });
+
+  it("rejects cookie-backed logout without the CSRF header", async () => {
+    const app = await createAuthTestApp();
+
+    const response = await request(
+      app,
+      "POST",
+      "/api/v1/auth/logout",
+      {},
+      { Cookie: `quiz_refresh=${encodeURIComponent("c".repeat(20))}` }
+    );
+
+    expect(response.status).toBe(403);
+    expect(authServiceMock.revokeRefreshToken).not.toHaveBeenCalled();
   });
 });

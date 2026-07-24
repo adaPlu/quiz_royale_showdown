@@ -76,24 +76,9 @@ router.get("/", async (req, res, next) => {
 });
 
 // GET /leaderboard/friends — authenticated user's friends by rating
-router.get("/friends", requireAuth, async (req, res, next) => {
+router.get("/friends", requireAuth, async (_req, res, next) => {
   try {
-    const limit = Math.min(Number(req.query.limit ?? 50), 200);
-    // For now return top users by rating as friends leaderboard (friend graph not yet implemented)
-    const users = await prisma.user.findMany({
-      orderBy: { rating: "desc" },
-      take: limit,
-      select: { id: true, displayName: true, avatarUrl: true, rating: true },
-    });
-    res.json(
-      users.map((user, index) => ({
-        rank: index + 1,
-        userId: user.id,
-        displayName: user.displayName,
-        avatarUrl: user.avatarUrl,
-        rating: user.rating,
-      })),
-    );
+    res.json([]);
   } catch (err) {
     next(err);
   }

@@ -15,6 +15,7 @@ const { prismaMock, redisServiceMock } = vi.hoisted(() => {
     },
     powerUpUse: {
       create: vi.fn(),
+      delete: vi.fn(),
     },
     roomPlayer: {
       findUnique: vi.fn(),
@@ -73,6 +74,7 @@ function primeActivation(code: PowerUpCode): void {
   prismaMock.playerPowerUp.update.mockReturnValue({ operation: "update" });
   prismaMock.playerPowerUp.updateMany.mockResolvedValue({ count: 1 });
   prismaMock.powerUpUse.create.mockReturnValue({ operation: "create" });
+  prismaMock.powerUpUse.delete.mockReturnValue({ operation: "delete" });
   prismaMock.roomPlayer.findUnique.mockResolvedValue({ id: "target-room-player" });
   prismaMock.$transaction.mockImplementation(async (callback) => callback(prismaMock));
 
@@ -284,7 +286,28 @@ describe("PowerUpService canonical activation effects", () => {
 
     expect(prismaMock.roomPlayer.findUnique).toHaveBeenCalledWith({
       where: { roomId_userId: { roomId: ROOM_ID, userId: "not-in-room" } },
-      select: { id: true },
+      select: { id: true, isEliminated: true },
+    });
+    expect(redisServiceMock.setnx).not.toHaveBeenCalled();
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects eliminated SABOTAGE targets before consuming inventory", async () => {
+    primeActivation("SABOTAGE");
+    prismaMock.roomPlayer.findUnique
+      .mockResolvedValueOnce({ id: "activating-room-player" })
+      .mockResolvedValueOnce({ id: "target-room-player", isEliminated: true });
+
+    await expect(
+      new PowerUpService().activatePowerUp({
+        ...activationInput("SABOTAGE"),
+        targetPlayerId: "target-player",
+      }),
+    ).rejects.toThrow("Target player has been eliminated");
+
+    expect(prismaMock.roomPlayer.findUnique).toHaveBeenCalledWith({
+      where: { roomId_userId: { roomId: ROOM_ID, userId: "target-player" } },
+      select: { id: true, isEliminated: true },
     });
     expect(redisServiceMock.setnx).not.toHaveBeenCalled();
     expect(prismaMock.$transaction).not.toHaveBeenCalled();
@@ -325,6 +348,24 @@ describe("PowerUpService canonical activation effects", () => {
     expect(prismaMock.powerUpUse.create).not.toHaveBeenCalled();
     expect(redisServiceMock.del).toHaveBeenCalledWith(
       `powerup:${ROOM_ID}:${USER_ID}:${powerUpIdFor("SHIELD")}:used`,
+    );
+  });
+
+  it("rolls back inventory, use record, and Redis gate when effect application fails", async () => {
+    primeActivation("DOUBLE_DOWN");
+    redisServiceMock.set.mockRejectedValue(new Error("redis write failed"));
+
+    await expect(new PowerUpService().activatePowerUp(activationInput("DOUBLE_DOWN"))).rejects.toThrow(
+      "redis write failed",
+    );
+
+    expect(prismaMock.powerUpUse.delete).toHaveBeenCalledWith({ where: { id: "generated-id" } });
+    expect(prismaMock.playerPowerUp.updateMany).toHaveBeenLastCalledWith({
+      where: { userId: USER_ID, powerUpId: powerUpIdFor("DOUBLE_DOWN") },
+      data: { quantity: { increment: 1 } },
+    });
+    expect(redisServiceMock.del).toHaveBeenCalledWith(
+      `powerup:${ROOM_ID}:${USER_ID}:${powerUpIdFor("DOUBLE_DOWN")}:used`,
     );
   });
 });

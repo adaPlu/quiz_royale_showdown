@@ -65,7 +65,6 @@ export default function HomePage() {
   const mountedRef = useMountedRef();
   const user = useAuthStore((state) => state.user);
   const accessToken = useAuthStore((state) => state.accessToken);
-  const refreshToken = useAuthStore((state) => state.refreshToken);
   const clearAuth = useAuthStore((state) => state.clearAuth);
   const resetRoom = useGameStore((state) => state.resetRoom);
   const [code, setCode] = useState('');
@@ -152,9 +151,7 @@ export default function HomePage() {
     setLaunchNotice(null);
 
     try {
-      if (refreshToken) {
-        await api.post('/auth/logout', { refreshToken });
-      }
+      await api.post('/auth/logout', {});
     } catch {
       // Launch-safe logout: revoke when possible, but always clear this client.
     } finally {

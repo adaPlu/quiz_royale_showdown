@@ -30,11 +30,20 @@ const prismaMock = vi.hoisted(() => ({
 }));
 
 vi.mock("../../middleware/auth", () => ({
-  requireAuth: (req: Request, _res: Response, next: NextFunction) => {
+  requireAuth: (req: Request, res: Response, next: NextFunction) => {
+    const authorization = req.headers.authorization;
+    if (!authorization?.startsWith("Bearer test-user:")) {
+      res.status(401).json({
+        error: "Missing or malformed Authorization header",
+        code: "UNAUTHORIZED",
+      });
+      return;
+    }
+
     req.jwtClaims = {
-      sub: "host-user",
-      email: "host@example.com",
-      displayName: "Host",
+      sub: authorization.slice("Bearer test-user:".length),
+      email: "player@example.com",
+      displayName: "Player",
       iat: 0,
       exp: 9999999999,
     };
@@ -63,7 +72,16 @@ interface TestResponse {
   body: unknown;
 }
 
-async function request(app: Express, method: string, path: string): Promise<TestResponse> {
+interface RequestOptions {
+  authUserId?: string | null;
+}
+
+async function request(
+  app: Express,
+  method: string,
+  path: string,
+  options: RequestOptions = {}
+): Promise<TestResponse> {
   const server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, resolve));
   const address = server.address();
@@ -73,9 +91,15 @@ async function request(app: Express, method: string, path: string): Promise<Test
   }
 
   try {
+    const authUserId = options.authUserId === undefined ? "host-user" : options.authUserId;
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (authUserId) {
+      headers.Authorization = `Bearer test-user:${authUserId}`;
+    }
+
     const response = await fetch(`http://127.0.0.1:${address.port}${path}`, {
       method,
-      headers: { "Content-Type": "application/json" },
+      headers,
     });
     const text = await response.text();
 
@@ -113,6 +137,112 @@ describe("room routes", () => {
 
   afterEach(() => {
     vi.resetModules();
+  });
+
+  it("requires authentication for room code lookups", async () => {
+    const app = await createRoomsTestApp();
+
+    const response = await request(app, "GET", "/api/v1/rooms/ABC123", {
+      authUserId: null,
+    });
+
+    expect(response.status).toBe(401);
+    expect(response.body).toMatchObject({
+      error: "Missing or malformed Authorization header",
+      code: "UNAUTHORIZED",
+    });
+    expect(roomServiceMock.getRoomByCode).not.toHaveBeenCalled();
+  });
+
+  it("redacts room lookup metadata for authenticated users outside the room", async () => {
+    roomServiceMock.getRoomByCode.mockResolvedValue({
+      room: {
+        roomId: VALID_ROOM_ID,
+        code: "ABC123",
+        phase: "WAITING",
+        roundNumber: 0,
+        totalRounds: 10,
+        players: [
+          {
+            id: "host-user",
+            displayName: "Host",
+            score: 0,
+            streak: 0,
+            isEliminated: false,
+          },
+        ],
+      },
+      hostUserId: "host-user",
+      config: { isPrivate: true, maxPlayers: 8 },
+      createdAt: "2026-04-25T12:00:00.000Z",
+      startedAt: null,
+    });
+    const app = await createRoomsTestApp();
+
+    const response = await request(app, "GET", "/api/v1/rooms/ABC123", {
+      authUserId: "other-user",
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      roomCode: "ABC123",
+      room: {
+        code: "ABC123",
+        phase: "WAITING",
+        playerCount: 1,
+      },
+      config: {
+        maxPlayers: 8,
+      },
+    });
+    expect(roomServiceMock.getRoomByCode).toHaveBeenCalledWith("ABC123");
+  });
+
+  it("returns full room lookup metadata to existing room participants", async () => {
+    roomServiceMock.getRoomByCode.mockResolvedValue({
+      room: {
+        roomId: VALID_ROOM_ID,
+        code: "ABC123",
+        phase: "WAITING",
+        roundNumber: 0,
+        totalRounds: 10,
+        players: [
+          {
+            id: "host-user",
+            displayName: "Host",
+            score: 0,
+            streak: 0,
+            isEliminated: false,
+          },
+        ],
+      },
+      hostUserId: "host-user",
+      config: { isPrivate: true, maxPlayers: 8 },
+      createdAt: "2026-04-25T12:00:00.000Z",
+      startedAt: null,
+    });
+    const app = await createRoomsTestApp();
+
+    const response = await request(app, "GET", "/api/v1/rooms/ABC123", {
+      authUserId: "host-user",
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      roomId: VALID_ROOM_ID,
+      roomCode: "ABC123",
+      hostUserId: "host-user",
+      room: {
+        roomId: VALID_ROOM_ID,
+        code: "ABC123",
+        players: [
+          {
+            id: "host-user",
+            displayName: "Host",
+          },
+        ],
+      },
+    });
   });
 
   it("returns structured 400 validation errors for invalid start room ids", async () => {
