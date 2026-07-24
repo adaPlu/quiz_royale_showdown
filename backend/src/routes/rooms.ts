@@ -75,6 +75,28 @@ function formatRoomResponse(payload: RoomLifecycleState, wsToken?: string) {
   };
 }
 
+function formatRoomLookupResponse(payload: RoomLifecycleState, requesterId: string) {
+  const isRoomParticipant =
+    payload.hostUserId === requesterId ||
+    payload.room.players.some((player) => player.id === requesterId);
+
+  if (isRoomParticipant) {
+    return formatRoomResponse(payload);
+  }
+
+  return {
+    roomCode: payload.room.code,
+    room: {
+      code: payload.room.code,
+      phase: payload.room.phase,
+      playerCount: payload.room.players.length,
+    },
+    config: {
+      maxPlayers: payload.config.maxPlayers,
+    },
+  };
+}
+
 function formatLeaveResponse(payload: LeaveRoomResult) {
   return {
     left: payload.left,
@@ -126,13 +148,15 @@ roomsRouter.post(
 
 roomsRouter.get(
   "/:roomCode",
+  requireAuth,
   validate({ params: roomCodeParamsSchema }),
   async (req, res, next) => {
     try {
+      const requesterId = getAuthenticatedUserId(req.jwtClaims?.sub);
       const { roomCode } = req.params as z.infer<typeof roomCodeParamsSchema>;
       const room = await roomService.getRoomByCode(roomCode);
 
-      res.json(formatRoomResponse(room));
+      res.json(formatRoomLookupResponse(room, requesterId));
     } catch (error) {
       next(error);
     }

@@ -4,6 +4,37 @@ import { useAuthStore } from '@/stores/authStore';
 
 export type PushState = 'unsupported' | 'denied' | 'subscribed' | 'unsubscribed';
 
+type PushSupportEnvironment = {
+  navigator?: Navigator;
+  window?: Window & typeof globalThis;
+  notification?: typeof Notification;
+};
+
+function isPushBackendEnabled(): boolean {
+  const importMetaEnv = (import.meta as unknown as { env?: Record<string, string | boolean | undefined> }).env;
+  const processEnv = (globalThis as unknown as {
+    process?: { env?: Record<string, string | boolean | undefined> };
+  }).process?.env;
+
+  return importMetaEnv?.VITE_PUSH_BACKEND_ENABLED === 'true' || processEnv?.VITE_PUSH_BACKEND_ENABLED === 'true';
+}
+
+export function getInitialPushState({
+  navigator: navigatorRef = globalThis.navigator,
+  window: windowRef = globalThis.window,
+  notification = globalThis.Notification,
+}: PushSupportEnvironment = {}): PushState {
+  if (!isPushBackendEnabled()) {
+    return 'unsupported';
+  }
+
+  if (!navigatorRef?.serviceWorker || !windowRef || !('PushManager' in windowRef) || !notification) {
+    return 'unsupported';
+  }
+
+  return notification.permission === 'denied' ? 'denied' : 'unsubscribed';
+}
+
 async function getVapidKey(): Promise<string> {
   const res = await api.get<{ key: string }>('/push/vapid-public-key');
   return res.data.key;
@@ -23,17 +54,17 @@ export function useWebPush() {
   const [pushState, setPushState] = useState<PushState>('unsubscribed');
 
   useEffect(() => {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-      setPushState('unsupported');
-      return;
-    }
-    if (Notification.permission === 'denied') {
-      setPushState('denied');
-    }
+    setPushState(getInitialPushState());
   }, []);
 
   const subscribe = async () => {
-    if (!user || pushState === 'unsupported') return;
+    if (!isPushBackendEnabled()) return;
+    const currentPushState = getInitialPushState();
+    if (currentPushState === 'unsupported' || currentPushState === 'denied') {
+      setPushState(currentPushState);
+      return;
+    }
+    if (!user || pushState === 'unsupported' || pushState === 'denied' || !globalThis.Notification) return;
     try {
       const permission = await Notification.requestPermission();
       if (permission !== 'granted') { setPushState('denied'); return; }
@@ -53,6 +84,12 @@ export function useWebPush() {
   };
 
   const unsubscribe = async () => {
+    if (!isPushBackendEnabled()) return;
+    const currentPushState = getInitialPushState();
+    if (currentPushState === 'unsupported') {
+      setPushState(currentPushState);
+      return;
+    }
     try {
       const registration = await navigator.serviceWorker.ready;
       const subscription = await registration.pushManager.getSubscription();

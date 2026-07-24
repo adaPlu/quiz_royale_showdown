@@ -212,6 +212,8 @@ export class PowerUpService {
       throw new ForbiddenError("Power-up already used in this room");
     }
 
+    const powerUpUseId = generateId();
+
     try {
       await prisma.$transaction(async (tx) => {
         const inventoryUpdate = await tx.playerPowerUp.updateMany({
@@ -229,7 +231,7 @@ export class PowerUpService {
 
         await tx.powerUpUse.create({
           data: {
-            id: generateId(),
+            id: powerUpUseId,
             roomId: input.roomId,
             roundId: input.roundId ?? null,
             userId: input.userId,
@@ -243,7 +245,15 @@ export class PowerUpService {
       throw error;
     }
 
-    const result = await this.applyEffect({ ...input, powerUpId: powerUp.id }, code, io);
+    let result: PowerUpActivationResult;
+    try {
+      result = await this.applyEffect({ ...input, powerUpId: powerUp.id }, code, io);
+    } catch (error) {
+      await this.cleanupEffect({ ...input, powerUpId: powerUp.id }, code);
+      await this.rollbackActivation(input.userId, powerUp.id, powerUpUseId);
+      await redisService.del(usedKey(input.roomId, input.userId, powerUp.id));
+      throw error;
+    }
 
     logger.info("Power-up activated", {
       roomId: input.roomId,
@@ -312,6 +322,79 @@ export class PowerUpService {
 
     if (!player) {
       throw new BadRequestError("Target player is not in this room");
+    }
+  }
+
+  private async assertActiveRoomParticipant(roomId: string, userId: string): Promise<void> {
+    const player = await prisma.roomPlayer.findUnique({
+      where: { roomId_userId: { roomId, userId } },
+      select: { id: true, isEliminated: true },
+    });
+
+    if (!player) {
+      throw new BadRequestError("Target player is not in this room");
+    }
+
+    if (player.isEliminated) {
+      throw new BadRequestError("Target player has been eliminated");
+    }
+  }
+
+  private async rollbackActivation(
+    userId: string,
+    powerUpId: string,
+    powerUpUseId: string,
+  ): Promise<void> {
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.powerUpUse.delete({ where: { id: powerUpUseId } });
+        await tx.playerPowerUp.updateMany({
+          where: { userId, powerUpId },
+          data: { quantity: { increment: 1 } },
+        });
+      });
+    } catch (rollbackError) {
+      logger.error("Failed to roll back power-up activation after effect failure", {
+        userId,
+        powerUpId,
+        powerUpUseId,
+        error: rollbackError,
+      });
+    }
+  }
+
+  private async cleanupEffect(input: PowerUpActivationInput, code: PowerUpCode): Promise<void> {
+    try {
+      switch (code) {
+        case "DOUBLE_DOWN":
+          await redisService!.del(doubleDownKey(input.roomId, input.userId));
+          return;
+
+        case "TIME_FREEZE":
+          await redisService!.del(timeBoostKey(input.roomId, input.userId));
+          return;
+
+        case "SHIELD":
+          await redisService!.srem(shieldSetKey(input.roomId), input.userId);
+          return;
+
+        case "SABOTAGE":
+          if (input.targetPlayerId) {
+            await redisService!.del(sabotageKey(input.roomId, input.targetPlayerId));
+          }
+          return;
+
+        case "FIFTY_FIFTY":
+          return;
+      }
+    } catch (cleanupError) {
+      logger.error("Failed to clean up power-up effect after activation failure", {
+        roomId: input.roomId,
+        userId: input.userId,
+        powerUpId: input.powerUpId,
+        code,
+        error: cleanupError,
+      });
     }
   }
 
@@ -407,7 +490,7 @@ export class PowerUpService {
         throw new BadRequestError("SABOTAGE requires targetPlayerId");
       }
 
-      await this.assertRoomParticipant(input.roomId, input.targetPlayerId);
+      await this.assertActiveRoomParticipant(input.roomId, input.targetPlayerId);
     }
   }
 }

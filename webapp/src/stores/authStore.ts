@@ -28,7 +28,7 @@ type AuthApiUser = {
 export interface AuthResponse {
   user: AuthApiUser;
   accessToken: string;
-  refreshToken: string;
+  refreshToken?: string | null;
 }
 
 type TokenUpdate = {
@@ -59,7 +59,6 @@ interface AuthState {
 }
 
 let bootstrapPromise: Promise<void> | null = null;
-const COOKIE_REFRESH_SESSION = 'cookie-refresh-session-present';
 
 function decodeAccessToken(accessToken: string): AccessTokenClaims | null {
   try {
@@ -150,7 +149,7 @@ export const useAuthStore = create<AuthState>()(
         set((state) => ({
           user: normalizeAuthUser(session.user, state.user),
           accessToken: session.accessToken,
-          refreshToken: COOKIE_REFRESH_SESSION,
+          refreshToken: null,
           authResolved: true,
           isBootstrapping: false,
         })),
@@ -163,10 +162,10 @@ export const useAuthStore = create<AuthState>()(
           authResolved: true,
         }),
 
-      setTokens: ({ accessToken, refreshToken }) =>
+      setTokens: ({ accessToken }) =>
         set(() => ({
           accessToken,
-          refreshToken: refreshToken ? COOKIE_REFRESH_SESSION : null,
+          refreshToken: null,
           authResolved: true,
           isBootstrapping: false,
         })),
@@ -188,7 +187,7 @@ export const useAuthStore = create<AuthState>()(
         set({ isBootstrapping: true, authResolved: false });
 
         bootstrapPromise = refreshAuthSession()
-          .then(({ accessToken: nextAccessToken, refreshToken: nextRefreshToken }) => {
+          .then(({ accessToken: nextAccessToken }) => {
             const restoredUser = restoreUserFromAccessToken(nextAccessToken, get().user);
 
             if (!restoredUser) {
@@ -198,7 +197,7 @@ export const useAuthStore = create<AuthState>()(
             set({
               user: restoredUser,
               accessToken: nextAccessToken,
-              refreshToken: nextRefreshToken ? COOKIE_REFRESH_SESSION : null,
+              refreshToken: null,
               authResolved: true,
               isBootstrapping: false,
             });

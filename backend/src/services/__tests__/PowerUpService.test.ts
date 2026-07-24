@@ -294,9 +294,9 @@ describe("PowerUpService canonical activation effects", () => {
       }),
     ).rejects.toThrow("Target player is not in this room");
 
-    expect(prismaMock.roomPlayer.findUnique).toHaveBeenCalledWith({
+    expect(prismaMock.roomPlayer.findUnique).toHaveBeenNthCalledWith(2, {
       where: { roomId_userId: { roomId: ROOM_ID, userId: "not-in-room" } },
-      select: { id: true },
+      select: { id: true, isEliminated: true },
     });
     expect(redisServiceMock.setnx).not.toHaveBeenCalled();
     expect(prismaMock.$transaction).not.toHaveBeenCalled();

@@ -33,13 +33,13 @@ jobs:
 
       - name: Trigger Railway deploy
         if: ${{ secrets.RAILWAY_TOKEN != '' }}
-        run: npx @railway/cli up --service backend --detach
+        run: npm exec --yes --package @railway/cli@5.24.0 -- railway up --service backend --detach
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
 
       - name: Trigger Vercel deploy
         if: ${{ secrets.VERCEL_TOKEN != '' }}
-        run: npx vercel deploy --prod --yes --token "${{ secrets.VERCEL_TOKEN }}"
+        run: npm exec --yes --package vercel@54.21.1 -- vercel deploy --prod --yes --token "${{ secrets.VERCEL_TOKEN }}"
         working-directory: webapp
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}

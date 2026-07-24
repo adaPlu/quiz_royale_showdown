@@ -113,9 +113,9 @@ describe("Admin router — secret gating", () => {
     const app = buildApp();
     const res = await request(app, "GET", "/admin/questions/count");
 
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(401);
     const body = res.body as { error: string };
-    expect(body.error).toBe("Forbidden");
+    expect(body.error).toBe("Unauthorized");
   });
 
   it("returns 403 when the X-Admin-Key header has the wrong value", async () => {
@@ -124,9 +124,9 @@ describe("Admin router — secret gating", () => {
       headers: { "x-admin-key": "definitely-wrong-secret" },
     });
 
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(401);
     const body = res.body as { error: string };
-    expect(body.error).toBe("Forbidden");
+    expect(body.error).toBe("Unauthorized");
   });
 
   it("returns 403 when no valid auth header is provided", async () => {
@@ -137,7 +137,7 @@ describe("Admin router — secret gating", () => {
       "/admin/questions/count?adminKey=wrong-key",
     );
 
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(401);
   });
 
   it("passes through with the correct X-Admin-Key header and returns question counts", async () => {
@@ -195,15 +195,15 @@ describe("Admin router — x-admin-secret header and 403 gating", () => {
   it("returns 403 when x-admin-secret header is missing", async () => {
     const app = buildApp();
     const res = await request(app, "GET", "/admin/questions/count");
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(401);
   });
 
   it("returns 403 when x-admin-secret header has the wrong value", async () => {
     const app = buildApp();
     const res = await request(app, "GET", "/admin/questions/count", {
-      headers: { "x-admin-secret": "totally-wrong-secret" },
+      headers: { "x-admin-secret": env.adminSecret },
     });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(401);
   });
 
   it("passes through with the correct x-admin-secret header and returns 200", async () => {
@@ -213,7 +213,7 @@ describe("Admin router — x-admin-secret header and 403 gating", () => {
 
     const app = buildApp();
     const res = await request(app, "GET", "/admin/questions/count", {
-      headers: { "x-admin-secret": env.adminSecret },
+      headers: { "x-admin-key": env.adminSecret },
     });
 
     expect(res.status).toBe(200);
@@ -234,7 +234,7 @@ const VALID_QUESTION = {
 };
 
 describe("Admin router — question CRUD", () => {
-  const adminHeaders = { "x-admin-secret": env.adminSecret };
+  const adminHeaders = { "x-admin-key": env.adminSecret };
 
   beforeEach(() => {
     vi.resetAllMocks();

@@ -4,7 +4,7 @@
  * Critical paths:
  *  - GET /me requires auth (returns 401 without a token)
  *  - GET /search returns at most 20 results
- *  - GET /:displayName/profile returns 404 for unknown users
+ *  - GET /:displayName/profile requires auth and returns 404 for unknown users
  */
 
 import express from "express";
@@ -215,7 +215,7 @@ describe("GET /users/:displayName/profile", () => {
     vi.clearAllMocks();
   });
 
-  it("returns the user profile (no auth required)", async () => {
+  it("returns the user profile when authenticated", async () => {
     const fakeUser = {
       id: "u1",
       displayName: "Alice",
@@ -226,7 +226,9 @@ describe("GET /users/:displayName/profile", () => {
     prismaMock.user.findFirst.mockResolvedValue(fakeUser);
 
     const app = buildApp();
-    const res = await request(app, "GET", "/users/Alice/profile");
+    const res = await request(app, "GET", "/users/Alice/profile", {
+      headers: { Authorization: `Bearer ${makeToken()}` },
+    });
 
     expect(res.status).toBe(200);
     expect((res.body as { displayName: string }).displayName).toBe("Alice");
@@ -236,7 +238,9 @@ describe("GET /users/:displayName/profile", () => {
     prismaMock.user.findFirst.mockResolvedValue(null);
 
     const app = buildApp();
-    const res = await request(app, "GET", "/users/Ghost/profile");
+    const res = await request(app, "GET", "/users/Ghost/profile", {
+      headers: { Authorization: `Bearer ${makeToken()}` },
+    });
 
     expect(res.status).toBe(404);
   });

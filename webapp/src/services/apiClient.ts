@@ -53,7 +53,7 @@ const axiosInstance: AxiosInstance = axios.create({
 
 type RefreshResponse = {
   accessToken: string;
-  refreshToken: string;
+  refreshToken?: string | null;
 };
 
 function toApiError(error: unknown): ApiError {
@@ -84,12 +84,10 @@ function shouldAttemptRefresh(url?: string): boolean {
 }
 
 export async function refreshAuthSession(): Promise<RefreshResponse> {
-  const refreshToken = tokenStore.getRefreshToken();
-
   try {
     const response = await axios.post<RefreshResponse>(
       `${BASE_URL}/auth/refresh`,
-      refreshToken ? { refreshToken } : {},
+      {},
       {
         headers: { 'Content-Type': 'application/json' },
         withCredentials: true,

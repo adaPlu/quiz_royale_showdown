@@ -69,9 +69,10 @@ export default function RegisterPage() {
           <h2 className="text-white text-xl font-bold text-center">Create Account</h2>
 
           <div>
-            <label className="block text-xs text-game-muted mb-1">Username</label>
+            <label htmlFor="register-username" className="block text-xs text-game-muted mb-1">Username</label>
             <input
               {...register('username')}
+              id="register-username"
               type="text"
               autoComplete="username"
               className="w-full bg-game-card border border-game-border rounded-xl px-4 py-3 text-white placeholder-game-muted focus:outline-none focus:border-brand transition-colors"
@@ -81,9 +82,10 @@ export default function RegisterPage() {
           </div>
 
           <div>
-            <label className="block text-xs text-game-muted mb-1">Email</label>
+            <label htmlFor="register-email" className="block text-xs text-game-muted mb-1">Email</label>
             <input
               {...register('email')}
+              id="register-email"
               type="email"
               autoComplete="email"
               className="w-full bg-game-card border border-game-border rounded-xl px-4 py-3 text-white placeholder-game-muted focus:outline-none focus:border-brand transition-colors"
@@ -93,9 +95,10 @@ export default function RegisterPage() {
           </div>
 
           <div>
-            <label className="block text-xs text-game-muted mb-1">Password</label>
+            <label htmlFor="register-password" className="block text-xs text-game-muted mb-1">Password</label>
             <input
               {...register('password')}
+              id="register-password"
               type="password"
               autoComplete="new-password"
               className="w-full bg-game-card border border-game-border rounded-xl px-4 py-3 text-white placeholder-game-muted focus:outline-none focus:border-brand transition-colors"
@@ -105,9 +108,10 @@ export default function RegisterPage() {
           </div>
 
           <div>
-            <label className="block text-xs text-game-muted mb-1">Confirm Password</label>
+            <label htmlFor="register-confirm-password" className="block text-xs text-game-muted mb-1">Confirm Password</label>
             <input
               {...register('confirmPassword')}
+              id="register-confirm-password"
               type="password"
               autoComplete="new-password"
               className="w-full bg-game-card border border-game-border rounded-xl px-4 py-3 text-white placeholder-game-muted focus:outline-none focus:border-brand transition-colors"

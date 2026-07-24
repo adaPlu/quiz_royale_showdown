@@ -193,9 +193,11 @@ describe("GET /rooms/:roomCode — get room by code", () => {
     vi.clearAllMocks();
   });
 
-  it("returns 200 with room data (no auth required)", async () => {
+  it("returns 200 with room data when authenticated", async () => {
     const app = buildApp();
-    const res = await request(app, "GET", "/rooms/ABC123");
+    const res = await request(app, "GET", "/rooms/ABC123", {
+      headers: { Authorization: `Bearer ${makeToken("user-1")}` },
+    });
 
     expect(res.status).toBe(200);
     const body = res.body as { roomId: string };
@@ -206,7 +208,9 @@ describe("GET /rooms/:roomCode — get room by code", () => {
     roomServiceMock.getRoomByCode.mockRejectedValueOnce(new NotFoundError("Room not found"));
 
     const app = buildApp();
-    const res = await request(app, "GET", "/rooms/XXXXXX");
+    const res = await request(app, "GET", "/rooms/XXXXXX", {
+      headers: { Authorization: `Bearer ${makeToken("user-1")}` },
+    });
 
     expect(res.status).toBe(404);
   });

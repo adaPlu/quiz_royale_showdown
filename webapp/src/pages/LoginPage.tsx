@@ -57,9 +57,10 @@ export default function LoginPage() {
           <h2 className="text-white text-xl font-bold text-center">Sign In</h2>
 
           <div>
-            <label className="block text-xs text-game-muted mb-1">Email</label>
+            <label htmlFor="login-email" className="block text-xs text-game-muted mb-1">Email</label>
             <input
               {...register('email')}
+              id="login-email"
               type="email"
               autoComplete="email"
               className="w-full bg-game-card border border-game-border rounded-xl px-4 py-3 text-white placeholder-game-muted focus:outline-none focus:border-brand transition-colors"
@@ -69,9 +70,10 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label className="block text-xs text-game-muted mb-1">Password</label>
+            <label htmlFor="login-password" className="block text-xs text-game-muted mb-1">Password</label>
             <input
               {...register('password')}
+              id="login-password"
               type="password"
               autoComplete="current-password"
               className="w-full bg-game-card border border-game-border rounded-xl px-4 py-3 text-white placeholder-game-muted focus:outline-none focus:border-brand transition-colors"

@@ -65,8 +65,8 @@ router.get("/search", requireAuth, async (req, res, next) => {
   }
 });
 
-// GET /users/:identifier/profile — public profile; resolves by userId first, then displayName
-router.get("/:identifier/profile", async (req, res, next) => {
+// GET /users/:identifier/profile — authenticated profile lookup; resolves by userId first, then displayName
+router.get("/:identifier/profile", requireAuth, async (req, res, next) => {
   try {
     const identifier = String(req.params.identifier ?? '').trim();
     if (!identifier || identifier.length > 64) {
