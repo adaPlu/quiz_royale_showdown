@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useEffect } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes } from './navigation';
 
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ReconnectBanner } from '@/components/ReconnectBanner';

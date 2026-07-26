@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from '../navigation';
 
 import { PlayerAvatar } from '@components/PlayerAvatar';
 import { api } from '@services/apiClient';

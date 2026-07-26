@@ -1,47 +1,9 @@
-import { VitePWA } from "vite-plugin-pwa";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 
 export default defineConfig({
-  plugins: [
-    react(),
-    VitePWA({
-      registerType: "autoUpdate",
-      includeAssets: ["favicon.svg"],
-      workbox: {
-        sourcemap: false,
-        globPatterns: ["**/*.{js,css,html,ico,png,svg}"],
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/.*\/api\/v1\/(leaderboard|users\/me)/,
-            handler: "NetworkFirst",
-            options: {
-              cacheName: "api-cache",
-              expiration: { maxEntries: 20, maxAgeSeconds: 300 },
-            },
-          },
-        ],
-      },
-      manifest: {
-        name: "Quiz Royale Showdown",
-        short_name: "QuizRoyale",
-        description: "Multiplayer trivia battle royale — answer fast, outlast everyone",
-        theme_color: "#0E0E1A",
-        background_color: "#0E0E1A",
-        display: "standalone",
-        orientation: "portrait",
-        start_url: "/",
-        scope: "/",
-        icons: [
-          { src: "/favicon.svg", sizes: "any", type: "image/svg+xml", purpose: "any maskable" },
-          { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
-          { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
-        ],
-        categories: ["games", "entertainment"],
-      },
-    }),
-  ],
+  plugins: [react()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),
@@ -61,7 +23,7 @@ export default defineConfig({
             return undefined;
           }
 
-          if (/[\\/]node_modules[\\/](react|react-dom|react-router-dom)[\\/]/.test(id)) {
+          if (/[\\/]node_modules[\\/](react|react-dom)[\\/]/.test(id)) {
             return "react";
           }
 

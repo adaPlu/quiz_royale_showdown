@@ -1,6 +1,6 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from '../navigation';
 import { describe, expect, it } from 'vitest';
 
 import LoginPage from './LoginPage';

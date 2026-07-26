@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams } from '../navigation';
 import { useAuthStore } from '@stores/authStore';
 import { PlayerAvatar } from '@components/PlayerAvatar';
 import { XpBar } from '@components/XpBar';
