@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from '../navigation';
 
 import { socketService } from '@/services/socketService';
 import { useGameStore } from '@/stores/gameStore';

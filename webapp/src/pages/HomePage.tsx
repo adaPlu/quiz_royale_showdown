@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from '../navigation';
 
 import { PlayerAvatar } from '@components/PlayerAvatar';
 import { useMountedRef } from '@hooks/useMountedRef';

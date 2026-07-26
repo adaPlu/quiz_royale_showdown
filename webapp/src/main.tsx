@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter } from './navigation';
 
 import { App } from './App';
 import { configureApiClient } from './services/apiClient';

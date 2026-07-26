@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from '../navigation';
 
 import { CountdownBar } from '@/components/CountdownBar';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
