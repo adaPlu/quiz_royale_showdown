@@ -48,6 +48,7 @@ const BASE_URL =
 const axiosInstance: AxiosInstance = axios.create({
   baseURL: BASE_URL,
   withCredentials: true,
+  timeout: 10000,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -89,8 +90,13 @@ export async function refreshAuthSession(): Promise<RefreshResponse> {
       `${BASE_URL}/auth/refresh`,
       {},
       {
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-csrf-protection': '1',
+          'x-refresh-token-response': 'cookie',
+        },
         withCredentials: true,
+        timeout: 5000,
       },
     );
 
