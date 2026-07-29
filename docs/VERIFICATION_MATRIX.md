@@ -81,6 +81,29 @@ Blockers: none
 Services: backend dev server (tsx watch), Railway Postgres, Docker Redis (localhost:6379)
 ```
 
+## Audit Remediation Verification - 2026-07-29
+
+```text
+Date: 2026-07-29
+Branch: main
+npm audit --workspaces --audit-level=low --json: PASS (0 vulnerabilities)
+Backend typecheck: PASS (0 errors)
+Backend tests: PASS (260/260, 39 files)
+Web typecheck: PASS (0 errors)
+Web tests: PASS (26/26, 5 files)
+Web build: PASS
+Backend lint: BLOCKED (`eslint` script exists, but ESLint is not installed/configured in this workspace)
+Android unit/release gate: PASS
+  - :app:testDebugUnitTest: NO-SOURCE
+  - :app:testReleaseUnitTest: NO-SOURCE
+  - :app:assembleRelease: PASS
+smoke:phase1: Not run in this pass
+smoke:phase2: Not run in this pass
+Railway question audit: Not run in this pass
+Observed backend event/error: none during automated tests
+Blockers: live staging smoke, Railway/Vercel env verification, store-listing/privacy assets, and external launch operations remain outside local unit/build gates
+```
+
 ## Local Service Expectations
 
 `smoke:phase1` expects:

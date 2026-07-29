@@ -17,7 +17,7 @@
 - [x] `src/routes/push.ts` — `/api/v1/push` mounted
 - [x] `src/routes/admin.ts` — `/api/v1/admin` mounted
 - [x] Rate limiting: `authLimiter` (20 req/15 min) on auth; `apiLimiter` (120 req/min) on all `/api/v1`
-- [x] `npm run build` — zero TypeScript errors (34/34 tests pass)
+- [x] Current typecheck/build/test gates tracked in `docs/VERIFICATION_MATRIX.md`
 - [x] `GameOrchestrator` full game loop: countdown, questions, answers, eliminations, finale, game:over, XP writes
 - [x] `powerup:loot_drop` emitted after `game:over` to each finalist
 - [x] `gameHandlers.ts` deleted; handlers live in `backend/src/socket/handlers/`
@@ -61,8 +61,8 @@
 
 ### Backend merge criteria
 - [ ] `GET /health` returns 200
-- [ ] `POST /auth/register` returns 201 with accessToken + refreshToken
-- [ ] `POST /auth/login` returns 200 with accessToken + refreshToken
+- [x] `POST /auth/register` returns 201 with accessToken, sets HttpOnly refresh cookie, and omits JSON refreshToken unless `x-refresh-token-response: body` is sent
+- [x] `POST /auth/login` returns 200 with accessToken, sets HttpOnly refresh cookie, and omits JSON refreshToken unless `x-refresh-token-response: body` is sent
 - [ ] TypeScript build clean (`npm run build` zero errors)
 - [ ] 500+ rows in `question_bank` table
 

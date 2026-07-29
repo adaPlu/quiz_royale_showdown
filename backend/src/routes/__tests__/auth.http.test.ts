@@ -100,7 +100,7 @@ describe("auth routes", () => {
     vi.resetModules();
   });
 
-  it("returns 201 from register with the auth payload", async () => {
+  it("returns 201 from register with the cookie-backed auth payload", async () => {
     const user = {
       id: "user-1",
       email: "new@example.com",
@@ -124,8 +124,8 @@ describe("auth routes", () => {
     expect(response.body).toMatchObject({
       user,
       accessToken: "access-token",
-      refreshToken: "refresh-token",
     });
+    expect(response.body).not.toHaveProperty("refreshToken");
     expect(response.headers.get("set-cookie")).toContain("qrs.rt=refresh-token");
     expect(response.headers.get("set-cookie")).toContain("HttpOnly");
     expect(prismaMock.user.create).toHaveBeenCalledWith(
@@ -138,7 +138,7 @@ describe("auth routes", () => {
     );
   });
 
-  it("sets the refresh cookie from login while preserving the JSON refresh token", async () => {
+  it("sets the refresh cookie from login without returning a JSON refresh token", async () => {
     const bcrypt = (await import("bcrypt")).default;
     vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
     const user = {
@@ -162,13 +162,47 @@ describe("auth routes", () => {
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
       accessToken: "access-token",
-      refreshToken: "refresh-token",
     });
+    expect(response.body).not.toHaveProperty("refreshToken");
     expect(response.headers.get("set-cookie")).toContain("qrs.rt=refresh-token");
     expect(response.headers.get("set-cookie")).toContain("HttpOnly");
   });
 
-  it("refreshes tokens from the HttpOnly refresh cookie without a body token", async () => {
+  it("returns a JSON refresh token from login when the client opts in", async () => {
+    const bcrypt = (await import("bcrypt")).default;
+    vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
+    const user = {
+      id: "user-1",
+      email: "login@example.com",
+      displayName: "Login User",
+      passwordHash: "hashed-password",
+    };
+    prismaMock.user.findUnique.mockResolvedValue(user);
+    authServiceMock.issueTokenPair.mockResolvedValue({
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+    });
+    const app = await createAuthTestApp();
+
+    const response = await request(
+      app,
+      "POST",
+      "/api/v1/auth/login",
+      {
+        email: "LOGIN@EXAMPLE.COM",
+        password: "password123",
+      },
+      { "x-refresh-token-response": "body" }
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+    });
+  });
+
+  it("refreshes tokens from the HttpOnly refresh cookie with CSRF protection", async () => {
     authServiceMock.rotateRefreshToken.mockResolvedValue({
       accessToken: "next-access-token",
       refreshToken: "next-refresh-token",
@@ -180,17 +214,35 @@ describe("auth routes", () => {
       "POST",
       "/api/v1/auth/refresh",
       {},
-      { Cookie: `qrs.rt=${encodeURIComponent("r".repeat(20))}` }
+      {
+        Cookie: `qrs.rt=${encodeURIComponent("r".repeat(20))}`,
+        "x-csrf-protection": "1",
+      }
     );
 
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
       accessToken: "next-access-token",
-      refreshToken: "next-refresh-token",
     });
+    expect(response.body).not.toHaveProperty("refreshToken");
     expect(authServiceMock.rotateRefreshToken).toHaveBeenCalledWith("r".repeat(20));
     expect(response.headers.get("set-cookie")).toContain("qrs.rt=next-refresh-token");
     expect(response.headers.get("set-cookie")).toContain("HttpOnly");
+  });
+
+  it("rejects cookie-backed refresh without CSRF protection", async () => {
+    const app = await createAuthTestApp();
+
+    const response = await request(
+      app,
+      "POST",
+      "/api/v1/auth/refresh",
+      {},
+      { Cookie: `qrs.rt=${encodeURIComponent("r".repeat(20))}` }
+    );
+
+    expect(response.status).toBe(403);
+    expect(authServiceMock.rotateRefreshToken).not.toHaveBeenCalled();
   });
 
   it("returns structured 400 validation errors from register", async () => {
@@ -222,8 +274,28 @@ describe("auth routes", () => {
     expect(response.headers.get("set-cookie")).toContain("qrs.rt=");
   });
 
-  it("returns 204 from logout using only the refresh cookie", async () => {
+  it("returns 204 from logout using the refresh cookie with CSRF protection", async () => {
     authServiceMock.revokeRefreshToken.mockResolvedValue(undefined);
+    const app = await createAuthTestApp();
+
+    const response = await request(
+      app,
+      "POST",
+      "/api/v1/auth/logout",
+      {},
+      {
+        Cookie: `qrs.rt=${encodeURIComponent("c".repeat(20))}`,
+        "x-csrf-protection": "1",
+      }
+    );
+
+    expect(response.status).toBe(204);
+    expect(response.text).toBe("");
+    expect(authServiceMock.revokeRefreshToken).toHaveBeenCalledWith("c".repeat(20));
+    expect(response.headers.get("set-cookie")).toContain("qrs.rt=");
+  });
+
+  it("rejects cookie-backed logout without CSRF protection", async () => {
     const app = await createAuthTestApp();
 
     const response = await request(
@@ -234,9 +306,7 @@ describe("auth routes", () => {
       { Cookie: `qrs.rt=${encodeURIComponent("c".repeat(20))}` }
     );
 
-    expect(response.status).toBe(204);
-    expect(response.text).toBe("");
-    expect(authServiceMock.revokeRefreshToken).toHaveBeenCalledWith("c".repeat(20));
-    expect(response.headers.get("set-cookie")).toContain("qrs.rt=");
+    expect(response.status).toBe(403);
+    expect(authServiceMock.revokeRefreshToken).not.toHaveBeenCalled();
   });
 });

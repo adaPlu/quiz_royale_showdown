@@ -51,7 +51,11 @@ const roomIdParamsSchema = z.object({
 });
 
 const inviteCodeParamsSchema = z.object({
-  inviteCode: z.string().trim().min(1).max(64),
+  inviteCode: z
+    .string()
+    .trim()
+    .length(16, "inviteCode must be exactly 16 characters")
+    .regex(/^[A-Za-z0-9_-]+$/, "inviteCode contains invalid characters"),
 });
 
 function getAuthenticatedUserId(jwtSub?: string): string {
@@ -265,7 +269,7 @@ roomsRouter.post(
         throw new UnauthorizedError("Only the room host can generate an invite code");
       }
 
-      const inviteCode = randomBytes(3).toString("hex").toUpperCase(); // always 6 chars
+      const inviteCode = randomBytes(12).toString("base64url");
 
       await prisma.room.update({
         where: { id: roomId },

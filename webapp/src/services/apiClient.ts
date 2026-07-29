@@ -39,11 +39,21 @@ export function configureApiClient(store: TokenStore): void {
 // ---------------------------------------------------------------------------
 // Axios instance
 // ---------------------------------------------------------------------------
-const BASE_URL =
-  (import.meta as unknown as { env: Record<string, string> }).env?.VITE_API_BASE_URL ??
-  (typeof window !== 'undefined' && window.location.hostname !== 'localhost'
-    ? 'https://quizroyaleshowdown-production.up.railway.app/api/v1'
-    : 'http://localhost:4000/api/v1');
+function resolveBaseUrl(): string {
+  const configuredBaseUrl = (import.meta as unknown as { env: Record<string, string | undefined> }).env
+    ?.VITE_API_BASE_URL;
+  if (configuredBaseUrl) {
+    return configuredBaseUrl;
+  }
+
+  if (typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+    return 'http://localhost:4000/api/v1';
+  }
+
+  throw new Error('VITE_API_BASE_URL is required outside local development');
+}
+
+const BASE_URL = resolveBaseUrl();
 
 const axiosInstance: AxiosInstance = axios.create({
   baseURL: BASE_URL,

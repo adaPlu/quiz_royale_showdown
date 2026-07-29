@@ -229,7 +229,7 @@ describe("GET /rooms/join/:inviteCode — look up by invite code", () => {
     });
 
     const app = buildApp();
-    const res = await request(app, "GET", "/rooms/join/DEADBEEF");
+    const res = await request(app, "GET", "/rooms/join/DEADBEEFDEADBEEF");
 
     expect(res.status).toBe(200);
     const body = res.body as { roomId: string; playerCount: number };
@@ -241,7 +241,7 @@ describe("GET /rooms/join/:inviteCode — look up by invite code", () => {
     prismaMock.room.findFirst.mockResolvedValue(null);
 
     const app = buildApp();
-    const res = await request(app, "GET", "/rooms/join/INVALID");
+    const res = await request(app, "GET", "/rooms/join/NOINVITE12345678");
 
     expect(res.status).toBe(404);
   });
@@ -285,7 +285,7 @@ describe("POST /rooms/:roomId/invite — generate invite code", () => {
     expect(res.status).toBe(401);
   });
 
-  it("returns 200 with a 6-character inviteCode for the host", async () => {
+  it("returns 200 with a 16-character inviteCode for the host", async () => {
     prismaMock.room.findUnique.mockResolvedValue({ hostUserId: "user-1" });
 
     const token = makeToken("user-1");
@@ -296,7 +296,8 @@ describe("POST /rooms/:roomId/invite — generate invite code", () => {
 
     expect(res.status).toBe(200);
     const body = res.body as { inviteCode: string };
-    expect(body.inviteCode).toHaveLength(6);
+    expect(body.inviteCode).toHaveLength(16);
+    expect(body.inviteCode).toMatch(/^[A-Za-z0-9_-]+$/);
     expect(prismaMock.room.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: VALID_ULID } }),
     );

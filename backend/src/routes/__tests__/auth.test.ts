@@ -13,6 +13,7 @@
 
 import express from "express";
 import http from "http";
+import cookieParser from "cookie-parser";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ─── Hoisted mocks ────────────────────────────────────────────────────────────
@@ -69,7 +70,7 @@ import { UnauthorizedError } from "../../utils/errors";
 function buildApp() {
   const app = express();
   app.use(express.json());
-  // cookie-parser needed for /refresh to read cookie
+  app.use(cookieParser());
   app.use("/auth", authRouter);
   app.use(errorHandler);
   return app;
@@ -131,20 +132,33 @@ describe("POST /auth/register", () => {
     });
   });
 
-  it("returns 201 with accessToken and sets qrs.rt cookie on success", async () => {
+  it("returns 201 with accessToken, no JSON refreshToken, and sets qrs.rt cookie on success", async () => {
     const app = buildApp();
     const res = await request(app, "POST", "/auth/register", {
       body: { email: "alice@example.com", password: "password123", displayName: "Alice" },
     });
 
     expect(res.status).toBe(201);
-    const body = res.body as { accessToken: string; user: { id: string } };
+    const body = res.body as { accessToken: string; refreshToken?: string; user: { id: string } };
     expect(body.accessToken).toBe("test-access-token");
+    expect(body.refreshToken).toBeUndefined();
     expect(body.user.id).toBe("generated-user-id");
     const cookieHeader = res.headers["set-cookie"];
     expect(cookieHeader).toBeDefined();
     const cookieStr = Array.isArray(cookieHeader) ? cookieHeader.join("; ") : cookieHeader ?? "";
     expect(cookieStr).toContain("qrs.rt=");
+  });
+
+  it("returns refreshToken in JSON only when the client opts in", async () => {
+    const app = buildApp();
+    const res = await request(app, "POST", "/auth/register", {
+      headers: { "x-refresh-token-response": "body" },
+      body: { email: "alice@example.com", password: "password123", displayName: "Alice" },
+    });
+
+    expect(res.status).toBe(201);
+    const body = res.body as { refreshToken?: string };
+    expect(body.refreshToken).toBe("test-refresh-token");
   });
 
   it("returns 409 when the email is already registered", async () => {
@@ -190,17 +204,30 @@ describe("POST /auth/login", () => {
     prismaMock.user.findUnique.mockResolvedValue(fakeUser);
   });
 
-  it("returns 200 with accessToken and sets cookie on valid credentials", async () => {
+  it("returns 200 with accessToken, no JSON refreshToken, and sets cookie on valid credentials", async () => {
     const app = buildApp();
     const res = await request(app, "POST", "/auth/login", {
       body: { email: "bob@example.com", password: "correct-password" },
     });
 
     expect(res.status).toBe(200);
-    const body = res.body as { accessToken: string };
+    const body = res.body as { accessToken: string; refreshToken?: string };
     expect(body.accessToken).toBe("test-access-token");
+    expect(body.refreshToken).toBeUndefined();
     const cookieStr = (res.headers["set-cookie"] ?? "").toString();
     expect(cookieStr).toContain("qrs.rt=");
+  });
+
+  it("returns refreshToken in JSON only when the client opts in", async () => {
+    const app = buildApp();
+    const res = await request(app, "POST", "/auth/login", {
+      headers: { "x-refresh-token-response": "body" },
+      body: { email: "bob@example.com", password: "correct-password" },
+    });
+
+    expect(res.status).toBe(200);
+    const body = res.body as { refreshToken?: string };
+    expect(body.refreshToken).toBe("test-refresh-token");
   });
 
   it("returns 401 when password does not match", async () => {
@@ -246,6 +273,27 @@ describe("POST /auth/logout", () => {
 
     expect(res.status).toBe(204);
   });
+
+  it("returns 403 when using a cookie refresh token without CSRF protection", async () => {
+    const app = buildApp();
+    const res = await request(app, "POST", "/auth/logout", {
+      headers: { Cookie: "qrs.rt=cookie-refresh-token" },
+    });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 204 when using a cookie refresh token with CSRF protection", async () => {
+    const app = buildApp();
+    const res = await request(app, "POST", "/auth/logout", {
+      headers: {
+        Cookie: "qrs.rt=cookie-refresh-token",
+        "x-csrf-protection": "1",
+      },
+    });
+
+    expect(res.status).toBe(204);
+  });
 });
 
 describe("POST /auth/refresh", () => {
@@ -260,6 +308,54 @@ describe("POST /auth/refresh", () => {
       body: { refreshToken: 'consumed-token-already-used' },
     });
     expect(res.status).toBe(401);
+  });
+
+  it("rotates a body refresh token without returning a JSON refreshToken by default", async () => {
+    const app = buildApp();
+    const res = await request(app, "POST", "/auth/refresh", {
+      body: { refreshToken: "body-refresh-token-value" },
+    });
+
+    expect(res.status).toBe(200);
+    const body = res.body as { accessToken: string; refreshToken?: string };
+    expect(body.accessToken).toBe("new-access-token");
+    expect(body.refreshToken).toBeUndefined();
+  });
+
+  it("returns refreshToken in JSON when refresh opt-in header is set", async () => {
+    const app = buildApp();
+    const res = await request(app, "POST", "/auth/refresh", {
+      headers: { "x-refresh-token-response": "body" },
+      body: { refreshToken: "body-refresh-token-value" },
+    });
+
+    expect(res.status).toBe(200);
+    const body = res.body as { refreshToken?: string };
+    expect(body.refreshToken).toBe("new-refresh-token");
+  });
+
+  it("returns 403 when a cookie refresh token is used without CSRF protection", async () => {
+    const app = buildApp();
+    const res = await request(app, "POST", "/auth/refresh", {
+      headers: { Cookie: "qrs.rt=cookie-refresh-token" },
+    });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("rotates a cookie refresh token when CSRF protection header is present", async () => {
+    const app = buildApp();
+    const res = await request(app, "POST", "/auth/refresh", {
+      headers: {
+        Cookie: "qrs.rt=cookie-refresh-token",
+        "x-csrf-protection": "1",
+      },
+    });
+
+    expect(res.status).toBe(200);
+    const body = res.body as { accessToken: string; refreshToken?: string };
+    expect(body.accessToken).toBe("new-access-token");
+    expect(body.refreshToken).toBeUndefined();
   });
 });
 

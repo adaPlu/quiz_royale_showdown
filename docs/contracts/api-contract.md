@@ -379,7 +379,7 @@ All `/api/v1` routes share a general rate limit of 120 req / 1 min per IP.
 
 Register accepts `email`, `password`, and either `displayName` or `username`.
 
-Register and login return top-level tokens:
+Register and login return the authenticated user and access token:
 
 ```json
 {
@@ -388,17 +388,23 @@ Register and login return top-level tokens:
     "email": "alice@example.com",
     "displayName": "Alice"
   },
-  "accessToken": "...",
-  "refreshToken": "..."
+  "accessToken": "..."
 }
 ```
+
+Register, login, and refresh set the HttpOnly `qrs.rt` refresh cookie. Native
+clients that cannot rely on cookies may send `x-refresh-token-response: body`
+to receive `refreshToken` in the JSON response.
+
+Cookie-backed refresh and logout requests must include
+`x-csrf-protection: 1`. Clients may still send a body `refreshToken` instead of
+the cookie when they own secure local token storage.
 
 Refresh returns:
 
 ```json
 {
-  "accessToken": "...",
-  "refreshToken": "..."
+  "accessToken": "..."
 }
 ```
 
@@ -408,9 +414,11 @@ Refresh returns:
 | --- | --- | --- | --- |
 | POST | `/api/v1/rooms` | JWT | Create a room |
 | POST | `/api/v1/rooms/join` | JWT | Join by code or quick-play matchmaking |
-| GET | `/api/v1/rooms/:roomCode` | None | Get room by 6-character code |
+| GET | `/api/v1/rooms/:roomCode` | JWT | Get room by 6-character code |
 | POST | `/api/v1/rooms/:roomId/start` | JWT | Host starts game countdown |
 | POST | `/api/v1/rooms/:roomId/leave` | JWT | Leave a room |
+| GET | `/api/v1/rooms/join/:inviteCode` | None | Public lookup by 16-character invite code |
+| POST | `/api/v1/rooms/:roomId/invite` | JWT | Host generates a 16-character invite code |
 
 Create room accepts:
 

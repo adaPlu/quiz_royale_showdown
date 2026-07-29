@@ -15,7 +15,7 @@ import {
   revokeRefreshToken,
   rotateRefreshToken
 } from "../services/AuthService";
-import { ConflictError, UnauthorizedError } from "../utils/errors";
+import { ConflictError, ForbiddenError, UnauthorizedError } from "../utils/errors";
 import { generateId } from "../utils/ulid";
 import { logger } from "../utils/logger";
 
@@ -24,6 +24,8 @@ const BCRYPT_ROUNDS = 12;
 const REFRESH_COOKIE_NAME = "qrs.rt";
 const REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const REFRESH_COOKIE_SAME_SITE = env.isProduction ? "none" : "lax";
+const REFRESH_TOKEN_RESPONSE_HEADER = "x-refresh-token-response";
+const CSRF_PROTECTION_HEADER = "x-csrf-protection";
 
 const registerSchema = z
   .object({
@@ -102,7 +104,8 @@ function isUniqueConstraintError(error: unknown): error is Prisma.PrismaClientKn
 
 function formatAuthPayload(
   user: { id: string; email: string; displayName: string },
-  tokens: { accessToken: string; refreshToken: string }
+  tokens: { accessToken: string; refreshToken: string },
+  includeRefreshToken = false
 ) {
   return {
     user: {
@@ -111,7 +114,7 @@ function formatAuthPayload(
       displayName: user.displayName
     },
     accessToken: tokens.accessToken,
-    refreshToken: tokens.refreshToken
+    ...(includeRefreshToken ? { refreshToken: tokens.refreshToken } : {})
   };
 }
 
@@ -134,8 +137,36 @@ function clearRefreshCookie(res: Response): void {
   });
 }
 
+function wantsRefreshTokenInBody(req: Request): boolean {
+  return req.get(REFRESH_TOKEN_RESPONSE_HEADER)?.toLowerCase() === "body";
+}
+
+function getBodyRefreshToken(req: Request): string | null {
+  const token = (req.body as { refreshToken?: string }).refreshToken;
+  return typeof token === "string" && token.length > 0 ? token : null;
+}
+
+function getCookieRefreshToken(req: Request): string | null {
+  const token = req.cookies?.[REFRESH_COOKIE_NAME];
+  return typeof token === "string" && token.length > 0 ? token : null;
+}
+
 function getRequestRefreshToken(req: Request): string | null {
-  return req.cookies?.[REFRESH_COOKIE_NAME] ?? (req.body as { refreshToken?: string }).refreshToken ?? null;
+  const bodyToken = getBodyRefreshToken(req);
+  if (bodyToken) {
+    return bodyToken;
+  }
+
+  const cookieToken = getCookieRefreshToken(req);
+  if (!cookieToken) {
+    return null;
+  }
+
+  if (req.get(CSRF_PROTECTION_HEADER) !== "1") {
+    throw new ForbiddenError("Missing CSRF protection header");
+  }
+
+  return cookieToken;
 }
 
 authRouter.post("/register", registerLimiter, validate({ body: registerSchema }), async (req, res, next) => {
@@ -177,7 +208,7 @@ authRouter.post("/register", registerLimiter, validate({ body: registerSchema })
     logger.info("User registered", { userId: user.id });
 
     setRefreshCookie(res, tokens.refreshToken);
-    res.status(201).json(formatAuthPayload(user, tokens));
+    res.status(201).json(formatAuthPayload(user, tokens, wantsRefreshTokenInBody(req)));
   } catch (error) {
     if (isUniqueConstraintError(error)) {
       next(new ConflictError("Email is already taken"));
@@ -222,7 +253,7 @@ authRouter.post("/login", loginLimiter, validate({ body: loginSchema }), async (
     logger.info("User logged in", { userId: user.id });
 
     setRefreshCookie(res, tokens.refreshToken);
-    res.json(formatAuthPayload(user, tokens));
+    res.json(formatAuthPayload(user, tokens, wantsRefreshTokenInBody(req)));
   } catch (error) {
     next(error);
   }
@@ -243,7 +274,7 @@ authRouter.post("/refresh", refreshLimiter, validate({ body: refreshSchema }), a
     setRefreshCookie(res, tokens.refreshToken);
     res.json({
       accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken
+      ...(wantsRefreshTokenInBody(req) ? { refreshToken: tokens.refreshToken } : {})
     });
   } catch (error) {
     next(error);

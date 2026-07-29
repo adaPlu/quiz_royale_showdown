@@ -68,7 +68,7 @@ Evidence:
 - Live socket flow reaches `round:question_started`.
 - Android debug build is reproducible from CLI.
 - Stale backend direct `v1:*` socket handler code has been removed from the active backend source.
-- Contract docs now mark profile, leaderboard, admin, cosmetics, shop, friends, push, and payments as future/unmounted.
+- Contract docs now mark profile/users, leaderboard, admin, cosmetics, power-ups, challenges, and push as mounted. Shop, seasons, friends, and payments remain future/unmounted.
 
 Residual work belongs in Phase 2 unless it blocks first-question smoke.
 
@@ -116,7 +116,7 @@ Includes friends, push notifications, invite links, web PWA polish, accessibilit
 - WS reconnect/resync mid-game has not been smoke-tested — this is the primary remaining unknown.
 - Android end-to-end flow on device has not been verified beyond assembleDebug passing.
 - P95 latency under multi-player load has not been measured (k6 load test pending).
-- Shop, friends, seasons, and payment routes remain unmounted — UI calling these must stay guarded.
+- Shop, friends, seasons, and payment routes remain unmounted; UI calling these must stay guarded.
 - Railway question operations remain split across a separate repo (`QuizGame-main\backend`); keep primary-repo launch work distinct from that data maintenance workspace.
 
 ## 7. Next Action

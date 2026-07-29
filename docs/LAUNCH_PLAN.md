@@ -102,7 +102,7 @@ Still required for full M3:
 ### Infrastructure
 - [ ] `docker-compose up --build` succeeds in clean environment (no local state)
 - [ ] Railway production environment: DATABASE_URL, REDIS_URL, JWT secrets all set
-- [ ] Vercel production environment: VITE_API_URL points to Railway production URL
+- [ ] Vercel production environment: `VITE_API_BASE_URL` points to the production API base URL
 - [ ] S3 bucket + CloudFront distribution created for cosmetic assets
 - [ ] Redis 7 cluster mode or Railway Redis add-on with persistence enabled
 

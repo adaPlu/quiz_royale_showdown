@@ -12,7 +12,7 @@
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Backend scaffold | Complete | All routes written and mounted; TypeScript clean; 34/34 tests pass |
+| Backend scaffold | Complete | Core routes written and mounted; current verification tracked in `docs/VERIFICATION_MATRIX.md` |
 | Android scaffold | Complete | All core screens and DI wired; assembleDebug passes |
 | Web scaffold | Complete | All pages written; typecheck clean; production build passes |
 
@@ -50,7 +50,7 @@
 
 **Actions completed:**
 - `npm run build` — zero TypeScript errors
-- 34/34 tests pass
+- Current test status is tracked in `docs/VERIFICATION_MATRIX.md`
 
 #### Android Agent (`feature/android`) — Completion Status
 
@@ -120,8 +120,8 @@ Additionally:
 - [ ] BACKEND: Run `npm ci` + `prisma migrate dev --name init` — migration completes with 15 tables created
 - [ ] BACKEND: Copy `.env.example` → `.env`, fill all required vars — `npm run dev` starts without crash
 - [ ] BACKEND: Write `src/routes/users.ts` (GET /users/me, GET /users/:id/profile) — both routes return 200 with valid shape
-- [ ] BACKEND: Write `src/routes/powerups.ts` (GET /powerups/inventory, POST /powerups/use) — routes registered, return stub 200
-- [ ] BACKEND: Write `src/routes/cosmetics.ts` (GET /cosmetics, POST /cosmetics/equip) — routes registered, return stub 200
+- [x] BACKEND: Write `src/routes/powerups.ts` (GET /powerups/inventory, POST /powerups/use) — routes registered and backed by service logic
+- [x] BACKEND: Write `src/routes/cosmetics.ts` (GET /cosmetics, POST /cosmetics/equip) — routes registered and backed by service logic
 - [ ] BACKEND: `npm run build` — zero TypeScript errors
 
 #### Android Agent
@@ -158,7 +158,7 @@ Additionally:
 
 #### Web Agent
 - [ ] WEB: Write `src/pages/ResultsPage.tsx` — final leaderboard, XP summary, share button renders
-- [ ] WEB: Write `src/pages/ProfilePage.tsx` — avatar, XP ring, stats render (stubs OK for Phase 3)
+- [x] WEB: Write `src/pages/ProfilePage.tsx` — avatar, XP ring, and stats render against current profile data
 - [ ] WEB: Write `src/pages/LeaderboardPage.tsx` — tabs Global/Season/Friends, react-window list renders
 - [ ] WEB: Write `src/components/XpBar.tsx` — animated progress bar with brand gradient
 - [ ] WEB: Write `src/components/SeasonRankBadge.tsx` — colored tier badge component
