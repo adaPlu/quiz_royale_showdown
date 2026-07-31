@@ -186,6 +186,30 @@ describe("POST /rooms/join — join room", () => {
     expect(res.status).toBe(200);
     expect(roomServiceMock.joinRoom).toHaveBeenCalledWith("user-1", "ABC123");
   });
+
+  it("uses matchmaking when roomCode is omitted", async () => {
+    const token = makeToken("user-1");
+    const app = buildApp();
+    const res = await request(app, "POST", "/rooms/join", {
+      headers: { Authorization: `Bearer ${token}` },
+      body: {},
+    });
+
+    expect(res.status).toBe(200);
+    expect(roomServiceMock.joinRoom).toHaveBeenCalledWith("user-1", undefined);
+  });
+
+  it("uses matchmaking when roomCode is null", async () => {
+    const token = makeToken("user-1");
+    const app = buildApp();
+    const res = await request(app, "POST", "/rooms/join", {
+      headers: { Authorization: `Bearer ${token}` },
+      body: { roomCode: null },
+    });
+
+    expect(res.status).toBe(200);
+    expect(roomServiceMock.joinRoom).toHaveBeenCalledWith("user-1", undefined);
+  });
 });
 
 describe("GET /rooms/:roomCode — get room by code", () => {

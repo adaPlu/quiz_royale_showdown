@@ -111,7 +111,7 @@ export default function HomePage() {
     setLaunchNotice(null);
 
     try {
-      const response = await api.post('/rooms/join', { roomCode: null });
+      const response = await api.post('/rooms/join', {});
       enterLobby(normalizeRoomSession(response.data));
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to find a room'));
