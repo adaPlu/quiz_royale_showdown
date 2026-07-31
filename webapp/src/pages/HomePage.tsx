@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from '../navigation';
 
 import { PlayerAvatar } from '@components/PlayerAvatar';
-import { api } from '@services/apiClient';
+import { api, ApiError } from '@services/apiClient';
 import { socketService } from '@services/socketService';
 import { useAuthStore } from '@stores/authStore';
 
@@ -111,7 +111,17 @@ export default function HomePage() {
     setLaunchNotice(null);
 
     try {
-      const response = await api.post('/rooms/join', {});
+      let response;
+      try {
+        response = await api.post('/rooms/join', {});
+      } catch (err) {
+        if (!(err instanceof ApiError) || err.status !== 400) {
+          throw err;
+        }
+
+        response = await api.post('/rooms', { isPrivate: false, maxPlayers: 8 });
+      }
+
       enterLobby(normalizeRoomSession(response.data));
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to find a room'));
