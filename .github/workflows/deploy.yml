@@ -15,6 +15,7 @@ jobs:
     env:
       HAS_RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN != '' }}
       HAS_VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN != '' }}
+      HAS_VERCEL_CONFIG: ${{ secrets.VERCEL_TOKEN != '' && secrets.VERCEL_ORG_ID != '' && secrets.VERCEL_PROJECT_ID != '' }}
       PUBLISH_GHCR_IMAGE: ${{ vars.PUBLISH_GHCR_IMAGE == 'true' }}
     steps:
       - uses: actions/checkout@v4
@@ -46,12 +47,31 @@ jobs:
           docker tag "${IMAGE_NAME}:${{ github.sha }}" "${IMAGE_NAME}:latest"
           docker push "${IMAGE_NAME}:latest"
 
-      - name: Trigger Vercel deploy
-        if: env.HAS_VERCEL_TOKEN == 'true'
+      - name: Verify Vercel deploy secrets
+        if: env.HAS_VERCEL_TOKEN == 'true' && env.HAS_VERCEL_CONFIG != 'true'
         run: |
-          npm exec --yes --package vercel@54.21.1 -- vercel pull --yes --environment=production --token "${{ secrets.VERCEL_TOKEN }}"
-          npm exec --yes --package vercel@54.21.1 -- vercel build --prod --token "${{ secrets.VERCEL_TOKEN }}"
-          npm exec --yes --package vercel@54.21.1 -- vercel deploy --prebuilt --prod --token "${{ secrets.VERCEL_TOKEN }}"
+          echo "VERCEL_TOKEN is set, but VERCEL_ORG_ID or VERCEL_PROJECT_ID is missing."
+          exit 1
+
+      - name: Pull Vercel project config
+        if: env.HAS_VERCEL_CONFIG == 'true'
+        run: npm exec --yes --package vercel@58.4.4 -- vercel pull --yes --environment=production --scope adaplus-projects --token "${{ secrets.VERCEL_TOKEN }}"
+        working-directory: webapp
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Build Vercel output
+        if: env.HAS_VERCEL_CONFIG == 'true'
+        run: npm exec --yes --package vercel@58.4.4 -- vercel build --prod --scope adaplus-projects --token "${{ secrets.VERCEL_TOKEN }}"
+        working-directory: webapp
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Deploy Vercel output
+        if: env.HAS_VERCEL_CONFIG == 'true'
+        run: npm exec --yes --package vercel@58.4.4 -- vercel deploy --prebuilt --prod --scope adaplus-projects --token "${{ secrets.VERCEL_TOKEN }}"
         working-directory: webapp
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
