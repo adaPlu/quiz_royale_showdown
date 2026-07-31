@@ -71,7 +71,7 @@ const DEFAULT_ROOM_CONFIG: RoomConfig = {
   maxPlayers: 8,
 };
 
-const roomWithPlayersInclude = Prisma.validator<Prisma.RoomInclude>()({
+const roomWithPlayersInclude = {
   players: {
     orderBy: { seatIndex: "asc" },
     include: {
@@ -84,7 +84,7 @@ const roomWithPlayersInclude = Prisma.validator<Prisma.RoomInclude>()({
       },
     },
   },
-});
+} satisfies Prisma.RoomInclude;
 
 type RoomWithPlayers = Prisma.RoomGetPayload<{
   include: typeof roomWithPlayersInclude;

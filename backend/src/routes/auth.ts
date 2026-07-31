@@ -1,5 +1,4 @@
 import bcrypt from "bcrypt";
-import { Prisma } from "@prisma/client";
 import type { Request, Response } from "express";
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
@@ -98,8 +97,13 @@ const meLimiter = rateLimit({
 
 export const authRouter = Router();
 
-function isUniqueConstraintError(error: unknown): error is Prisma.PrismaClientKnownRequestError {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
+  );
 }
 
 function formatAuthPayload(

@@ -5,9 +5,16 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      HAS_RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN != '' }}
+      HAS_VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -32,13 +39,13 @@ jobs:
           docker push ghcr.io/${{ github.repository }}/quiz-royale-backend:latest
 
       - name: Trigger Railway deploy
-        if: ${{ secrets.RAILWAY_TOKEN != '' }}
+        if: env.HAS_RAILWAY_TOKEN == 'true'
         run: npm exec --yes --package @railway/cli@5.24.0 -- railway up --service backend --detach
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
 
       - name: Trigger Vercel deploy
-        if: ${{ secrets.VERCEL_TOKEN != '' }}
+        if: env.HAS_VERCEL_TOKEN == 'true'
         run: npm exec --yes --package vercel@54.21.1 -- vercel deploy --prod --yes --token "${{ secrets.VERCEL_TOKEN }}"
         working-directory: webapp
         env:

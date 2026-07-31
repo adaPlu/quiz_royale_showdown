@@ -66,5 +66,10 @@ jobs:
           java-version: "17"
           cache: "gradle"
 
+      - uses: android-actions/setup-android@v3
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x android-repo/android/gradlew
+
       - name: Android unit tests
         run: cd android-repo/android && ./gradlew testDebugUnitTest

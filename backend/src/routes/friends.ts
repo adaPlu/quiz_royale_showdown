@@ -1,6 +1,5 @@
 import { Router } from "express";
 import { z } from "zod";
-import { Prisma } from "@prisma/client";
 
 import { requireAuth } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -61,7 +60,12 @@ friendsRouter.post(
 
       res.status(201).json(friendship);
     } catch (err) {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      if (
+        typeof err === "object" &&
+        err !== null &&
+        "code" in err &&
+        (err as { code?: unknown }).code === "P2002"
+      ) {
         return next(new ConflictError('Friendship already exists'));
       }
       next(err);
