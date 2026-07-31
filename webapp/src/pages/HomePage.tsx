@@ -135,6 +135,23 @@ export default function HomePage() {
     }
   };
 
+  const playSinglePlayer = async () => {
+    setLoading('solo');
+    setError(null);
+    setLaunchNotice(null);
+
+    try {
+      const response = await api.post('/rooms', { isPrivate: true, maxPlayers: 2 });
+      const session = normalizeRoomSession(response.data);
+      enterLobby(session);
+      await api.post(`/rooms/${session.roomId}/start`, { allowSolo: true });
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to start single player game'));
+    } finally {
+      setLoading(null);
+    }
+  };
+
   const joinByCode = async () => {
     const normalizedCode = code.trim().toUpperCase();
     if (normalizedCode.length < 4) {
@@ -191,6 +208,14 @@ export default function HomePage() {
           className="w-full py-4 rounded-2xl bg-brand text-white font-bold text-lg shadow-royale hover:opacity-90 disabled:opacity-60"
         >
           {loading === 'quick' ? 'Finding game...' : 'Quick Play'}
+        </button>
+
+        <button
+          onClick={() => void playSinglePlayer()}
+          disabled={!!loading}
+          className="w-full py-3 rounded-2xl bg-answer-correct text-white font-bold shadow-royale hover:opacity-90 disabled:opacity-60"
+        >
+          {loading === 'solo' ? 'Starting solo...' : 'Single Player'}
         </button>
 
         <button

@@ -31,6 +31,14 @@ interface CreateRoomOpts {
   maxPlayers: number;
 }
 
+interface StartGameOpts {
+  allowSolo?: boolean;
+}
+
+interface BotFillOpts {
+  delayMs?: number;
+}
+
 interface RoomConfig {
   isPrivate: boolean;
   maxPlayers: number;
@@ -243,7 +251,11 @@ export class RoomService {
     logger.warn("Reset room after game start failure", { roomId, reason });
   }
 
-  async startGame(roomId: string, requesterId: string): Promise<RoomLifecycleState> {
+  async startGame(
+    roomId: string,
+    requesterId: string,
+    opts: StartGameOpts = {}
+  ): Promise<RoomLifecycleState> {
     const room = await prisma.room.findUnique({
       where: { id: roomId },
       include: roomWithPlayersInclude,
@@ -261,7 +273,7 @@ export class RoomService {
       throw new ConflictError("Game has already started");
     }
 
-    if (room.players.length < 2) {
+    if (!opts.allowSolo && room.players.length < 2) {
       throw new BadRequestError("At least 2 players are required to start");
     }
 
@@ -290,8 +302,16 @@ export class RoomService {
    * Returns the full list of player IDs (including any bot) that should
    * be passed to GameOrchestrator.startGame.
    */
-  async waitForPlayersOrFillBots(roomId: string, humanPlayerIds: string[]): Promise<string[]> {
-    await new Promise<void>((resolve) => setTimeout(resolve, BOT_FILL_DELAY_MS));
+  async waitForPlayersOrFillBots(
+    roomId: string,
+    humanPlayerIds: string[],
+    opts: BotFillOpts = {}
+  ): Promise<string[]> {
+    const delayMs = opts.delayMs ?? BOT_FILL_DELAY_MS;
+
+    if (delayMs > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+    }
 
     if (!redisService) {
       return humanPlayerIds;

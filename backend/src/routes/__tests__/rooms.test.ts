@@ -360,6 +360,27 @@ describe("POST /rooms/:roomId/start — start game", () => {
     expect(gameOrchestratorMock.assertQuestionBankReady).toHaveBeenCalledTimes(1);
   });
 
+  it("allows solo start and requests immediate bot fill", async () => {
+    const token = makeToken("user-1");
+    const app = buildApp();
+    const res = await request(app, "POST", `/rooms/${VALID_ULID}/start`, {
+      headers: { Authorization: `Bearer ${token}` },
+      body: { allowSolo: true },
+    });
+
+    expect(res.status).toBe(200);
+    expect(roomServiceMock.startGame).toHaveBeenCalledWith(
+      VALID_ULID,
+      "user-1",
+      { allowSolo: true },
+    );
+    expect(roomServiceMock.waitForPlayersOrFillBots).toHaveBeenCalledWith(
+      VALID_ULID,
+      ["user-1"],
+      { delayMs: 0 },
+    );
+  });
+
   it("calls roomService.resetStartFailure and returns 500 when assertQuestionBankReady throws", async () => {
     gameOrchestratorMock.assertQuestionBankReady.mockRejectedValueOnce(
       new Error("Question bank empty"),

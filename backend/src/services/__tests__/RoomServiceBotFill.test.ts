@@ -65,6 +65,22 @@ describe("RoomService – waitForPlayersOrFillBots", () => {
     expect(result).toContain("bot:bot-generated-id");
   });
 
+  it("adds a bot immediately when delayMs is zero", async () => {
+    const { RoomService } = await import("../RoomService");
+    const service = new RoomService();
+
+    redisMock.scard.mockResolvedValue(1);
+    redisMock.smembers.mockResolvedValue(["human-1", "bot:bot-generated-id"]);
+
+    const result = await service.waitForPlayersOrFillBots("room-44", ["human-1"], { delayMs: 0 });
+
+    expect(redisMock.sadd).toHaveBeenCalledWith(
+      "room:room-44:players",
+      "bot:bot-generated-id"
+    );
+    expect(result).toContain("bot:bot-generated-id");
+  });
+
   it("does not add a bot when 2+ human players are present after 10s", async () => {
     const { RoomService } = await import("../RoomService");
     const service = new RoomService();

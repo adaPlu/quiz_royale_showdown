@@ -50,6 +50,12 @@ const roomIdParamsSchema = z.object({
   roomId: z.string().trim().refine(isValidId, "roomId must be a valid ULID"),
 });
 
+const startRoomSchema = z
+  .object({
+    allowSolo: z.boolean().optional().default(false),
+  })
+  .default({ allowSolo: false });
+
 const inviteCodeParamsSchema = z.object({
   inviteCode: z
     .string()
@@ -170,18 +176,21 @@ roomsRouter.get(
 roomsRouter.post(
   "/:roomId/start",
   requireAuth,
-  validate({ params: roomIdParamsSchema }),
+  validate({ params: roomIdParamsSchema, body: startRoomSchema }),
   async (req, res, next) => {
     try {
       const requesterId = getAuthenticatedUserId(req.jwtClaims?.sub);
       const { roomId } = req.params as z.infer<typeof roomIdParamsSchema>;
+      const { allowSolo } = req.body as z.infer<typeof startRoomSchema>;
 
       await roomService.recoverStaleCountdown(
         roomId,
         gameOrchestrator.hasActiveGame(roomId)
       );
 
-      const room = await roomService.startGame(roomId, requesterId);
+      const room = allowSolo
+        ? await roomService.startGame(roomId, requesterId, { allowSolo: true })
+        : await roomService.startGame(roomId, requesterId);
 
       try {
         await gameOrchestrator.assertQuestionBankReady();
@@ -204,7 +213,9 @@ roomsRouter.post(
 
       // waitForPlayersOrFillBots waits up to 10 s for a second human; injects
       // a QuizBot if none joins in time. Fire-and-forget the whole block.
-      void roomService.waitForPlayersOrFillBots(roomId, humanPlayerIds).then((playerIds) =>
+      void roomService.waitForPlayersOrFillBots(roomId, humanPlayerIds, {
+        delayMs: allowSolo ? 0 : undefined,
+      }).then((playerIds) =>
         gameOrchestrator.startGame(roomId, playerIds, getIo())
       ).catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
