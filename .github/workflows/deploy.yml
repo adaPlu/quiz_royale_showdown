@@ -21,7 +21,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Prepare image name
         if: env.PUBLISH_GHCR_IMAGE == 'true'
@@ -46,12 +46,6 @@ jobs:
           docker tag "${IMAGE_NAME}:${{ github.sha }}" "${IMAGE_NAME}:latest"
           docker push "${IMAGE_NAME}:latest"
 
-      - name: Trigger Railway deploy
-        if: env.HAS_RAILWAY_TOKEN == 'true'
-        run: npm exec --yes --package @railway/cli@5.24.0 -- railway up --service backend --detach
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-
       - name: Trigger Vercel deploy
         if: env.HAS_VERCEL_TOKEN == 'true'
         run: npm exec --yes --package vercel@54.21.1 -- vercel deploy --prod --yes --token "${{ secrets.VERCEL_TOKEN }}"
@@ -59,3 +53,9 @@ jobs:
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Trigger Railway deploy
+        if: env.HAS_RAILWAY_TOKEN == 'true'
+        run: npm exec --yes --package @railway/cli@5.24.0 -- railway up --service backend --detach
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
