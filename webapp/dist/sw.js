@@ -1,2 +1,13 @@
-if(!self.define){let e,s={};const i=(i,n)=>(i=new URL(i+".js",n).href,s[i]||new Promise(s=>{if("document"in self){const e=document.createElement("script");e.src=i,e.onload=s,document.head.appendChild(e)}else e=i,importScripts(i),s()}).then(()=>{let e=s[i];if(!e)throw new Error(`Module ${i} didn’t register its module`);return e}));self.define=(n,r)=>{const l=e||("document"in self?document.currentScript.src:"")||location.href;if(s[l])return;let o={};const t=e=>i(e,l),u={module:{uri:l},exports:o,require:t};s[l]=Promise.all(n.map(e=>u[e]||t(e))).then(e=>(r(...e),o))}}define(["./workbox-12dc1003"],function(e){"use strict";self.skipWaiting(),e.clientsClaim(),e.precacheAndRoute([{url:"registerSW.js",revision:"1872c500de691dce40960bb85481de07"},{url:"index.html",revision:"7fe58d5bfcd73adff0e88f41b79826ce"},{url:"favicon.svg",revision:"ba357d331fe510852ce5b0e0254c2411"},{url:"assets/zod-D1aKmlrz.js",revision:null},{url:"assets/socket-BkGgKQKj.js",revision:null},{url:"assets/ResultsPage-CpZbptn0.js",revision:null},{url:"assets/RegisterPage-6OJXx5OO.js",revision:null},{url:"assets/react-BpNvuQKd.js",revision:null},{url:"assets/ProfilePage-BJQ-X3Y6.js",revision:null},{url:"assets/motion-DF1U0IdE.js",revision:null},{url:"assets/LoginPage-8nyRtHv-.js",revision:null},{url:"assets/LeaderboardPage-B1n3ow0r.js",revision:null},{url:"assets/JoinPage-BmO7SbDm.js",revision:null},{url:"assets/index-L-QBlL2f.js",revision:null},{url:"assets/index-DEODUtVl.css",revision:null},{url:"assets/HomePage-qvV022pO.js",revision:null},{url:"assets/FriendsPage-CZKxeDFr.js",revision:null},{url:"assets/CosmeticsPage-BRvDi9Oy.js",revision:null},{url:"favicon.svg",revision:"ba357d331fe510852ce5b0e0254c2411"},{url:"manifest.webmanifest",revision:"d3ee894082a9e3e7e09bf1df343aa972"}],{}),e.cleanupOutdatedCaches(),e.registerRoute(new e.NavigationRoute(e.createHandlerBoundToURL("index.html"))),e.registerRoute(/^https:\/\/.*\/api\/v1\/(leaderboard|users\/me)/,new e.NetworkFirst({cacheName:"api-cache",plugins:[new e.ExpirationPlugin({maxEntries:20,maxAgeSeconds:300})]}),"GET")});
-//# sourceMappingURL=sw.js.map
+self.addEventListener("install", () => {
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    Promise.all([
+      self.registration.unregister(),
+      caches.keys().then((cacheNames) => Promise.all(cacheNames.map((cacheName) => caches.delete(cacheName)))),
+      self.clients.matchAll({ type: "window" }).then((clients) => Promise.all(clients.map((client) => client.navigate(client.url)))),
+    ]),
+  );
+});
