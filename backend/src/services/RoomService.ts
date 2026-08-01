@@ -5,6 +5,8 @@
  * Fast-changing lifecycle metadata lives in Redis.
  */
 
+import { randomInt } from "crypto";
+
 import { Prisma, type Room } from "@prisma/client";
 
 import { prisma } from "../models/prismaClient";
@@ -29,6 +31,10 @@ interface CreateRoomOpts {
 interface RoomConfig {
   isPrivate: boolean;
   maxPlayers: number;
+}
+
+interface StartGameOpts {
+  allowSolo?: boolean;
 }
 
 export interface RoomLifecycleState {
@@ -229,7 +235,11 @@ export class RoomService {
     logger.warn("Reset room after game start failure", { roomId, reason });
   }
 
-  async startGame(roomId: string, requesterId: string): Promise<RoomLifecycleState> {
+  async startGame(
+    roomId: string,
+    requesterId: string,
+    opts: StartGameOpts = {}
+  ): Promise<RoomLifecycleState> {
     const room = await prisma.room.findUnique({
       where: { id: roomId },
       include: roomWithPlayersInclude,
@@ -247,7 +257,7 @@ export class RoomService {
       throw new ConflictError("Game has already started");
     }
 
-    if (room.players.length < 2) {
+    if (!opts.allowSolo && room.players.length < 2) {
       throw new BadRequestError("At least 2 players are required to start");
     }
 
@@ -608,13 +618,14 @@ export class RoomService {
 
   private async generateRoomCode(): Promise<string> {
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const codeLength = 8;
     const maxAttempts = 10;
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       let code = "";
 
-      for (let index = 0; index < 6; index += 1) {
-        code += chars[Math.floor(Math.random() * chars.length)];
+      for (let index = 0; index < codeLength; index += 1) {
+        code += chars[randomInt(chars.length)];
       }
 
       const existing = await prisma.room.findUnique({ where: { code } });

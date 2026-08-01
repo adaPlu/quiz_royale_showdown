@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from '../navigation';
 
 import { PlayerAvatar } from '@components/PlayerAvatar';
@@ -72,6 +72,19 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [launchNotice, setLaunchNotice] = useState<string | null>(null);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const invitedRoomCode = params.get('roomCode')?.trim().toUpperCase();
+
+    if (!invitedRoomCode) {
+      return;
+    }
+
+    setCode(invitedRoomCode.slice(0, 8));
+    setLaunchNotice('Invite code loaded. Tap Join to enter the room.');
+    window.history.replaceState(null, '', '/home');
+  }, []);
+
   const enterLobby = (session: RoomSession) => {
     const socketToken = session.wsToken ?? accessToken;
     if (!socketToken) {
@@ -125,7 +138,7 @@ export default function HomePage() {
 
   const joinByCode = async () => {
     const normalizedCode = code.trim().toUpperCase();
-    if (normalizedCode.length < 4) {
+    if (normalizedCode.length < 8) {
       return;
     }
 
@@ -223,7 +236,7 @@ export default function HomePage() {
             />
             <button
               onClick={joinByCode}
-              disabled={code.trim().length < 4 || !!loading}
+              disabled={code.trim().length < 8 || !!loading}
               className="px-4 py-3 rounded-xl bg-brand/20 border border-brand/40 text-brand font-semibold hover:bg-brand/30 disabled:opacity-40"
             >
               Join

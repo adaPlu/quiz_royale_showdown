@@ -1,6 +1,6 @@
 # Quiz Royale Showdown - Phased Plan
 
-**Last Updated:** 2026-05-11
+**Last Updated:** 2026-07-29
 
 ## Current Focus
 
@@ -16,11 +16,19 @@ Treat that file and `docs/STAGING_SMOKE.md` as the current launch references.
 - `GET /health`
 - `/api/v1/auth/*`
 - `/api/v1/rooms/*`
+- `/api/v1/users/*`
+- `/api/v1/leaderboard/*`
+- `/api/v1/cosmetics/*`
+- `/api/v1/powerups/*`
+- `/api/v1/challenges/*`
+- `/api/v1/push/*`
+- `/api/v1/admin/*`
 - Socket.IO on `/ws` with the canonical `message` envelope
 
-Profile, leaderboard, cosmetics, shop, friends, push, admin, and payment routes
-remain future scope unless they are mounted in `backend/src/app.ts` and covered
-by smoke verification.
+Profile/users, leaderboard, cosmetics, power-ups, challenges, push, and admin
+are mounted in `backend/src/app.ts`. They should not be treated as production
+launch commitments until staging smoke coverage is added. Shop, friends,
+seasons, and payment routes remain future/unmounted.
 
 ## Dependency Policy
 
@@ -39,4 +47,6 @@ question-bank audit work separate from primary-repo launch smoke validation.
 
 Deploy the primary repo backend to Railway and pass the staging checks in
 `docs/STAGING_SMOKE.md`: health, auth, room create/join/start, `/ws`, Phase 1
-smoke, and Phase 2 smoke where practical.
+smoke, and Phase 2 smoke where practical. Configure `VITE_API_BASE_URL` and
+`VITE_WS_BASE_URL` in Vercel before production web deployment; only local Vite
+development uses localhost defaults.

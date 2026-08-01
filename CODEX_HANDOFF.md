@@ -31,7 +31,7 @@ The primary backend mounted launch surface is limited to:
   - `/api/v1/auth/*`
   - `/api/v1/rooms/*`
 
-Admin, meta, profile, leaderboard, cosmetics, shop, friends, push, and payment flows are future scope unless mounted in the primary backend and verified in smoke.
+Admin, profile/users, leaderboard, cosmetics, power-ups, challenges, and push routes are mounted in the primary backend, but remain outside the core launch smoke path until deployed and verified. Shop, friends, seasons, and payment flows remain future scope unless mounted and smoke-tested.
 
 ## Canonical Contract
 
@@ -60,15 +60,15 @@ Phase 2 is verified. The next phase is **launch hardening**:
 
 1. **Deploy the primary backend to Railway** - the current Railway deployment (if any) is from the `QuizGame-main` repo; the primary repo (`QuizGame`) needs its own Railway service wired to the same Postgres + Redis.
 2. **Run staging smoke against the primary backend** for health, auth, room create/join/start, `/ws`, first-question, and full-loop checks where practical.
-3. **Keep power-up REST/web inventory work out of default launch ownership** unless explicitly assigned; mounted socket power-up handling exists, but REST catalog/inventory/equip remains future/unmounted.
-4. **Profile / leaderboard / cosmetics** remain unmounted and future scope.
+3. **Keep power-up REST/web inventory work out of default launch ownership** unless explicitly assigned; socket power-up handling and REST inventory are mounted, but staging smoke still needs to cover any beta commitment.
+4. **Profile / leaderboard / cosmetics** are mounted/implemented surfaces that still need staging smoke before launch commitment.
 5. **Tune production rate limits from staging evidence**; auth/API limiters are already wired.
 
 ## Guardrails
 
 - Docs ownership only for this handoff update.
 - Do not revert concurrent work by other agents.
-- Do not claim admin/profile/leaderboard/cosmetics/shop/friends/push are backend-supported in the primary repo unless they are mounted in `backend/src/app.ts`.
+- Do not claim shop/friends/seasons/payments are backend-supported in the primary repo unless they are mounted in `backend/src/app.ts`. Mounted admin/profile/leaderboard/cosmetics/power-up/challenge/push routes still need deployment smoke before production commitment.
 - Do not use `QuizGame-main\backend` question data as evidence that primary-repo admin routes exist.
 
 ## Useful Commands

@@ -6,8 +6,15 @@ Mounted routers:
 
 - `/`
 - `/health`
+- `/api/v1/admin`
 - `/api/v1/auth`
+- `/api/v1/challenges`
+- `/api/v1/cosmetics`
+- `/api/v1/leaderboard`
+- `/api/v1/powerups`
+- `/api/v1/push`
 - `/api/v1/rooms`
+- `/api/v1/users`
 
 Requests to unmounted routes return the standard 404 error response.
 
@@ -55,10 +62,11 @@ Register and login return:
     "email": "alice@example.com",
     "displayName": "Alice"
   },
-  "accessToken": "...",
-  "refreshToken": "..."
+  "accessToken": "..."
 }
 ```
+
+Register and login set the refresh token in the `quiz_refresh` HttpOnly cookie by default. Native/mobile clients that cannot use HttpOnly cookies may request a JSON refresh token with `x-refresh-token-response: body`.
 
 Refresh accepts:
 
@@ -72,12 +80,13 @@ Refresh returns:
 
 ```json
 {
-  "accessToken": "...",
-  "refreshToken": "..."
+  "accessToken": "..."
 }
 ```
 
-Logout accepts the same refresh-token body and returns `204` on success.
+Refresh sets a rotated refresh token in the `quiz_refresh` HttpOnly cookie by default. Body-token clients may send the refresh token in JSON and must set `x-refresh-token-response: body` to receive the rotated refresh token in JSON. Cookie-backed refresh and logout requests require `x-csrf-protection: 1`.
+
+Logout accepts the same refresh-token body, or the `quiz_refresh` cookie with `x-csrf-protection: 1`, and returns `204` on success.
 
 ## Rooms
 
@@ -102,7 +111,7 @@ Join room accepts:
 
 ```json
 {
-  "roomCode": "ROYALE"
+  "roomCode": "ABCD2345"
 }
 ```
 
@@ -113,7 +122,7 @@ Room responses include:
 ```json
 {
   "roomId": "01H...",
-  "roomCode": "ROYALE",
+  "roomCode": "ABCD2345",
   "room": {},
   "hostUserId": "01H...",
   "config": {},
@@ -125,16 +134,70 @@ Room responses include:
 
 `wsToken` is only included where the route issues one.
 
+## Profile / Users
+
+- `GET /api/v1/users/me`
+- `GET /api/v1/users/search?q=term`
+- `GET /api/v1/users/:displayName/profile`
+
+All user endpoints require `Authorization: Bearer <accessToken>`.
+
+## Leaderboard
+
+- `GET /api/v1/leaderboard?season=current&limit=100`
+- `GET /api/v1/leaderboard/friends`
+
+`/leaderboard/friends` requires auth and currently returns an empty list until the friends system is added.
+
+## Power-Ups
+
+- `GET /api/v1/powerups/inventory`
+- `POST /api/v1/powerups/use`
+
+Inventory requires auth. REST activation intentionally returns `501 USE_VIA_WEBSOCKET`; gameplay activation is implemented through the canonical `powerup:activate` socket message.
+
+## Cosmetics
+
+- `GET /api/v1/cosmetics`
+- `GET /api/v1/cosmetics/owned`
+- `POST /api/v1/cosmetics/equip`
+
+Owned and equip endpoints require auth. Equip accepts:
+
+```json
+{
+  "cosmeticId": "01H..."
+}
+```
+
+## Challenges
+
+- `GET /api/v1/challenges/daily`
+- `POST /api/v1/challenges/:id/progress`
+
+Both endpoints require auth.
+
+## Push
+
+- `GET /api/v1/push/vapid-public-key`
+- `POST /api/v1/push/subscribe`
+- `DELETE /api/v1/push/subscribe`
+- `POST /api/v1/push/fcm-token`
+
+Subscription and token mutation endpoints require auth. Web push remains feature-flagged in the web client.
+
+## Admin
+
+- `GET /api/v1/admin/questions/count`
+- `POST /api/v1/admin/questions/generate`
+- `POST /api/v1/admin/questions/refill`
+
+Admin endpoints require `x-admin-key` and are rate limited.
+
 ## Future / Unmounted
 
-These feature areas exist in schema, services, tests, or seed data, but are not mounted as REST routes in the primary backend runtime:
+These feature areas are not mounted as REST routes in the primary backend runtime:
 
-- Power-ups REST catalog, inventory, and equip routes
-- Cosmetics catalog, inventory, and equip routes
 - Shop catalog, checkout, and receipt verification routes
-- Leaderboard routes
 - Seasons routes
-- Challenges routes
 - Friends routes
-- Admin routes
-- Profile routes beyond `GET /api/v1/auth/me`

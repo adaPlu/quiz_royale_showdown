@@ -1,9 +1,9 @@
 # Quiz Royale Showdown API Contract
 
 **Version:** v1  
-**Last Updated:** 2026-04-25  
-**Base URL (REST v1):** `https://api.quizroyale.io/api/v1`  
-**WebSocket endpoint:** `wss://api.quizroyale.io/ws`
+**Last Updated:** 2026-07-29
+**Base URL (REST v1):** `https://api.quizroyale.gg/api/v1`
+**WebSocket endpoint:** `wss://api.quizroyale.gg/ws`
 
 This contract reflects the routes and Socket.IO behavior mounted by the primary backend runtime.
 
@@ -56,7 +56,7 @@ Full room snapshot after join or resync.
   "payload": {
     "room": {
       "roomId": "01HXYZ...",
-      "code": "ROYALE",
+      "code": "ABCD2345",
       "phase": "WAITING",
       "roundNumber": 0,
       "totalRounds": 10,
@@ -277,7 +277,7 @@ Join a room by room code.
   "type": "room:join",
   "version": "v1",
   "payload": {
-    "roomCode": "ROYALE"
+    "roomCode": "ABCD2345"
   }
 }
 ```
@@ -338,8 +338,15 @@ The primary backend runtime mounts:
 
 - `GET /`
 - `GET /health`
+- `/api/v1/admin/*`
 - `/api/v1/auth/*`
+- `/api/v1/challenges/*`
+- `/api/v1/cosmetics/*`
+- `/api/v1/leaderboard/*`
+- `/api/v1/powerups/*`
+- `/api/v1/push/*`
 - `/api/v1/rooms/*`
+- `/api/v1/users/*`
 
 ### Auth
 
@@ -353,7 +360,7 @@ The primary backend runtime mounts:
 
 Register accepts `email`, `password`, and either `displayName` or `username`.
 
-Register and login return top-level tokens:
+Register and login return an access token and set the refresh token in the `quiz_refresh` HttpOnly cookie by default:
 
 ```json
 {
@@ -362,19 +369,21 @@ Register and login return top-level tokens:
     "email": "alice@example.com",
     "displayName": "Alice"
   },
-  "accessToken": "...",
-  "refreshToken": "..."
+  "accessToken": "..."
 }
 ```
+
+Native/mobile clients that cannot use HttpOnly cookies may request a JSON refresh token with `x-refresh-token-response: body`.
 
 Refresh returns:
 
 ```json
 {
-  "accessToken": "...",
-  "refreshToken": "..."
+  "accessToken": "..."
 }
 ```
+
+Refresh sets a rotated refresh token in the `quiz_refresh` HttpOnly cookie by default. Body-token clients may send the refresh token in JSON and must set `x-refresh-token-response: body` to receive the rotated refresh token in JSON. Cookie-backed refresh and logout requests require `x-csrf-protection: 1`.
 
 ### Rooms
 
@@ -382,7 +391,7 @@ Refresh returns:
 | --- | --- | --- | --- |
 | POST | `/api/v1/rooms` | JWT | Create a room |
 | POST | `/api/v1/rooms/join` | JWT | Join by code or quick-play matchmaking |
-| GET | `/api/v1/rooms/:roomCode` | None | Get room by 6-character code |
+| GET | `/api/v1/rooms/:roomCode` | None | Get room by 8-character code |
 | POST | `/api/v1/rooms/:roomId/start` | JWT | Host starts game countdown |
 | POST | `/api/v1/rooms/:roomId/leave` | JWT | Leave a room |
 
@@ -399,11 +408,75 @@ Join room accepts:
 
 ```json
 {
-  "roomCode": "ROYALE"
+  "roomCode": "ABCD2345"
 }
 ```
 
 `roomCode` may be omitted or null for quick-play matchmaking.
+
+### Profile / Users
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| GET | `/api/v1/users/me` | JWT | Current user's profile record |
+| GET | `/api/v1/users/search?q=term` | JWT | Search users by display name |
+| GET | `/api/v1/users/:displayName/profile` | JWT | Public profile summary for an authenticated caller |
+
+### Leaderboard
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| GET | `/api/v1/leaderboard?season=current&limit=100` | None | Season standings, with all-time XP fallback |
+| GET | `/api/v1/leaderboard/friends` | JWT | Friends leaderboard placeholder; returns an empty list until friends are implemented |
+
+### Cosmetics
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| GET | `/api/v1/cosmetics` | None | Cosmetic catalog |
+| GET | `/api/v1/cosmetics/owned` | JWT | Current user's owned cosmetics |
+| POST | `/api/v1/cosmetics/equip` | JWT | Equip an owned cosmetic |
+
+Equip accepts:
+
+```json
+{
+  "cosmeticId": "01H..."
+}
+```
+
+### Power-Ups
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| GET | `/api/v1/powerups/inventory` | JWT | Current user's canonical power-up inventory |
+| POST | `/api/v1/powerups/use` | JWT | Returns `501 USE_VIA_WEBSOCKET`; gameplay activation uses `powerup:activate` over Socket.IO |
+
+### Challenges
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| GET | `/api/v1/challenges/daily` | JWT | Daily challenge list with user progress |
+| POST | `/api/v1/challenges/:id/progress` | JWT | Record challenge progress |
+
+### Push
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| GET | `/api/v1/push/vapid-public-key` | None | Web push public key |
+| POST | `/api/v1/push/subscribe` | JWT | Save a web push subscription |
+| DELETE | `/api/v1/push/subscribe` | JWT | Remove a web push subscription |
+| POST | `/api/v1/push/fcm-token` | JWT | Save an Android FCM token |
+
+### Admin
+
+Admin endpoints require `x-admin-key`.
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| GET | `/api/v1/admin/questions/count` | Admin key | Question totals |
+| POST | `/api/v1/admin/questions/generate` | Admin key | Start AI question generation |
+| POST | `/api/v1/admin/questions/refill` | Admin key | Trigger refill check |
 
 ## 5. Future / Unmounted REST Areas
 
@@ -411,15 +484,9 @@ The following areas are future or unmounted in the primary backend runtime. Do n
 
 | Area | Status |
 | --- | --- |
-| Power-ups REST catalog, inventory, equip | Future / unmounted |
-| Cosmetics catalog, inventory, equip | Future / unmounted |
 | Shop catalog, checkout, receipt verification | Future / unmounted |
-| Leaderboard | Future / unmounted |
 | Seasons | Future / unmounted |
-| Challenges | Future / unmounted |
 | Friends | Future / unmounted |
-| Admin | Future / unmounted |
-| Profile routes beyond `GET /api/v1/auth/me` | Future / unmounted |
 
 ## 6. Error Format
 

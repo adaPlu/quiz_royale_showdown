@@ -118,7 +118,7 @@ function getCookieValue(req: Request, name: string): string | null {
 }
 
 function wantsRefreshTokenInBody(req: Request): boolean {
-  return req.get(REFRESH_TOKEN_RESPONSE_HEADER)?.toLowerCase() !== "cookie";
+  return req.get(REFRESH_TOKEN_RESPONSE_HEADER)?.toLowerCase() === "body";
 }
 
 function assertCookieCsrfHeader(req: Request): void {

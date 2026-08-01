@@ -98,7 +98,7 @@ describe("auth routes", () => {
     vi.resetModules();
   });
 
-  it("returns 201 from register with the auth payload", async () => {
+  it("returns 201 from register without a JSON refresh token by default", async () => {
     const user = {
       id: "user-1",
       email: "new@example.com",
@@ -122,8 +122,8 @@ describe("auth routes", () => {
     expect(response.body).toMatchObject({
       user,
       accessToken: "access-token",
-      refreshToken: "refresh-token",
     });
+    expect(response.body).not.toHaveProperty("refreshToken");
     expect(response.headers.get("set-cookie")).toContain("quiz_refresh=refresh-token");
     expect(response.headers.get("set-cookie")).toContain("HttpOnly");
     expect(prismaMock.user.create).toHaveBeenCalledWith(
@@ -136,7 +136,7 @@ describe("auth routes", () => {
     );
   });
 
-  it("sets the refresh cookie from login while preserving the JSON refresh token", async () => {
+  it("sets the refresh cookie from login without a JSON refresh token by default", async () => {
     const bcrypt = (await import("bcrypt")).default;
     vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
     const user = {
@@ -160,13 +160,13 @@ describe("auth routes", () => {
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
       accessToken: "access-token",
-      refreshToken: "refresh-token",
     });
+    expect(response.body).not.toHaveProperty("refreshToken");
     expect(response.headers.get("set-cookie")).toContain("quiz_refresh=refresh-token");
     expect(response.headers.get("set-cookie")).toContain("HttpOnly");
   });
 
-  it("omits the JSON refresh token when cookie transport is requested", async () => {
+  it("returns the JSON refresh token only when body transport is explicitly requested", async () => {
     const bcrypt = (await import("bcrypt")).default;
     vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
     const user = {
@@ -190,14 +190,14 @@ describe("auth routes", () => {
         email: "LOGIN@EXAMPLE.COM",
         password: "password123",
       },
-      { "x-refresh-token-response": "cookie" }
+      { "x-refresh-token-response": "body" }
     );
 
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
       accessToken: "access-token",
+      refreshToken: "refresh-token",
     });
-    expect(response.body).not.toHaveProperty("refreshToken");
     expect(response.headers.get("set-cookie")).toContain("quiz_refresh=refresh-token");
   });
 
@@ -237,6 +237,31 @@ describe("auth routes", () => {
     });
     const app = await createAuthTestApp();
 
+    const response = await request(
+      app,
+      "POST",
+      "/api/v1/auth/refresh",
+      {
+        refreshToken: "b".repeat(20),
+      },
+      { "x-refresh-token-response": "body" }
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      accessToken: "next-access-token",
+      refreshToken: "next-refresh-token",
+    });
+    expect(authServiceMock.rotateRefreshToken).toHaveBeenCalledWith("b".repeat(20));
+  });
+
+  it("does not return a JSON refresh token for body-token refresh without explicit opt-in", async () => {
+    authServiceMock.rotateRefreshToken.mockResolvedValue({
+      accessToken: "next-access-token",
+      refreshToken: "next-refresh-token",
+    });
+    const app = await createAuthTestApp();
+
     const response = await request(app, "POST", "/api/v1/auth/refresh", {
       refreshToken: "b".repeat(20),
     });
@@ -244,8 +269,8 @@ describe("auth routes", () => {
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
       accessToken: "next-access-token",
-      refreshToken: "next-refresh-token",
     });
+    expect(response.body).not.toHaveProperty("refreshToken");
     expect(authServiceMock.rotateRefreshToken).toHaveBeenCalledWith("b".repeat(20));
   });
 

@@ -25,7 +25,7 @@ const joinRoomSchema = z.object({
   roomCode: z
     .string()
     .trim()
-    .min(4)
+    .min(8)
     .max(8)
     .nullable()
     .optional()
@@ -39,12 +39,16 @@ const roomCodeParamsSchema = z.object({
   roomCode: z
     .string()
     .trim()
-    .length(6, "roomCode must be exactly 6 characters")
+    .length(8, "roomCode must be exactly 8 characters")
     .transform((value) => value.toUpperCase()),
 });
 
 const roomIdParamsSchema = z.object({
   roomId: z.string().trim().refine(isValidId, "roomId must be a valid ULID"),
+});
+
+const startRoomSchema = z.object({
+  allowSolo: z.boolean().optional().default(false),
 });
 
 function getAuthenticatedUserId(jwtSub?: string): string {
@@ -159,18 +163,19 @@ roomsRouter.get(
 roomsRouter.post(
   "/:roomId/start",
   requireAuth,
-  validate({ params: roomIdParamsSchema }),
+  validate({ params: roomIdParamsSchema, body: startRoomSchema }),
   async (req, res, next) => {
     try {
       const requesterId = getAuthenticatedUserId(req.jwtClaims?.sub);
       const { roomId } = req.params as z.infer<typeof roomIdParamsSchema>;
+      const { allowSolo } = req.body as z.infer<typeof startRoomSchema>;
 
       await roomService.recoverStaleCountdown(
         roomId,
         gameOrchestrator.hasActiveGame(roomId)
       );
 
-      const room = await roomService.startGame(roomId, requesterId);
+      const room = await roomService.startGame(roomId, requesterId, { allowSolo });
 
       try {
         await gameOrchestrator.assertQuestionBankReady();

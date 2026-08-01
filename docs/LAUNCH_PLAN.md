@@ -1,6 +1,6 @@
 # Quiz Royale Showdown - Launch Plan
 
-**Last Updated:** 2026-05-11
+**Last Updated:** 2026-07-29
 
 ## Current Status
 
@@ -14,6 +14,7 @@ loop has been verified through Phase 1 and Phase 2 smoke evidence recorded in
 
 - [ ] Deploy the primary repo backend to Railway from `backend/`.
 - [ ] Confirm `/health` reports Postgres and Redis healthy.
+- [ ] Configure Vercel `VITE_API_BASE_URL` and `VITE_WS_BASE_URL` for the intended API origin; production web no longer falls back to Railway or localhost.
 - [ ] Run guarded staging Phase 1 smoke.
 - [ ] Run guarded staging Phase 2 smoke where practical.
 - [ ] Run the Railway question-bank audit separately from the primary repo.
@@ -26,8 +27,11 @@ loop has been verified through Phase 1 and Phase 2 smoke evidence recorded in
 
 ### M3: Launch Meta Systems
 
-- [ ] Profile, leaderboard, cosmetics, shop, friends, push, and payments are
-  mounted only after backend routes exist and smoke coverage is added.
+- [ ] Profile/users, leaderboard, cosmetics, power-ups, challenges, push, and
+  admin are mounted locally; add staging smoke coverage before treating them as
+  production launch commitments.
+- [ ] Shop, friends, seasons, and payments remain future/unmounted until
+  backend routes and smoke coverage are added.
 - [ ] Production secrets, rollback notes, monitoring, and data-retention
   settings are documented before public launch.
 
@@ -43,6 +47,13 @@ loop has been verified through Phase 1 and Phase 2 smoke evidence recorded in
 - `GET /health`
 - `/api/v1/auth/*`
 - `/api/v1/rooms/*`
+- `/api/v1/users/*`
+- `/api/v1/leaderboard/*`
+- `/api/v1/cosmetics/*`
+- `/api/v1/powerups/*`
+- `/api/v1/challenges/*`
+- `/api/v1/push/*`
+- `/api/v1/admin/*`
 - Socket.IO `/ws`
 
 Future routes should stay guarded or hidden from launch paths until they are

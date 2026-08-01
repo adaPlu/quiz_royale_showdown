@@ -1,17 +1,19 @@
 # Sprint Board
 
-**Last Updated:** 2026-05-11
+**Last Updated:** 2026-07-29
 **Current Phase:** Launch hardening and staging
 
 ## Current Sprint
 
 - [ ] Deploy the primary repo backend to Railway from `backend/`.
 - [ ] Confirm `GET /health` reports Postgres and Redis healthy.
+- [ ] Set production web `VITE_API_BASE_URL` and `VITE_WS_BASE_URL`; the web API
+  client no longer has a production Railway fallback.
 - [ ] Run the guarded staging smoke commands in `docs/STAGING_SMOKE.md`.
 - [ ] Keep web and Android launch paths aligned to `/api/v1/auth`,
-  `/api/v1/rooms`, and Socket.IO `/ws`.
-- [ ] Keep future route calls guarded until those routes are mounted and
-  smoke-tested.
+  `/api/v1/rooms`, implemented profile/meta routes, and Socket.IO `/ws`.
+- [ ] Keep unsmoked implemented route calls non-blocking for the core flow, and
+  keep future route calls guarded until those routes are mounted and smoke-tested.
 
 ## Verification Gates
 
@@ -26,8 +28,9 @@
 - Staging full-loop smoke and rollback notes.
 - Android staging gameplay parity.
 - Reconnect/process-death verification.
-- Future meta systems: profile, leaderboard, cosmetics, shop, friends, push,
-  payments.
+- Staging smoke coverage for mounted profile/users, leaderboard, cosmetics,
+  power-ups, challenges, push, and admin routes.
+- Future meta systems not yet mounted: shop, friends, seasons, payments.
 
 Older Phase 0 scaffold checklists were removed from this board because they no
 longer describe the current repository state.

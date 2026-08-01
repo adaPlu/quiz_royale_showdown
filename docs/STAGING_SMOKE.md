@@ -4,7 +4,7 @@ Scope: primary repo backend deployment from
 `c:\Users\plugu\AndroidStudioProjects\QuizGame`.
 
 Do not use the separate Railway question workspace as proof that routes are
-mounted in this repo. It is only for question-bank audit commands.
+mounted or deployed in this repo. It is only for question-bank audit commands.
 
 ## Railway Readiness
 
@@ -24,10 +24,12 @@ Operator checklist:
 4. Set the required variables below in the Railway service environment.
 5. Leave `PRISMA_BASELINE_CURRENT_INIT` unset for a fresh staging database.
 6. Deploy the latest pushed commit and wait for `/health` to pass.
-7. Run the staging smoke commands from this document.
-8. Run the guarded 50-player staging load probe only after Phase 1 and Phase 2
+7. Configure the web deployment with `VITE_API_BASE_URL` and `VITE_WS_BASE_URL`.
+   The web client intentionally has no production Railway fallback.
+8. Run the staging smoke commands from this document.
+9. Run the guarded 50-player staging load probe only after Phase 1 and Phase 2
    smoke pass.
-9. Run the Railway question audit from `QuizGame-main\backend` separately.
+10. Run the Railway question audit from `QuizGame-main\backend` separately.
 
 Local preflight before deploy:
 
@@ -74,9 +76,19 @@ Mounted launch surface:
 - `GET /health`
 - `/api/v1/auth/*`
 - `/api/v1/rooms/*`
+- `/api/v1/users/*`
+- `/api/v1/leaderboard/*`
+- `/api/v1/cosmetics/*`
+- `/api/v1/powerups/*`
+- `/api/v1/challenges/*`
+- `/api/v1/push/*`
+- `/api/v1/admin/*`
 - Socket.IO on path `/ws`
 
-Do not mount future routes for this smoke.
+Core staging smoke still focuses on health, auth, rooms, and `/ws`. Mounted
+profile/meta routes should get separate smoke checks before they are treated as
+production launch commitments. Future routes such as shop, friends, seasons, and
+payments must stay guarded until mounted.
 
 ## PowerShell Setup
 
@@ -90,6 +102,16 @@ $env:SMOKE_TIMEOUT_MS = "330000"
 $env:STAGING_SMOKE_ACK = "STAGING_BACKEND"
 $RunId = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 ```
+
+Vercel web environment:
+
+```text
+VITE_API_BASE_URL=https://api.quizroyale.gg/api/v1
+VITE_WS_BASE_URL=https://api.quizroyale.gg
+```
+
+If staging uses a different public API origin, set both values to that origin
+and update `webapp/vercel.json` CSP `connect-src` before deployment.
 
 ## GET /health
 

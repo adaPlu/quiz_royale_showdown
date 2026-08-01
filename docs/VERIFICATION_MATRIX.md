@@ -57,6 +57,29 @@ Observed backend event/error:
 Blockers:
 ```
 
+## Web/Deployment/Docs Cleanup Verified Run - 2026-07-29
+
+```text
+Date: 2026-07-29
+Branch: current worker workspace
+Backend typecheck: NOT RUN (out of scope; backend source untouched)
+Backend tests: NOT RUN (out of scope; backend source untouched)
+Web typecheck: PASS (`npm run typecheck -w webapp`)
+Web build: PASS (`npm run build -w webapp`)
+Web tests: NOT RUN (no web behavior test changes; typecheck/build required by audit)
+Android assembleDebug: NOT RUN (out of scope; Android source untouched)
+smoke:phase1: NOT RUN (requires running backend/services)
+smoke:phase2: NOT RUN (requires running backend/services)
+Railway question audit: NOT RUN (separate `QuizGame-main\backend` workspace)
+Observed backend event/error: none
+Blockers:
+- Primary repo backend still needs staging/Railway deployment evidence with `/health` green.
+- Guarded staging Phase 1 and Phase 2 smoke remain launch blockers.
+- Vercel production env must set `VITE_API_BASE_URL` and `VITE_WS_BASE_URL`; web no longer has a production Railway fallback.
+- Railway question-bank audit must be run separately from `QuizGame-main\backend`.
+- Mounted profile/users, leaderboard, cosmetics, power-ups, challenges, push, and admin routes need staging smoke before production launch commitment.
+```
+
 ## Phase 2 Verified Run — 2026-04-26
 
 ```text

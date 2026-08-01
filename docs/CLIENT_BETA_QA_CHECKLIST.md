@@ -4,9 +4,10 @@ Use this checklist for every web and Android beta smoke pass against the current
 
 ## Scope Guard
 
-- Profile, global leaderboard, cosmetics, shop, friends, push, payment, and admin are not beta launch-path backend dependencies.
-- Web profile and leaderboard are local/session-only; web push is feature-flagged off.
-- Android profile is local-only; Android leaderboard and cosmetics screens are guarded to return empty local state until backend routes are mounted.
+- Profile/users, global leaderboard, cosmetics, power-ups, challenges, push, and admin routes are mounted in the backend, but are not core room/game/results launch-path dependencies until staging smoke covers them.
+- Web profile, leaderboard, cosmetics, and power-up inventory must stay non-blocking for auth, room, game, and results flow. Web push remains feature-flagged off unless explicitly enabled for the test pass.
+- Android profile, leaderboard, cosmetics, and power-up UI are implemented client surfaces; treat them as exploratory unless the current beta pass includes backend route smoke.
+- Shop, friends, seasons, payment, and purchases remain future/unmounted and must stay hidden, mocked, or guarded.
 
 ## Web Smoke
 
@@ -19,7 +20,7 @@ Use this checklist for every web and Android beta smoke pass against the current
 - Continue answering every served round until `game:over`; do not stop after the first round result.
 - Interrupt the socket/network during an active question and verify reconnect UI appears, then clears after reconnect and room state resumes on the same room.
 - Complete the game and verify game -> results navigation with final standings for both clients.
-- Open Profile and Leaderboard routes and verify they do not call unmounted backend endpoints.
+- Open Profile and Leaderboard routes and verify any backend calls are handled without breaking room/game/results flow.
 
 ## Android Smoke
 
@@ -31,7 +32,7 @@ Use this checklist for every web and Android beta smoke pass against the current
 - Continue answering every served round until `game:over`; do not stop after the first round result.
 - Interrupt the socket/network during an active question and verify the reconnect overlay appears, then clears after reconnect on the same room.
 - Complete the game and verify navigation to Results with final standings.
-- Open any non-core profile/leaderboard/cosmetics entry points only as exploratory checks; they must not block room/game/results flow or call unmounted backend endpoints.
+- Open any non-core profile/leaderboard/cosmetics entry points only as exploratory checks unless the pass explicitly includes those backend route checks; they must not block room/game/results flow.
 
 ## Build Checks
 

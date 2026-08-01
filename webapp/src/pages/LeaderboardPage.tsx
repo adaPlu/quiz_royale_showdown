@@ -21,7 +21,7 @@ export default function LeaderboardPage() {
   // In-game leaderboard: players sorted by score from the active game session
   const inGamePlayers = useGameStore(selectLeaderboard);
 
-  // Global leaderboard is intentionally local-only until the backend mounts the route.
+  // Global leaderboard stays local-only until the mounted backend route is wired into this view and staging-smoked.
 
   const globalUnavailable = tab === 'global' && !GLOBAL_LEADERBOARD_ENABLED;
 

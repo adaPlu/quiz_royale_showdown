@@ -55,6 +55,10 @@ export const LobbyPage = () => {
   const [isStarting, setIsStarting] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
+  const [startNotice, setStartNotice] = useState<string | null>(null);
+  const [inviteNotice, setInviteNotice] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [email, setEmail] = useState('');
   const hasMinimumPlayers = players.length >= 2;
   const resetRoom = useGameStore((state) => state.resetRoom);
 
@@ -67,18 +71,63 @@ export const LobbyPage = () => {
     });
   }, []);
 
-  const handleStartGame = async () => {
+  const buildInviteUrl = () => {
+    const origin = window.location.origin;
+    return `${origin}/home?roomCode=${encodeURIComponent(displayCode)}`;
+  };
+
+  const buildInviteMessage = () =>
+    `Join my Quiz Royale room. Use room code ${displayCode} or open ${buildInviteUrl()}`;
+
+  const copyInvite = async (targetLabel = 'Invite') => {
+    setInviteError(null);
+    setInviteNotice(null);
+
+    if (!canRecoverSession) {
+      setInviteError('Room code is still syncing. Try again in a moment.');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(buildInviteMessage());
+      setInviteNotice(`${targetLabel} copied to clipboard.`);
+    } catch {
+      setInviteError(`Copy failed. Share room code ${displayCode} manually.`);
+    }
+  };
+
+  const emailInvite = () => {
+    setInviteError(null);
+    setInviteNotice(null);
+
+    if (!canRecoverSession) {
+      setInviteError('Room code is still syncing. Try again in a moment.');
+      return;
+    }
+
+    const recipient = email.trim();
+    const href =
+      `mailto:${encodeURIComponent(recipient)}` +
+      `?subject=${encodeURIComponent('Join my Quiz Royale room')}` +
+      `&body=${encodeURIComponent(buildInviteMessage())}`;
+
+    window.location.href = href;
+    setInviteNotice('Email invite opened.');
+  };
+
+  const handleStartGame = async (allowSolo = false) => {
     if (!roomId) return;
 
-    if (!hasMinimumPlayers) {
+    if (!allowSolo && !hasMinimumPlayers) {
       setStartError('At least 2 players are required to start.');
       return;
     }
 
     setIsStarting(true);
     setStartError(null);
+    setStartNotice(allowSolo ? 'Starting a solo game...' : 'Starting multiplayer game...');
     try {
-      await api.post(`/rooms/${roomId}/start`);
+      await api.post(`/rooms/${roomId}/start`, allowSolo ? { allowSolo: true } : {});
       // Navigation happens automatically via the round:countdown_started socket event
     } catch (err: unknown) {
       if (!mountedRef.current) return;
@@ -89,6 +138,7 @@ export const LobbyPage = () => {
             ? err.message
             : 'Failed to start game';
       setStartError(message);
+      setStartNotice(null);
     } finally {
       if (mountedRef.current) setIsStarting(false);
     }
@@ -173,23 +223,93 @@ export const LobbyPage = () => {
           </div>
 
           {phase === 'WAITING' && (
-            <div className="mt-6 flex flex-col gap-3">
-              <button
-                type="button"
-                disabled={isStarting || !hasMinimumPlayers}
-                onClick={() => void handleStartGame()}
-                className="w-full rounded-2xl bg-brand py-4 text-base font-black uppercase tracking-widest text-white shadow-royale transition hover:opacity-90 disabled:opacity-40"
-              >
-                {isStarting ? 'Starting...' : 'Start Game'}
-              </button>
-              {startError && (
-                <p className="text-center text-sm text-answer-wrong">{startError}</p>
-              )}
-              {!hasMinimumPlayers && (
-                <p className="text-center text-xs text-white/40">
-                  At least 2 players are required to start.
+            <div className="mt-6 grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+              <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
+                <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/60">
+                  Start Options
                 </p>
-              )}
+                <p className="mt-3 text-sm text-white/70">
+                  {hasMinimumPlayers
+                    ? 'Enough players are here. Start multiplayer when everyone is ready.'
+                    : 'You are the only player here. Start solo now, or invite others and wait for multiplayer.'}
+                </p>
+
+                <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    disabled={isStarting}
+                    onClick={() => void handleStartGame(true)}
+                    className="rounded-2xl bg-brand-gold px-4 py-4 text-sm font-black uppercase tracking-widest text-black shadow-royale transition hover:opacity-90 disabled:opacity-40"
+                  >
+                    {isStarting ? 'Starting...' : 'Start Solo'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isStarting || !hasMinimumPlayers}
+                    onClick={() => void handleStartGame(false)}
+                    className="rounded-2xl bg-brand px-4 py-4 text-sm font-black uppercase tracking-widest text-white shadow-royale transition hover:opacity-90 disabled:opacity-40"
+                  >
+                    Start Multiplayer
+                  </button>
+                </div>
+
+                {!hasMinimumPlayers && (
+                  <p className="mt-3 text-xs text-white/45">
+                    Multiplayer starts after at least one more player joins.
+                  </p>
+                )}
+                {startNotice && <p className="mt-3 text-sm text-brand-gold">{startNotice}</p>}
+                {startError && <p className="mt-3 text-sm text-answer-wrong">{startError}</p>}
+              </div>
+
+              <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
+                <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/60">
+                  Invite Players
+                </p>
+                <p className="mt-3 text-sm text-white/70">
+                  Share code <span className="font-mono font-bold text-white">{displayCode}</span> or send a link that loads this room code.
+                </p>
+
+                <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    disabled={!canRecoverSession}
+                    onClick={() => void copyInvite()}
+                    className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-white transition hover:border-white/30 disabled:opacity-40"
+                  >
+                    Copy Invite
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!canRecoverSession}
+                    onClick={() => void copyInvite('Friends invite')}
+                    className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-white transition hover:border-white/30 disabled:opacity-40"
+                  >
+                    Copy for Friends
+                  </button>
+                </div>
+
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                  <input
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    type="email"
+                    placeholder="friend@email.com"
+                    className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-white placeholder-white/35 outline-none transition focus:border-brand"
+                  />
+                  <button
+                    type="button"
+                    disabled={!canRecoverSession}
+                    onClick={emailInvite}
+                    className="rounded-2xl bg-white px-4 py-3 text-sm font-bold text-black transition hover:opacity-90 disabled:opacity-40"
+                  >
+                    Email Invite
+                  </button>
+                </div>
+
+                {inviteNotice && <p className="mt-3 text-sm text-brand-gold">{inviteNotice}</p>}
+                {inviteError && <p className="mt-3 text-sm text-answer-wrong">{inviteError}</p>}
+              </div>
             </div>
           )}
         </section>

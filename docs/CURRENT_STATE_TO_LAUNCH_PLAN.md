@@ -1,6 +1,6 @@
 # Quiz Royale Showdown - Current State to Launch Plan
 
-**Last Updated:** 2026-05-01
+**Last Updated:** 2026-07-29
 **Owner:** Technical Lead  
 **Scope:** Ground-to-launch status for the primary repo at `c:\Users\plugu\AndroidStudioProjects\QuizGame`.
 
@@ -14,17 +14,24 @@ The repo is no longer in scaffold recovery or core-loop recovery. It is now in l
 
 ## 2. Mounted Backend Surface
 
-Only treat these routes as mounted and launch-relevant in the primary repo:
+Mounted routes in the primary repo:
 
 - `GET /health`
 - `/api/v1/auth/*`
+- `/api/v1/admin/*`
+- `/api/v1/challenges/*`
+- `/api/v1/cosmetics/*`
+- `/api/v1/leaderboard/*`
+- `/api/v1/powerups/*`
+- `/api/v1/push/*`
 - `/api/v1/rooms/*`
+- `/api/v1/users/*`
 
-Admin, meta, profile, leaderboard, cosmetics, shop, friends, push, and related systems are future scope unless the backend mounts them in `backend/src/app.ts` and they are smoke-tested against the deployed/runtime contract.
+Launch-critical smoke remains centered on health, auth, rooms, and Socket.IO `/ws`. Profile/users, leaderboard, cosmetics, power-ups, challenges, push, and admin are implemented backend surfaces, but they still need deployment-specific smoke evidence before they should be treated as production launch blockers or beta commitments. Shop, friends, payments, and seasons remain unmounted/future scope.
 
 ## 3. Verified Gates
 
-- Backend route surface: health, auth, and rooms only.
+- Backend route surface: health, auth, rooms, users/profile, leaderboard, cosmetics, power-ups, challenges, push, and admin are mounted.
 - Socket smoke: Phase 1 reaches `round:question_started`; Phase 2 reaches `game:over`.
 - Android CLI build: passes with `android\gradlew.bat -p android :app:assembleDebug`.
 - Web/backend/Android should continue to use the canonical Socket.IO `/ws` path and `message` envelope contract.
@@ -48,7 +55,7 @@ Evidence:
 - Live socket flow reaches `round:question_started`.
 - Android debug build is reproducible from CLI.
 - Stale backend direct `v1:*` socket handler code has been removed from the active backend source.
-- Contract docs now mark profile, leaderboard, admin, cosmetics, shop, friends, push, and payments as future/unmounted.
+- Contract docs distinguish mounted profile, leaderboard, admin, cosmetics, power-ups, challenges, and push routes from still-future shop, friends, seasons, and payments.
 
 Residual work belongs in launch hardening unless it regresses first-question smoke.
 
@@ -88,7 +95,8 @@ Exit criteria:
 - Staging/production smoke passes for auth, room create/join/start, `/ws`, first question, and full-loop smoke where practical.
 - Auth/API rate limiting is active; keep coverage focused on limiter ordering and status/body regressions.
 - Android debug build remains green with Socket.IO reconnect/backoff.
-- Web launch path avoids calls to unmounted profile/leaderboard/meta endpoints.
+- Web production builds require `VITE_API_BASE_URL`; only local Vite development falls back to `http://localhost:4000/api/v1`.
+- Web launch path avoids relying on unsmoked or unmounted meta endpoints for core room/game/results completion.
 - Railway question audit is current and reports the expected active question bank.
 - Rollback/deploy notes are documented.
 
@@ -105,7 +113,7 @@ Exit criteria:
 
 Future scope.
 
-Only start after the core loop is stable. Includes profile, leaderboard, cosmetics, progression, shop, purchases, inventory, and related backend endpoints.
+Only start after the core loop is stable in staging. Includes broad beta commitment for profile, leaderboard, cosmetics, progression, shop, purchases, inventory, and related backend endpoints. Some of these routes are already mounted locally, but production readiness still requires staging smoke and launch acceptance.
 
 ### Phase 6 - Friends, Push, PWA, Public Launch
 
@@ -116,7 +124,8 @@ Includes friends, push notifications, invite links, web PWA polish, accessibilit
 ## 6. High-Risk Gaps
 
 - Staging/production deployment is now the main unknown.
-- Any UI that calls profile, leaderboard, cosmetics, shop, friends, push, or admin routes must be guarded, mocked locally, or removed from the launch path until those routes are mounted.
+- Any UI that calls profile, leaderboard, cosmetics, power-ups, challenges, push, or admin routes must not block the core launch path until those routes are deployed and smoke-tested. UI that calls shop, friends, payments, or seasons must remain guarded, mocked locally, or hidden until routes are mounted.
+- Production web deployment will fail at runtime if `VITE_API_BASE_URL` is missing; this must be set to the intended API origin before Vercel launch.
 - Railway question operations are split across a separate repo; keep primary-repo launch work distinct from `QuizGame-main\backend` data maintenance.
 - Contract drift risk remains highest around socket event names, payload shape, and direct non-envelope Socket.IO emissions.
 - The claim "all launch blockers are fixed" is too broad until staging deployment, reconnect scenario, and production/Railway question audit have current passing results.

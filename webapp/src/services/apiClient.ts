@@ -39,9 +39,18 @@ export function configureApiClient(store: TokenStore): void {
 // ---------------------------------------------------------------------------
 // Axios instance
 // ---------------------------------------------------------------------------
-const BASE_URL =
-  (import.meta as unknown as { env: Record<string, string> }).env?.VITE_API_BASE_URL ??
-  'http://localhost:4000/api/v1';
+const viteEnv = (import.meta as unknown as {
+  env?: Record<string, string | boolean | undefined>;
+}).env;
+
+const configuredBaseUrl =
+  typeof viteEnv?.VITE_API_BASE_URL === 'string' ? viteEnv.VITE_API_BASE_URL.trim() : '';
+
+const BASE_URL = configuredBaseUrl || (viteEnv?.DEV === true ? 'http://localhost:4000/api/v1' : '');
+
+if (!BASE_URL) {
+  throw new Error('VITE_API_BASE_URL is required outside local Vite development.');
+}
 
 const axiosInstance: AxiosInstance = axios.create({
   baseURL: BASE_URL,
