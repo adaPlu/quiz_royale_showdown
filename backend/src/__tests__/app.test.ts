@@ -25,7 +25,6 @@ vi.mock("../routes/auth", () => ({ authRouter: emptyRouter() }));
 vi.mock("../routes/admin", () => ({ adminRouter: mountedRouter("admin") }));
 vi.mock("../routes/challenges", () => ({ default: mountedRouter("challenges") }));
 vi.mock("../routes/cosmetics", () => ({ default: mountedRouter("cosmetics") }));
-vi.mock("../routes/friends", () => ({ default: mountedRouter("friends") }));
 vi.mock("../routes/health", () => ({ healthRouter: emptyRouter() }));
 vi.mock("../routes/leaderboard", () => ({ default: mountedRouter("leaderboard") }));
 vi.mock("../routes/powerups", () => ({ default: mountedRouter("powerups") }));
@@ -58,7 +57,7 @@ async function request(app: express.Express, path: string) {
 }
 
 describe("createApp", () => {
-  it("mounts the general API limiter", async () => {
+  it("mounts the general API limiter before the auth-specific limiter", async () => {
     const { createApp } = await import("../app");
     const app = createApp() as unknown as {
       _router: {
@@ -68,8 +67,11 @@ describe("createApp", () => {
 
     const stack = app._router.stack;
     const apiLimiterIndex = stack.findIndex((layer) => layer.handle === limiterMocks.apiLimiter);
+    const authLimiterIndex = stack.findIndex((layer) => layer.handle === limiterMocks.authLimiter);
 
     expect(apiLimiterIndex).toBeGreaterThan(-1);
+    expect(authLimiterIndex).toBeGreaterThan(-1);
+    expect(apiLimiterIndex).toBeLessThan(authLimiterIndex);
   });
 
   it("returns structured 404 errors for unknown routes", async () => {
@@ -93,7 +95,6 @@ describe("createApp", () => {
       "admin",
       "challenges",
       "cosmetics",
-      "friends",
       "leaderboard",
       "powerups",
       "push",

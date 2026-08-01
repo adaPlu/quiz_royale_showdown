@@ -78,6 +78,6 @@ describe("socketAuthMiddleware", () => {
     await socketAuthMiddleware(socket as never, next);
 
     expect(socket.data).toEqual({});
-    expect(next).toHaveBeenCalledWith(expect.objectContaining({ message: "AUTH_DB_ERROR" }));
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ message: "Unauthorized" }));
   });
 });

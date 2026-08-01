@@ -24,7 +24,7 @@ export type GameStateEvent =
 
 const ALLOWED_TRANSITIONS: Readonly<Record<GamePhase, readonly GamePhase[]>> = {
   WAITING: ['COUNTDOWN'],
-  COUNTDOWN: ['QUESTION_ACTIVE', 'WAITING', 'FINALE'],
+  COUNTDOWN: ['QUESTION_ACTIVE', 'WAITING'],
   QUESTION_ACTIVE: ['ANSWER_LOCKED', 'GAME_OVER'],
   ANSWER_LOCKED: ['ROUND_RESULT'],
   ROUND_RESULT: ['COUNTDOWN', 'QUESTION_ACTIVE', 'ELIMINATION', 'FINALE', 'GAME_OVER'],
@@ -88,14 +88,6 @@ export function transitionGameState(
       if (event.type === 'BEGIN_QUESTION') {
         return commitTransition(state, 'QUESTION_ACTIVE', {
           question: event.question ?? state.question + 1,
-        });
-      }
-
-      if (event.type === 'START_FINALE') {
-        return commitTransition(state, 'FINALE', {
-          isFinale: true,
-          finalists: [...event.finalistIds],
-          playerCount: event.finalistIds.length,
         });
       }
 

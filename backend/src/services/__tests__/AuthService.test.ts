@@ -44,7 +44,6 @@ describe("AuthService", () => {
 
     prismaMock.tx.refreshToken.deleteMany
       .mockResolvedValueOnce({ count: 1 })
-      .mockResolvedValueOnce({ count: 0 })
       .mockResolvedValueOnce({ count: 0 });
     prismaMock.tx.user.findUnique.mockResolvedValue(user);
     prismaMock.tx.refreshToken.create.mockResolvedValue(undefined);
@@ -56,7 +55,7 @@ describe("AuthService", () => {
       status: 401,
     });
     expect(rotated.refreshToken).not.toBe(incomingRefreshToken);
-    expect(prismaMock.tx.refreshToken.deleteMany).toHaveBeenCalledTimes(3);
+    expect(prismaMock.tx.refreshToken.deleteMany).toHaveBeenCalledTimes(2);
     expect(prismaMock.tx.refreshToken.create).toHaveBeenCalledTimes(1);
     expect(prismaMock.tx.user.findUnique).toHaveBeenCalledTimes(1);
     expect(prismaMock.tx.refreshToken.deleteMany).toHaveBeenNthCalledWith(
@@ -66,15 +65,6 @@ describe("AuthService", () => {
           userId: user.id,
           expiresAt: { gt: expect.any(Date) },
         }),
-      })
-    );
-    expect(prismaMock.tx.refreshToken.deleteMany).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        where: {
-          userId: user.id,
-          expiresAt: { lt: expect.any(Date) },
-        },
       })
     );
   });

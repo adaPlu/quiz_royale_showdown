@@ -116,9 +116,6 @@ dependencies {
   implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
   implementation("com.android.billingclient:billing-ktx:7.1.1")
   implementation("com.google.firebase:firebase-messaging-ktx:24.1.1")
-  implementation("com.google.firebase:firebase-crashlytics-ktx:19.4.4")
-  implementation("com.google.code.gson:gson:2.11.0")
-  implementation("io.coil-kt:coil-compose:2.7.0")
 
   debugImplementation("androidx.compose.ui:ui-tooling")
   debugImplementation("androidx.compose.ui:ui-test-manifest")

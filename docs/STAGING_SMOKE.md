@@ -1,0 +1,282 @@
+# Staging Smoke Runbook
+
+Scope: primary repo backend deployment from
+`c:\Users\plugu\AndroidStudioProjects\QuizGame`.
+
+Do not use the separate Railway question workspace as proof that routes are
+mounted or deployed in this repo. It is only for question-bank audit commands.
+
+## Railway Readiness
+
+Backend deployment files:
+
+- `backend/Dockerfile` builds TypeScript, generates Prisma Client, and runs the
+  lean runtime image on port `4000`.
+- `backend/start.sh` runs Prisma migrations before `node dist/index.js`.
+- `backend/railway.json` uses the Dockerfile builder and `/health` as the
+  Railway health check.
+
+Operator checklist:
+
+1. Deploy the primary repo, not `QuizGame-main`.
+2. In Railway, set the service root directory to `backend`.
+3. Confirm Railway detects `backend/railway.json`.
+4. Set the required variables below in the Railway service environment.
+5. Leave `PRISMA_BASELINE_CURRENT_INIT` unset for a fresh staging database.
+6. Deploy the latest pushed commit and wait for `/health` to pass.
+7. Configure the web deployment with `VITE_API_BASE_URL` and `VITE_WS_BASE_URL`.
+   The web client intentionally has no production Railway fallback.
+8. Run the staging smoke commands from this document.
+9. Run the guarded 50-player staging load probe only after Phase 1 and Phase 2
+   smoke pass.
+10. Run the Railway question audit from `QuizGame-main\backend` separately.
+
+Local preflight before deploy:
+
+```powershell
+npm run staging:preflight
+```
+
+This command does not require secrets and does not run migrations. It checks the
+Railway files, runtime Prisma dependency, migration startup shape, smoke scripts,
+and mounted backend route surface.
+
+Staging smoke commands are guarded separately from local smoke commands. Use
+`smoke:phase1` and `smoke:phase2` for local work; use the guarded
+`smoke:staging:*` commands below for deployed staging validation.
+
+Required Railway variables:
+
+```text
+NODE_ENV=production
+PORT=4000
+CORS_ORIGIN=<comma-free staging web origin>
+DATABASE_URL=<Railway Postgres Prisma URL>
+REDIS_URL=<Railway Redis URL>
+JWT_ACCESS_SECRET=<random 32+ chars>
+JWT_REFRESH_SECRET=<random 32+ chars>
+JWT_ACCESS_TTL=15m
+JWT_REFRESH_TTL=7d
+VAPID_PUBLIC_KEY=<required in production; generate with web-push>
+VAPID_PRIVATE_KEY=<required in production; generate with web-push>
+VAPID_SUBJECT=mailto:<ops address>
+ADMIN_SECRET=<random 32+ chars>
+```
+
+Migration note:
+
+- Fresh staging DB: no extra migration env is required. `start.sh` baselines the
+  two known superseded init snapshots and applies `20260425000000_init`.
+- Already-shaped Railway DB: set `PRISMA_BASELINE_CURRENT_INIT=1` only when the
+  current init schema has already been applied out-of-band and migration history
+  needs to be reconciled. Do not set it for an unknown or fresh database.
+
+Mounted launch surface:
+
+- `GET /health`
+- `/api/v1/auth/*`
+- `/api/v1/rooms/*`
+- `/api/v1/users/*`
+- `/api/v1/leaderboard/*`
+- `/api/v1/cosmetics/*`
+- `/api/v1/powerups/*`
+- `/api/v1/challenges/*`
+- `/api/v1/push/*`
+- `/api/v1/admin/*`
+- Socket.IO on path `/ws`
+
+Core staging smoke still focuses on health, auth, rooms, and `/ws`. Mounted
+profile/meta routes should get separate smoke checks before they are treated as
+production launch commitments. Future routes such as shop, friends, seasons, and
+payments must stay guarded until mounted.
+
+## PowerShell Setup
+
+Run from the primary repo root:
+
+```powershell
+$env:STAGING_BASE = "https://<railway-service>.up.railway.app"
+$env:API_BASE_URL = "$env:STAGING_BASE/api/v1"
+$env:WS_BASE_URL = "$env:STAGING_BASE"
+$env:SMOKE_TIMEOUT_MS = "330000"
+$env:STAGING_SMOKE_ACK = "STAGING_BACKEND"
+$RunId = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+```
+
+Vercel web environment:
+
+```text
+VITE_API_BASE_URL=https://api.quizroyale.gg/api/v1
+VITE_WS_BASE_URL=https://api.quizroyale.gg
+```
+
+If staging uses a different public API origin, set both values to that origin
+and update `webapp/vercel.json` CSP `connect-src` before deployment.
+
+## GET /health
+
+```powershell
+Invoke-RestMethod "$env:STAGING_BASE/health" | ConvertTo-Json -Depth 8
+```
+
+Pass criteria: HTTP 200, `status` is `ok`, Postgres is `ok`, Redis is `ok`.
+
+## Auth
+
+```powershell
+$Password = "password123"
+$HostEmail = "staging-host-$RunId@example.com"
+$GuestEmail = "staging-guest-$RunId@example.com"
+
+$HostRegister = Invoke-RestMethod "$env:API_BASE_URL/auth/register" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body (@{ email = $HostEmail; displayName = "Staging Host $RunId"; password = $Password } | ConvertTo-Json)
+
+$GuestRegister = Invoke-RestMethod "$env:API_BASE_URL/auth/register" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body (@{ email = $GuestEmail; displayName = "Staging Guest $RunId"; password = $Password } | ConvertTo-Json)
+
+$HostLogin = Invoke-RestMethod "$env:API_BASE_URL/auth/login" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body (@{ email = $HostEmail; password = $Password } | ConvertTo-Json)
+
+$GuestLogin = Invoke-RestMethod "$env:API_BASE_URL/auth/login" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body (@{ email = $GuestEmail; password = $Password } | ConvertTo-Json)
+
+$HostHeaders = @{ Authorization = "Bearer $($HostLogin.accessToken)" }
+$GuestHeaders = @{ Authorization = "Bearer $($GuestLogin.accessToken)" }
+```
+
+Pass criteria: both login responses include `accessToken`, `refreshToken`, and
+`user.id`.
+
+## Room Create / Join / Start
+
+```powershell
+$Room = Invoke-RestMethod "$env:API_BASE_URL/rooms" `
+  -Method Post `
+  -Headers $HostHeaders `
+  -ContentType "application/json" `
+  -Body (@{ isPrivate = $true; maxPlayers = 2 } | ConvertTo-Json)
+
+$Joined = Invoke-RestMethod "$env:API_BASE_URL/rooms/join" `
+  -Method Post `
+  -Headers $GuestHeaders `
+  -ContentType "application/json" `
+  -Body (@{ roomCode = $Room.roomCode } | ConvertTo-Json)
+
+$Started = Invoke-RestMethod "$env:API_BASE_URL/rooms/$($Room.roomId)/start" `
+  -Method Post `
+  -Headers $HostHeaders
+
+$Room | ConvertTo-Json -Depth 8
+$Joined | ConvertTo-Json -Depth 8
+$Started | ConvertTo-Json -Depth 8
+```
+
+Pass criteria: create returns `201`, join returns the same `roomCode`, and start
+returns a room payload. If this command is run without socket clients connected,
+the game loop may not complete; use the smoke scripts for the full socket path.
+
+## Socket.IO `/ws`
+
+This checks the deployed Socket.IO path, auth middleware, and canonical
+`message` envelope.
+
+```powershell
+node -e "const { io } = require('socket.io-client'); const s = io(process.env.WS_BASE_URL, { path: '/ws', transports: ['websocket'], auth: { token: process.env.HOST_ACCESS_TOKEN }, reconnection: false, timeout: 15000 }); s.on('connect', () => { console.log('connected', s.id); s.emit('message', { type: 'room:join', version: 'v1', payload: { roomCode: process.env.ROOM_CODE } }); setTimeout(() => s.disconnect(), 2000); }); s.on('message', (m) => console.log(JSON.stringify(m))); s.on('connect_error', (e) => { console.error(e.message); process.exit(1); });"
+```
+
+Before running that command, export the values from the room smoke:
+
+```powershell
+$env:HOST_ACCESS_TOKEN = $HostLogin.accessToken
+$env:ROOM_CODE = $Room.roomCode
+```
+
+Pass criteria: `connected <socket-id>` prints and at least one `message` envelope
+is received or no auth/connect error occurs before disconnect.
+
+## Phase 1 Smoke
+
+```powershell
+npm run smoke:staging:phase1
+```
+
+The guarded staging command requires `STAGING_SMOKE_ACK`, `API_BASE_URL`,
+`WS_BASE_URL`, and a non-local target unless `ALLOW_LOCAL_SMOKE=1` is set.
+
+Pass criteria: registers/logs in two users, blocks one-player start, creates and
+joins a room, connects both sockets on `/ws`, starts the room, observes
+`round:countdown_started`, then observes `round:question_started` or an expected
+canonical `error` only when `EXPECT_START_ERROR=1`.
+
+## Phase 2 Smoke
+
+```powershell
+npm run smoke:staging:phase2
+```
+
+The guarded staging command requires `STAGING_SMOKE_ACK`, `API_BASE_URL`,
+`WS_BASE_URL`, and a non-local target unless `ALLOW_LOCAL_SMOKE=1` is set. Keep
+`SMOKE_TIMEOUT_MS` at `330000` unless a staging run proves a lower timeout is
+safe.
+
+Pass criteria: reaches `game:over` and records all checkpoints:
+`roomStateSync`, `countdownStarted`, `questionStarted`, `answerLocked`,
+`roundResult`, and `gameOver`.
+
+## 50-Player Staging Load Probe
+
+Run only after `/health`, auth, room/socket checks, `smoke:phase1`, and
+`smoke:phase2` pass against staging. This is a guarded connectivity/load probe,
+not a gameplay correctness test and not a production load test.
+
+Dry run the command first:
+
+```powershell
+$env:STAGING_LOAD_ACK = "50_PLAYERS_STAGING"
+$env:STAGING_LOAD_DRY_RUN = "1"
+npm run load:staging:50
+```
+
+Run the actual k6 probe only against the staging backend:
+
+```powershell
+Remove-Item Env:\STAGING_LOAD_DRY_RUN -ErrorAction SilentlyContinue
+$env:STAGING_LOAD_ACK = "50_PLAYERS_STAGING"
+$env:K6_VUS = "50"
+$env:K6_DURATION = "2m"
+$env:LOAD_ROOM_CODE = "<existing staging room code, optional>"
+npm run load:staging:50
+```
+
+Required:
+
+- `API_BASE_URL` must point to staging and include `/api/v1`.
+- `WS_BASE_URL` must point to the same staging backend.
+- `k6` must be installed and available on `PATH`.
+- Keep `K6_VUS` at or below `50` for this command.
+
+Pass criteria: registration/login requests succeed, access tokens are present,
+and Socket.IO websocket upgrades return `101`. If `LOAD_ROOM_CODE` does not
+exist, room-join application errors may appear after connection; that does not
+invalidate the transport probe but does mean the script did not validate lobby
+membership.
+
+## Railway Question Audit
+
+Keep this separate from the primary repo:
+
+```powershell
+cd c:\Users\plugu\AndroidStudioProjects\QuizGame-main\backend
+railway run npm run audit:questions
+```
+
+Pass criteria: command exits 0 and reports active question count plus category
+and difficulty health for the Railway question database.

@@ -35,7 +35,7 @@ These gates are required before calling Phase 2 ready for broader manual QA.
 | Web typecheck/build | `npm run typecheck -w webapp; npm run build -w webapp` | Both exit 0 | Confirms web can consume current contracts. |
 | Android assembleDebug | `android\gradlew.bat -p android :app:assembleDebug` | Gradle exits 0 | Confirms Android compile integration. |
 | Phase 1 smoke regression | `npm run smoke:phase1` | Still reaches first live question or intentional canonical error | Protects room/start/socket contract. |
-| Phase 2 smoke | If present: `npm run smoke:phase2` | Proves flow beyond first question through answer lock, round result, elimination/finale as applicable, and `game:over` | No `smoke:phase2` script exists in this repo yet. Record as `N/A - script missing` until added. |
+| Phase 2 smoke | `npm run smoke:phase2` | Proves flow beyond first question through answer lock, round result, elimination/finale as applicable, and `game:over` | Requires backend on local defaults or `API_BASE_URL`/`WS_BASE_URL` pointed at staging. |
 | Railway question audit | `cd c:\Users\plugu\AndroidStudioProjects\QuizGame-main\backend; railway run npm run audit:questions` | Audit exits 0 and reports active question count/category/difficulty health | Requires Railway CLI/project access. If using a local `.env` with Railway DB credentials, run `npm run audit:questions` from the same directory. |
 
 ## Result Template
@@ -55,6 +55,29 @@ smoke:phase2:
 Railway question audit:
 Observed backend event/error:
 Blockers:
+```
+
+## Web/Deployment/Docs Cleanup Verified Run - 2026-07-29
+
+```text
+Date: 2026-07-29
+Branch: current worker workspace
+Backend typecheck: NOT RUN (out of scope; backend source untouched)
+Backend tests: NOT RUN (out of scope; backend source untouched)
+Web typecheck: PASS (`npm run typecheck -w webapp`)
+Web build: PASS (`npm run build -w webapp`)
+Web tests: NOT RUN (no web behavior test changes; typecheck/build required by audit)
+Android assembleDebug: NOT RUN (out of scope; Android source untouched)
+smoke:phase1: NOT RUN (requires running backend/services)
+smoke:phase2: NOT RUN (requires running backend/services)
+Railway question audit: NOT RUN (separate `QuizGame-main\backend` workspace)
+Observed backend event/error: none
+Blockers:
+- Primary repo backend still needs staging/Railway deployment evidence with `/health` green.
+- Guarded staging Phase 1 and Phase 2 smoke remain launch blockers.
+- Vercel production env must set `VITE_API_BASE_URL` and `VITE_WS_BASE_URL`; web no longer has a production Railway fallback.
+- Railway question-bank audit must be run separately from `QuizGame-main\backend`.
+- Mounted profile/users, leaderboard, cosmetics, power-ups, challenges, push, and admin routes need staging smoke before production launch commitment.
 ```
 
 ## Phase 2 Verified Run — 2026-04-26
@@ -81,29 +104,6 @@ Blockers: none
 Services: backend dev server (tsx watch), Railway Postgres, Docker Redis (localhost:6379)
 ```
 
-## Audit Remediation Verification - 2026-07-29
-
-```text
-Date: 2026-07-29
-Branch: main
-npm audit --workspaces --audit-level=low --json: PASS (0 vulnerabilities)
-Backend typecheck: PASS (0 errors)
-Backend tests: PASS (260/260, 39 files)
-Web typecheck: PASS (0 errors)
-Web tests: PASS (26/26, 5 files)
-Web build: PASS
-Backend lint: BLOCKED (`eslint` script exists, but ESLint is not installed/configured in this workspace)
-Android unit/release gate: PASS
-  - :app:testDebugUnitTest: NO-SOURCE
-  - :app:testReleaseUnitTest: NO-SOURCE
-  - :app:assembleRelease: PASS
-smoke:phase1: Not run in this pass
-smoke:phase2: Not run in this pass
-Railway question audit: Not run in this pass
-Observed backend event/error: none during automated tests
-Blockers: live staging smoke, Railway/Vercel env verification, store-listing/privacy assets, and external launch operations remain outside local unit/build gates
-```
-
 ## Local Service Expectations
 
 `smoke:phase1` expects:
@@ -114,4 +114,3 @@ Blockers: live staging smoke, Railway/Vercel env verification, store-listing/pri
 - Socket transport event: canonical `message` envelope
 - Postgres reachable through `DATABASE_URL`
 - Redis reachable through `REDIS_URL` for full game-loop fidelity
-

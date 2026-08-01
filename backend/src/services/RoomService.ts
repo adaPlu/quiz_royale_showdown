@@ -23,25 +23,18 @@ import { generateId } from "../utils/ulid";
 import { signTokenPair } from "./AuthService";
 import { redisService } from "./RedisService";
 
-const BOT_FILL_DELAY_MS = 10_000;
-const BOT_PLAYER_ID_PREFIX = "bot:";
-
 interface CreateRoomOpts {
+  isPrivate: boolean;
+  maxPlayers: number;
+}
+
+interface RoomConfig {
   isPrivate: boolean;
   maxPlayers: number;
 }
 
 interface StartGameOpts {
   allowSolo?: boolean;
-}
-
-interface BotFillOpts {
-  delayMs?: number;
-}
-
-interface RoomConfig {
-  isPrivate: boolean;
-  maxPlayers: number;
 }
 
 export interface RoomLifecycleState {
@@ -71,7 +64,7 @@ const DEFAULT_ROOM_CONFIG: RoomConfig = {
   maxPlayers: 8,
 };
 
-const roomWithPlayersInclude = {
+const roomWithPlayersInclude = Prisma.validator<Prisma.RoomInclude>()({
   players: {
     orderBy: { seatIndex: "asc" },
     include: {
@@ -84,7 +77,7 @@ const roomWithPlayersInclude = {
       },
     },
   },
-} satisfies Prisma.RoomInclude;
+});
 
 type RoomWithPlayers = Prisma.RoomGetPayload<{
   include: typeof roomWithPlayersInclude;
@@ -134,19 +127,10 @@ export class RoomService {
 
     const config = await this.getRoomConfig(room.id);
     const joinResult = await this.joinRoomPlayer(room.id, userId, config);
-
     if (joinResult.joined) {
       await this.addLivePlayer(room.id, userId);
-      logger.info("Player joined room", { userId, roomId: room.id });
 
-      // Remove full rooms from matchmaking so later joins do not race a full candidate.
-      if (redisService) {
-        const config = await this.getRoomConfig(room.id);
-        const newCount = await prisma.roomPlayer.count({ where: { roomId: room.id, isEliminated: false } });
-        if (newCount >= (config.maxPlayers ?? DEFAULT_ROOM_CONFIG.maxPlayers)) {
-          await redisService.zrem(MATCHMAKING_QUEUE_KEY, room.id).catch(() => undefined);
-        }
-      }
+      logger.info("Player joined room", { userId, roomId: room.id });
     }
 
     const user = await prisma.user.findUniqueOrThrow({
@@ -277,66 +261,17 @@ export class RoomService {
       throw new BadRequestError("At least 2 players are required to start");
     }
 
-    const result = await prisma.room.updateMany({
-      where: { id: roomId, status: "WAITING" },
+    await prisma.room.update({
+      where: { id: roomId },
       data: {
         status: "COUNTDOWN",
         startedAt: new Date(),
       },
     });
 
-    if (result.count === 0) {
-      throw new ConflictError("Game has already started");
-    }
-
     logger.info("Game started", { roomId, hostUserId: requesterId });
 
     return this.getRoomById(roomId);
-  }
-
-  /**
-   * Wait up to BOT_FILL_DELAY_MS for a second human player to join.
-   * If only 1 human player remains after the delay, inject a bot entry
-   * into Redis so the game can proceed.
-   *
-   * Returns the full list of player IDs (including any bot) that should
-   * be passed to GameOrchestrator.startGame.
-   */
-  async waitForPlayersOrFillBots(
-    roomId: string,
-    humanPlayerIds: string[],
-    opts: BotFillOpts = {}
-  ): Promise<string[]> {
-    const delayMs = opts.delayMs ?? BOT_FILL_DELAY_MS;
-
-    if (delayMs > 0) {
-      await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
-    }
-
-    if (!redisService) {
-      return humanPlayerIds;
-    }
-
-    // Check current live player count
-    const liveCount = await redisService.scard(`room:${roomId}:players`);
-
-    if (liveCount >= 2) {
-      // Enough human players — no bot needed
-      const members = await redisService.smembers(`room:${roomId}:players`);
-      return members;
-    }
-
-    // Only 1 human — add a bot
-    const botId = `${BOT_PLAYER_ID_PREFIX}${generateId()}`;
-    const botEntry = JSON.stringify({ id: botId, displayName: "QuizBot", isBot: true });
-
-    await redisService.sadd(`room:${roomId}:players`, botId);
-    await redisService.setJson(`room:${roomId}:bot:${botId}`, JSON.parse(botEntry), 7200);
-
-    logger.info("Bot added to room for solo matchmaking", { roomId, botId });
-
-    const members = await redisService.smembers(`room:${roomId}:players`);
-    return members;
   }
 
   async leaveRoom(roomId: string, userId: string): Promise<LeaveRoomResult> {
@@ -347,10 +282,6 @@ export class RoomService {
 
     if (!room) {
       throw new NotFoundError(`Room ${roomId} not found`);
-    }
-
-    if (room.status !== 'WAITING') {
-      throw new ForbiddenError('Cannot leave a room that is already in progress');
     }
 
     const playerRecord = room.players.find((player) => player.userId === userId);
@@ -660,7 +591,6 @@ export class RoomService {
       room: {
         roomId: room.id,
         code: room.code,
-        hostId: room.hostUserId,
         phase: room.status,
         roundNumber: room.currentRound,
         totalRounds: room.totalRounds,
@@ -688,12 +618,13 @@ export class RoomService {
 
   private async generateRoomCode(): Promise<string> {
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const codeLength = 8;
     const maxAttempts = 10;
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       let code = "";
 
-      for (let index = 0; index < 6; index += 1) {
+      for (let index = 0; index < codeLength; index += 1) {
         code += chars[randomInt(chars.length)];
       }
 

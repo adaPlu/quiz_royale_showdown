@@ -16,7 +16,6 @@ export type PlayerSummary = {
 export type RoomSnapshot = {
   roomId: string;
   code: string;
-  hostId: string;
   phase:
     | "WAITING"
     | "COUNTDOWN"
@@ -81,32 +80,43 @@ export type ServerEvents =
       }
     >
   | EventEnvelope<
-      "game:level_up",
-      { userId: string; newLevel: number; xpAwarded: number; xpToNextLevel: number }
+      "powerup:activated",
+      {
+        roomId: string;
+        userId: string;
+        powerUpId: string;
+        code: string;
+        effect: Record<string, unknown>;
+      }
     >
   | EventEnvelope<
-      "powerup:loot_drop",
-      { powerupId: string; powerupType: string; quantity: number }
-    >
-  | EventEnvelope<
-      "powerup:effect",
-      { type: string; targetPlayerId?: string; [key: string]: unknown }
-    >
-  | EventEnvelope<
-      "powerup:effect_private",
-      { type: string; maskedAnswerIndices?: number[]; [key: string]: unknown }
+      "powerup:private_effect",
+      {
+        roomId: string;
+        powerUpId: string;
+        code: string;
+        effect: Record<string, unknown>;
+      }
     >
   | SocketErrorEvent;
 
 export type ClientEvents =
   | EventEnvelope<"room:join", { roomCode: string }>
-  | EventEnvelope<"room:start", { roomId: string }>
-  | EventEnvelope<"room:leave", { roomId: string }>
   | EventEnvelope<
       "round:submit_answer",
       { roomId: string; questionId: string; answerIndex: number; clientSentAt: string }
     >
-  | EventEnvelope<"powerup:activate", { roomId: string; powerUpId: string; targetPlayerId?: string }>
+  | EventEnvelope<
+      "powerup:activate",
+      {
+        roomId: string;
+        powerUpId?: string;
+        powerUpCode?: string;
+        id?: string;
+        code?: string;
+        targetPlayerId?: string;
+      }
+    >
   | EventEnvelope<"client:heartbeat", { roomId: string; sentAt: string }>;
 
 export type AuthedSocketUser = {

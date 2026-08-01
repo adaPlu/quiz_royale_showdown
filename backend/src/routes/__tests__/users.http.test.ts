@@ -114,12 +114,7 @@ describe("users routes", () => {
       createdAt: "2026-01-01T00:00:00.000Z",
     });
     expect(prismaMock.user.findFirst).toHaveBeenCalledWith({
-      where: {
-        OR: [
-          { id: "Alice" },
-          { displayName: { equals: "Alice", mode: "insensitive" } },
-        ],
-      },
+      where: { displayName: "Alice" },
       select: {
         id: true,
         displayName: true,

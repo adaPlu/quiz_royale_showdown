@@ -7,12 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum FriendshipStatus {
-  PENDING
-  ACCEPTED
-  BLOCKED
-}
-
 enum RoomStatus {
   WAITING
   COUNTDOWN
@@ -45,23 +39,16 @@ model User {
   rating           Int               @default(1000)
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
-  refreshTokens          RefreshToken[]
-  roomsHosted            Room[]            @relation("HostedRooms")
-  roomPlayers            RoomPlayer[]
-  answers                Answer[]
-  playerPowerUps         PlayerPowerUp[]
-  powerUpUses            PowerUpUse[]
-  userCosmetics          UserCosmetic[]
-  xpEvents               XpEvent[]
-  seasonScores           SeasonScore[]
-  purchaseReceipts       PurchaseReceipt[]
-  sentFriendRequests     Friendship[]      @relation("FriendshipRequester")
-  receivedFriendRequests Friendship[]      @relation("FriendshipAddressee")
-  pushSubscriptions      PushSubscription[]
-  fcmTokens              FcmToken[]
-
-  @@unique([displayName])
-  @@index([email])
+  refreshTokens    RefreshToken[]
+  roomsHosted      Room[]            @relation("HostedRooms")
+  roomPlayers      RoomPlayer[]
+  answers          Answer[]
+  playerPowerUps   PlayerPowerUp[]
+  powerUpUses      PowerUpUse[]
+  userCosmetics    UserCosmetic[]
+  xpEvents         XpEvent[]
+  seasonScores     SeasonScore[]
+  purchaseReceipts PurchaseReceipt[]
 }
 
 model RefreshToken {
@@ -71,9 +58,6 @@ model RefreshToken {
   expiresAt DateTime
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([tokenHash])
-  @@index([userId])
 }
 
 model Room {
@@ -87,17 +71,10 @@ model Room {
   createdAt      DateTime     @default(now())
   startedAt      DateTime?
   finishedAt     DateTime?
-  inviteCode     String?      @unique
   host           User         @relation("HostedRooms", fields: [hostUserId], references: [id])
   rounds         Round[]
   players        RoomPlayer[]
   season         Season?      @relation(fields: [seasonId], references: [id])
-  powerUpUses    PowerUpUse[]
-
-  @@index([hostUserId])
-  @@index([status])
-  @@index([seasonId])
-  @@index([finishedAt])
 }
 
 model RoomPlayer {
@@ -114,8 +91,6 @@ model RoomPlayer {
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([roomId, userId])
-  @@index([userId])
-  @@index([roomId])
 }
 
 model Round {
@@ -130,10 +105,8 @@ model Round {
   room           Room         @relation(fields: [roomId], references: [id], onDelete: Cascade)
   question       QuestionBank @relation(fields: [questionId], references: [id])
   answers        Answer[]
-  powerUpUses    PowerUpUse[]
 
   @@unique([roomId, roundNumber])
-  @@index([roomId])
 }
 
 model Answer {
@@ -148,8 +121,6 @@ model Answer {
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([roundId, userId])
-  @@index([roundId])
-  @@index([userId])
 }
 
 model QuestionBank {
@@ -166,9 +137,6 @@ model QuestionBank {
   isActive         Boolean      @default(true)
   createdAt        DateTime     @default(now())
   rounds           Round[]
-
-  @@index([isActive, lastUsedAt])
-  @@unique([prompt])
 }
 
 model PowerUp {
@@ -207,12 +175,6 @@ model PowerUpUse {
   createdAt      DateTime @default(now())
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   powerUp        PowerUp  @relation(fields: [powerUpId], references: [id], onDelete: Cascade)
-  room           Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  round          Round?   @relation(fields: [roundId], references: [id], onDelete: SetNull)
-
-  @@index([userId])
-  @@index([roomId])
-  @@index([roundId])
 }
 
 model Cosmetic {
@@ -246,22 +208,17 @@ model XpEvent {
   metadata    Json?
   createdAt   DateTime @default(now())
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, reason])
-  @@index([userId, createdAt])
-  @@index([userId, reason])
 }
 
 model Season {
-  id                String        @id @db.VarChar(26)
-  slug              String        @unique
-  name              String
-  startsAt          DateTime
-  endsAt            DateTime
-  rewardsAwardedAt  DateTime?
-  createdAt         DateTime      @default(now())
-  rooms             Room[]
-  seasonScores      SeasonScore[]
+  id            String        @id @db.VarChar(26)
+  slug          String        @unique
+  name          String
+  startsAt      DateTime
+  endsAt        DateTime
+  createdAt     DateTime      @default(now())
+  rooms         Room[]
+  seasonScores  SeasonScore[]
 }
 
 model SeasonScore {
@@ -276,8 +233,6 @@ model SeasonScore {
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([seasonId, userId])
-  @@index([userId])
-  @@index([seasonId, mmr(sort: Desc)])
 }
 
 model PurchaseReceipt {
@@ -291,44 +246,4 @@ model PurchaseReceipt {
   status            String
   createdAt         DateTime @default(now())
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-model PushSubscription {
-  id        String   @id @db.VarChar(26)
-  userId    String   @db.VarChar(26)
-  endpoint  String   @unique
-  p256dh    String
-  auth      String
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-}
-
-model FcmToken {
-  id        String   @id @db.VarChar(26)
-  userId    String   @db.VarChar(26)
-  token     String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-}
-
-model Friendship {
-  id          String           @id @db.VarChar(26)
-  requesterId String   @db.VarChar(26)
-  addresseeId String   @db.VarChar(26)
-  status      FriendshipStatus @default(PENDING)
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-
-  requester User @relation("FriendshipRequester", fields: [requesterId], references: [id], onDelete: Cascade)
-  addressee User @relation("FriendshipAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
-
-  @@unique([requesterId, addresseeId])
-  @@index([addresseeId])
-  @@index([requesterId])
-  @@index([addresseeId, status])
 }

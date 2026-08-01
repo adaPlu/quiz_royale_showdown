@@ -21,10 +21,10 @@ jobs:
         run: npm ci
 
       - name: Audit workspace dependencies
-        run: npm audit
+        run: npm audit --audit-level=high
 
       - name: Audit backend image dependencies
-        run: npm audit --workspaces=false
+        run: npm audit --audit-level=high --workspaces=false
         working-directory: backend
 
       - name: Generate Prisma client
@@ -37,39 +37,30 @@ jobs:
         run: npm run build -w backend
 
       - name: Backend tests
-        timeout-minutes: 10
         run: npm run test -w backend
 
       - name: Web typecheck
         run: npm run typecheck -w webapp
 
-      - name: Web tests
-        timeout-minutes: 10
-        run: npm run test -w webapp
-
       - name: Web build
         run: npm run build -w webapp
 
+      - name: Web tests
+        run: npm run test -w webapp
+
   android:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-        with:
-          repository: adaPlu/quiz_royale_showdown
-          ref: ${{ github.ref }}
-          path: android-repo
 
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-          cache: "gradle"
 
-      - uses: android-actions/setup-android@v3
-
-      - name: Make Gradle wrapper executable
-        run: chmod +x android-repo/android/gradlew
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
       - name: Android unit tests
-        run: cd android-repo/android && ./gradlew testDebugUnitTest
+        run: ./gradlew testDebugUnitTest
+        working-directory: android

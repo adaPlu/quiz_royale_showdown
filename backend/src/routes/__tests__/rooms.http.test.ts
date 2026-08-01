@@ -5,6 +5,7 @@ import type { Express, NextFunction, Request, Response } from "express";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const VALID_ROOM_ID = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+const VALID_ROOM_CODE = "ABCD2345";
 
 const roomServiceMock = vi.hoisted(() => ({
   createRoom: vi.fn(),
@@ -74,6 +75,7 @@ interface TestResponse {
 
 interface RequestOptions {
   authUserId?: string | null;
+  body?: unknown;
 }
 
 async function request(
@@ -100,6 +102,7 @@ async function request(
     const response = await fetch(`http://127.0.0.1:${address.port}${path}`, {
       method,
       headers,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
     });
     const text = await response.text();
 
@@ -142,7 +145,7 @@ describe("room routes", () => {
   it("requires authentication for room code lookups", async () => {
     const app = await createRoomsTestApp();
 
-    const response = await request(app, "GET", "/api/v1/rooms/ABC123", {
+    const response = await request(app, "GET", `/api/v1/rooms/${VALID_ROOM_CODE}`, {
       authUserId: null,
     });
 
@@ -158,7 +161,7 @@ describe("room routes", () => {
     roomServiceMock.getRoomByCode.mockResolvedValue({
       room: {
         roomId: VALID_ROOM_ID,
-        code: "ABC123",
+        code: VALID_ROOM_CODE,
         phase: "WAITING",
         roundNumber: 0,
         totalRounds: 10,
@@ -179,15 +182,15 @@ describe("room routes", () => {
     });
     const app = await createRoomsTestApp();
 
-    const response = await request(app, "GET", "/api/v1/rooms/ABC123", {
+    const response = await request(app, "GET", `/api/v1/rooms/${VALID_ROOM_CODE}`, {
       authUserId: "other-user",
     });
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
-      roomCode: "ABC123",
+      roomCode: VALID_ROOM_CODE,
       room: {
-        code: "ABC123",
+        code: VALID_ROOM_CODE,
         phase: "WAITING",
         playerCount: 1,
       },
@@ -195,14 +198,14 @@ describe("room routes", () => {
         maxPlayers: 8,
       },
     });
-    expect(roomServiceMock.getRoomByCode).toHaveBeenCalledWith("ABC123");
+    expect(roomServiceMock.getRoomByCode).toHaveBeenCalledWith(VALID_ROOM_CODE);
   });
 
   it("returns full room lookup metadata to existing room participants", async () => {
     roomServiceMock.getRoomByCode.mockResolvedValue({
       room: {
         roomId: VALID_ROOM_ID,
-        code: "ABC123",
+        code: VALID_ROOM_CODE,
         phase: "WAITING",
         roundNumber: 0,
         totalRounds: 10,
@@ -223,18 +226,18 @@ describe("room routes", () => {
     });
     const app = await createRoomsTestApp();
 
-    const response = await request(app, "GET", "/api/v1/rooms/ABC123", {
+    const response = await request(app, "GET", `/api/v1/rooms/${VALID_ROOM_CODE}`, {
       authUserId: "host-user",
     });
 
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
       roomId: VALID_ROOM_ID,
-      roomCode: "ABC123",
+      roomCode: VALID_ROOM_CODE,
       hostUserId: "host-user",
       room: {
         roomId: VALID_ROOM_ID,
-        code: "ABC123",
+        code: VALID_ROOM_CODE,
         players: [
           {
             id: "host-user",
@@ -275,12 +278,48 @@ describe("room routes", () => {
     });
   });
 
+  it("passes the solo start flag to the room service", async () => {
+    roomServiceMock.recoverStaleCountdown.mockResolvedValue(false);
+    roomServiceMock.startGame.mockResolvedValue({
+      room: {
+        roomId: VALID_ROOM_ID,
+        code: VALID_ROOM_CODE,
+        phase: "COUNTDOWN",
+        roundNumber: 0,
+        totalRounds: 10,
+        players: [
+          {
+            id: "host-user",
+            displayName: "Host",
+            score: 0,
+            streak: 0,
+            isEliminated: false,
+          },
+        ],
+      },
+      hostUserId: "host-user",
+      config: { isPrivate: true, maxPlayers: 8 },
+      createdAt: "2026-04-25T12:00:00.000Z",
+      startedAt: "2026-04-25T12:00:00.000Z",
+    });
+    const app = await createRoomsTestApp();
+
+    const response = await request(app, "POST", `/api/v1/rooms/${VALID_ROOM_ID}/start`, {
+      body: { allowSolo: true },
+    });
+
+    expect(response.status).toBe(200);
+    expect(roomServiceMock.startGame).toHaveBeenCalledWith(VALID_ROOM_ID, "host-user", {
+      allowSolo: true,
+    });
+  });
+
   it("returns 500 and resets countdown state when question-bank readiness fails", async () => {
     roomServiceMock.recoverStaleCountdown.mockResolvedValue(false);
     roomServiceMock.startGame.mockResolvedValue({
       room: {
         roomId: VALID_ROOM_ID,
-        code: "ABC123",
+        code: VALID_ROOM_CODE,
         phase: "COUNTDOWN",
         roundNumber: 0,
         totalRounds: 10,

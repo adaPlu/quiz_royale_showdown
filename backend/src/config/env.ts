@@ -47,19 +47,11 @@ const envSchema = z.object({
   JWT_ACCESS_SECRET: z
     .string()
     .min(16, "JWT_ACCESS_SECRET must be at least 16 characters")
-    .default(DEV_DEFAULTS.JWT_ACCESS_SECRET)
-    .refine(
-      (val) => process.env.NODE_ENV !== "production" || !val.startsWith("dev-"),
-      { message: "JWT_ACCESS_SECRET must be changed from the dev default in production" }
-    ),
+    .default(DEV_DEFAULTS.JWT_ACCESS_SECRET),
   JWT_REFRESH_SECRET: z
     .string()
     .min(16, "JWT_REFRESH_SECRET must be at least 16 characters")
-    .default(DEV_DEFAULTS.JWT_REFRESH_SECRET)
-    .refine(
-      (val) => process.env.NODE_ENV !== "production" || !val.startsWith("dev-"),
-      { message: "JWT_REFRESH_SECRET must be changed from the dev default in production" }
-    ),
+    .default(DEV_DEFAULTS.JWT_REFRESH_SECRET),
   JWT_ACCESS_TTL: z.string().default("15m"),
   JWT_REFRESH_TTL: z.string().default("7d"),
 
@@ -79,18 +71,11 @@ const envSchema = z.object({
   // Web Push (VAPID)
   VAPID_PUBLIC_KEY: z.string().default(""),
   VAPID_PRIVATE_KEY: z.string().default(""),
-  VAPID_SUBJECT: z.string().default("mailto:admin@example.com"),
+  VAPID_SUBJECT: z.string().default("mailto:adapluguez@gmail.com"),
 
   // AI question generation
   OPENAI_API_KEY: z.string().optional(),
-  SENTRY_DSN: z.string().optional(),
-  ADMIN_SECRET: z
-    .string()
-    .default(DEV_DEFAULTS.ADMIN_SECRET)
-    .refine(
-      (val) => process.env.NODE_ENV !== "production" || val !== "change-me-in-production",
-      { message: "ADMIN_SECRET must be changed from the default in production" }
-    ),
+  ADMIN_SECRET: z.string().default(DEV_DEFAULTS.ADMIN_SECRET),
 });
 
 function getProductionEnvErrors(rawEnv: NodeJS.ProcessEnv): string[] {
@@ -128,6 +113,7 @@ function parseEnv() {
         console.error(`  ${field}: ${(messages ?? []).join(", ")}`);
       }
     }
+
     for (const message of productionErrors) {
       console.error(`  ${message}`);
     }
@@ -154,7 +140,6 @@ export const env = {
   vapidPrivateKey: parsed.VAPID_PRIVATE_KEY,
   vapidSubject: parsed.VAPID_SUBJECT,
   openAiApiKey: parsed.OPENAI_API_KEY,
-  sentryDsn: parsed.SENTRY_DSN,
   adminSecret: parsed.ADMIN_SECRET,
   isProduction: parsed.NODE_ENV === "production",
   isDevelopment: parsed.NODE_ENV === "development",

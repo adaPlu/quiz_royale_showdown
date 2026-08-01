@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.quizroyale.showdown.data.room.CachedRoomSummary
 import com.quizroyale.showdown.data.room.RoomRepository
 import com.quizroyale.showdown.data.room.RoomSnapshot
+import com.quizroyale.showdown.data.socket.WebSocketManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +31,7 @@ data class LobbyUiState(
 class LobbyViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val roomRepository: RoomRepository,
+    private val webSocketManager: WebSocketManager,
 ) : ViewModel() {
     private val requestedRoomReference = savedStateHandle.get<String>(ROOM_REFERENCE_ARGUMENT)
         ?.trim()
@@ -51,6 +53,17 @@ class LobbyViewModel @Inject constructor(
 
     fun dismissError() {
         _uiState.update { it.copy(errorMessage = null) }
+    }
+
+    fun leaveForHome() {
+        webSocketManager.disconnect()
+        _uiState.update {
+            it.copy(
+                room = null,
+                isStartingGame = false,
+                gameStarted = false,
+            )
+        }
     }
 
     fun startGame() {

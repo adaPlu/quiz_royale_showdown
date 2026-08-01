@@ -4,33 +4,12 @@ const redisMock = {
   getJson: vi.fn(),
   setnx: vi.fn(),
   zincrby: vi.fn(),
-  hset: vi.fn(),
-  del: vi.fn()
-};
-
-const powerUpMock = {
-  getTimeBoostMs: vi.fn().mockResolvedValue(0),
-  consumeTimeBoost: vi.fn().mockResolvedValue(undefined),
-  consumeSabotage: vi.fn().mockResolvedValue(false),
-  consumeScoreMultiplier: vi.fn().mockResolvedValue(1),
-};
-
-const prismaMock = {
-  roomPlayer: { findUnique: vi.fn().mockResolvedValue({ isEliminated: false }) },
-  answer: { upsert: vi.fn().mockResolvedValue({}) },
+  hset: vi.fn()
 };
 
 vi.mock("../../../services/RedisService", () => ({
   redisService: redisMock
 }));
-
-vi.mock("../../../services/PowerUpService", () => ({
-  powerUpService: powerUpMock
-}));
-
-vi.mock("../../../models/prismaClient", () => ({ prisma: prismaMock }));
-vi.mock("../../../utils/ulid", () => ({ generateId: vi.fn(() => "test-answer-id") }));
-vi.mock("../../../utils/logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 function createSocket(roomId?: string) {
   let messageHandler: ((message: unknown) => Promise<void>) | undefined;
@@ -63,8 +42,6 @@ function createSocket(roomId?: string) {
 describe("registerSubmitAnswerHandler", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    prismaMock.roomPlayer.findUnique.mockResolvedValue({ isEliminated: false });
-    redisMock.del.mockResolvedValue(1);
   });
 
   it("rejects answer submissions before the socket joins a room", async () => {
@@ -127,7 +104,7 @@ describe("registerSubmitAnswerHandler", () => {
     });
 
     expect(emit).not.toHaveBeenCalled();
-    expect(redisMock.setnx).toHaveBeenCalledWith("answer_lock:room-1:round-1:user-1", "1", 300);
+    expect(redisMock.setnx).toHaveBeenCalledWith("answer_lock:room-1:round-1:user-1", "1", 3600);
     expect(redisMock.zincrby).toHaveBeenCalledWith("room:room-1:scores", 900, "user-1");
     expect(redisMock.hset).toHaveBeenCalledWith(
       "room:room-1:round:round-1:answers",
@@ -139,137 +116,6 @@ describe("registerSubmitAnswerHandler", () => {
         scoreDelta: 900,
         submittedAt: "2026-04-25T12:00:05.000Z"
       })
-    );
-
-    vi.useRealTimers();
-  });
-
-  it("DOUBLE_DOWN: doubles score when consumeScoreMultiplier returns 2", async () => {
-    vi.setSystemTime(new Date("2026-04-25T12:00:05.000Z"));
-    const { registerSubmitAnswerHandler } = await import("../submitAnswer");
-    const { socket, emit, dispatch } = createSocket("room-1");
-
-    redisMock.getJson.mockResolvedValue({
-      roundId: "round-1",
-      questionId: "question-1",
-      prompt: "Question?",
-      answers: ["A", "B", "C", "D"],
-      correctAnswerIndex: 1,
-      startTs: new Date("2026-04-25T12:00:00.000Z").getTime(),
-      startedAt: "2026-04-25T12:00:00.000Z",
-      timeLimitMs: 20_000,
-    });
-    redisMock.setnx.mockResolvedValue(true);
-    powerUpMock.consumeScoreMultiplier.mockResolvedValueOnce(2);
-
-    registerSubmitAnswerHandler({} as never, socket as never);
-
-    await dispatch({
-      type: "round:submit_answer",
-      version: "v1",
-      payload: {
-        roomId: "room-1",
-        questionId: "question-1",
-        answerIndex: 1,
-        clientSentAt: "2026-04-25T12:00:04.500Z",
-      },
-    });
-
-    expect(emit).not.toHaveBeenCalled();
-    // Base score 900 * multiplier 2 = 1800
-    expect(redisMock.zincrby).toHaveBeenCalledWith("room:room-1:scores", 1800, "user-1");
-
-    vi.useRealTimers();
-  });
-
-  it("proceeds without locking when Redis throws on setnx", async () => {
-    const { registerSubmitAnswerHandler } = await import("../submitAnswer");
-    const { socket, emit, dispatch } = createSocket("room-1");
-
-    // Redis is up enough to return the question context but setnx blows up
-    redisMock.getJson.mockResolvedValue({
-      roundId: "round-1",
-      questionId: "q1",
-      prompt: "Question?",
-      answers: ["A", "B", "C", "D"],
-      correctAnswerIndex: 2,
-      startTs: Date.now() - 5000,
-      startedAt: new Date().toISOString(),
-      timeLimitMs: 20000,
-    });
-    redisMock.setnx.mockRejectedValue(new Error("Redis connection lost"));
-
-    registerSubmitAnswerHandler({} as never, socket as never);
-
-    await dispatch({
-      type: "round:submit_answer",
-      version: "v1",
-      payload: {
-        roomId: "room-1",
-        questionId: "q1",
-        answerIndex: 2,
-        clientSentAt: new Date().toISOString(),
-      },
-    });
-
-    // Redis failure causes the handler to fall into the catch block.
-    // The answer is NOT persisted (upsert never reached), and the socket
-    // receives INTERNAL_ERROR — NOT ALREADY_ANSWERED — documenting that
-    // a Redis outage does not silently block submissions with a false duplicate error.
-    expect(prismaMock.answer.upsert).not.toHaveBeenCalled();
-    expect(emit).toHaveBeenCalledWith(
-      "message",
-      expect.objectContaining({
-        type: "error",
-        payload: expect.objectContaining({ code: "INTERNAL_ERROR" }),
-      })
-    );
-    expect(emit).not.toHaveBeenCalledWith(
-      "message",
-      expect.objectContaining({
-        payload: expect.objectContaining({ code: "ALREADY_ANSWERED" }),
-      })
-    );
-  });
-
-  it("SABOTAGE: forces isCorrect=false even for the correct answer index", async () => {
-    vi.setSystemTime(new Date("2026-04-25T12:00:05.000Z"));
-    const { registerSubmitAnswerHandler } = await import("../submitAnswer");
-    const { socket, emit, dispatch } = createSocket("room-1");
-
-    redisMock.getJson.mockResolvedValue({
-      roundId: "round-1",
-      questionId: "question-1",
-      prompt: "Question?",
-      answers: ["A", "B", "C", "D"],
-      correctAnswerIndex: 1,
-      startTs: new Date("2026-04-25T12:00:00.000Z").getTime(),
-      startedAt: "2026-04-25T12:00:00.000Z",
-      timeLimitMs: 20_000,
-    });
-    redisMock.setnx.mockResolvedValue(true);
-    powerUpMock.consumeSabotage.mockResolvedValueOnce(true);
-
-    registerSubmitAnswerHandler({} as never, socket as never);
-
-    await dispatch({
-      type: "round:submit_answer",
-      version: "v1",
-      payload: {
-        roomId: "room-1",
-        questionId: "question-1",
-        answerIndex: 1, // correct index, but player is sabotaged
-        clientSentAt: "2026-04-25T12:00:04.500Z",
-      },
-    });
-
-    expect(emit).not.toHaveBeenCalled();
-    // Sabotaged → isCorrect=false → scoreDelta=0
-    expect(redisMock.zincrby).toHaveBeenCalledWith("room:room-1:scores", 0, "user-1");
-    expect(redisMock.hset).toHaveBeenCalledWith(
-      "room:room-1:round:round-1:answers",
-      "user-1",
-      expect.stringContaining('"isCorrect":false'),
     );
 
     vi.useRealTimers();

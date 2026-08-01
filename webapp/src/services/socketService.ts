@@ -25,33 +25,9 @@ const isBrowser = typeof window !== "undefined";
 
 const normalizeRoomCode = (roomCode: string) => roomCode.trim().toUpperCase();
 
-const getSocketBaseUrl = () => {
-  const configuredUrl =
-    (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_WS_BASE_URL;
-
-  if (configuredUrl) {
-    if (
-      isBrowser &&
-      window.location.hostname !== "localhost" &&
-      window.location.hostname !== "127.0.0.1" &&
-      configuredUrl.startsWith("ws://")
-    ) {
-      return `wss://${configuredUrl.slice("ws://".length)}`;
-    }
-
-    return configuredUrl;
-  }
-
-  if (isBrowser && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
-    return "https://quizroyaleshowdown-production.up.railway.app";
-  }
-
-  return "http://localhost:4000";
-};
-
 const normalizePowerupPayload = (payload: PowerupActivatePayload) => ({
   roomId: payload.roomId,
-  powerUpId: "powerUpId" in payload ? payload.powerUpId : payload.powerupId,
+  powerUpId: payload.powerUpId,
   targetPlayerId: payload.targetPlayerId
 });
 
@@ -116,7 +92,9 @@ class SocketService {
     this.disconnect(false);
     this.token = trimmedToken;
 
-    const wsBaseUrl = getSocketBaseUrl();
+    const wsBaseUrl =
+      (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_WS_BASE_URL ??
+      "http://localhost:4000";
 
     this.socket = io(wsBaseUrl, {
       path: "/ws",
@@ -246,6 +224,8 @@ class SocketService {
       "round:elimination",
       "round:finale_started",
       "game:over",
+      "powerup:activated",
+      "powerup:private_effect",
       "error"
     ] as const).map((eventType) =>
       this.on(eventType, (payload) => {

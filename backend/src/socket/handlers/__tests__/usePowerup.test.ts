@@ -1,44 +1,52 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Server } from "socket.io";
-import type { AuthenticatedSocket } from "../../middleware";
+import { ForbiddenError, NotFoundError } from "../../../utils/errors";
 
-const mocks = vi.hoisted(() => ({
-  activatePowerUp: vi.fn(),
-  redisGetJson: vi.fn(),
-  roomPlayerFindUnique: vi.fn(),
+const { powerUpServiceMock, redisMock, loggerMock } = vi.hoisted(() => ({
+  powerUpServiceMock: {
+    activatePowerUp: vi.fn(),
+  },
+  redisMock: {
+    getJson: vi.fn(),
+  },
+  loggerMock: {
+    info: vi.fn(),
+    error: vi.fn(),
+  },
 }));
 
 vi.mock("../../../services/PowerUpService", () => ({
-  powerUpService: { activatePowerUp: mocks.activatePowerUp },
+  powerUpService: powerUpServiceMock,
 }));
 vi.mock("../../../services/RedisService", () => ({
-  redisService: { getJson: mocks.redisGetJson },
-}));
-vi.mock("../../../models/prismaClient", () => ({
-  prisma: {
-    roomPlayer: {
-      findUnique: mocks.roomPlayerFindUnique,
-    },
-  },
+  redisService: redisMock,
 }));
 vi.mock("../../../utils/logger", () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  logger: loggerMock,
 }));
 
-function createSocket(socketData: { userId: string; roomId?: string } = { userId: "user-1" }) {
+function createSocket(roomId?: string) {
   let messageHandler: ((message: unknown) => Promise<void>) | undefined;
   const emit = vi.fn();
+
   return {
     socket: {
-      data: socketData,
-      emit,
+      data: {
+        userId: "user-1",
+        roomId,
+      },
       on: vi.fn((event: string, handler: (message: unknown) => Promise<void>) => {
-        if (event === "message") messageHandler = handler;
+        if (event === "message") {
+          messageHandler = handler;
+        }
       }),
-    } as unknown as AuthenticatedSocket,
+      emit,
+    },
     emit,
     dispatch: async (message: unknown) => {
-      if (!messageHandler) throw new Error("message handler not registered");
+      if (!messageHandler) {
+        throw new Error("message handler was not registered");
+      }
+
       await messageHandler(message);
     },
   };
@@ -46,201 +54,189 @@ function createSocket(socketData: { userId: string; roomId?: string } = { userId
 
 function createIo() {
   const roomEmit = vi.fn();
-  const io = {
-    to: vi.fn(() => ({ emit: roomEmit })),
-    _roomEmit: roomEmit,
-  } as unknown as Server & { _roomEmit: ReturnType<typeof vi.fn> };
-  return io;
+  const to = vi.fn(() => ({ emit: roomEmit }));
+
+  return {
+    io: { to },
+    to,
+    roomEmit,
+  };
 }
 
-const validActivate = {
-  type: "powerup:activate",
-  payload: { roomId: "room-1", powerUpId: "pu-1" },
-};
-
 describe("registerUsePowerupHandler", () => {
-  let { socket, emit, dispatch } = createSocket();
-  let io: ReturnType<typeof createIo>;
-
   beforeEach(() => {
     vi.clearAllMocks();
-    ({ socket, emit, dispatch } = createSocket({ userId: "user-1", roomId: "room-1" }));
-    io = createIo();
-    mocks.redisGetJson.mockResolvedValue(null);
-    mocks.roomPlayerFindUnique.mockResolvedValue({ isEliminated: false });
+    redisMock.getJson.mockResolvedValue(null);
   });
 
-  it("registers a message handler on the socket", async () => {
+  it("activates through PowerUpService using a code-compatible payload and emits the public effect", async () => {
     const { registerUsePowerupHandler } = await import("../usePowerup");
-    registerUsePowerupHandler(io as Server, socket);
-    expect((socket as unknown as { on: ReturnType<typeof vi.fn> }).on).toHaveBeenCalledWith(
-      "message",
-      expect.any(Function),
-    );
-  });
+    const { io, to, roomEmit } = createIo();
+    const { socket, emit, dispatch } = createSocket("room-1");
 
-  it("ignores messages that are not powerup:activate", async () => {
-    const { registerUsePowerupHandler } = await import("../usePowerup");
-    registerUsePowerupHandler(io as Server, socket);
-    await dispatch({ type: "room:join", payload: {} });
-    expect(mocks.activatePowerUp).not.toHaveBeenCalled();
-    expect(emit).not.toHaveBeenCalled();
-  });
-
-  it("emits VALIDATION_ERROR for missing roomId and powerUpId", async () => {
-    const { registerUsePowerupHandler } = await import("../usePowerup");
-    registerUsePowerupHandler(io as Server, socket);
-    await dispatch({ type: "powerup:activate", payload: {} });
-    expect(emit).toHaveBeenCalledWith(
-      "message",
-      expect.objectContaining({
-        type: "error",
-        version: "v1",
-        payload: expect.objectContaining({ code: "VALIDATION_ERROR" }),
-      }),
-    );
-  });
-
-  it("emits ROOM_MISMATCH when socket roomId does not match payload roomId", async () => {
-    const { socket: s, emit: e, dispatch: d } = createSocket({ userId: "user-1", roomId: "room-99" });
-    const { registerUsePowerupHandler } = await import("../usePowerup");
-    registerUsePowerupHandler(io as Server, s);
-    await d(validActivate);
-    expect(e).toHaveBeenCalledWith(
-      "message",
-      expect.objectContaining({
-        payload: expect.objectContaining({ code: "ROOM_MISMATCH" }),
-      }),
-    );
-    expect(mocks.activatePowerUp).not.toHaveBeenCalled();
-  });
-
-  it("emits ROOM_NOT_JOINED when the socket has not joined a room", async () => {
-    const { socket: s, emit: e, dispatch: d } = createSocket({ userId: "user-1" });
-    const { registerUsePowerupHandler } = await import("../usePowerup");
-    registerUsePowerupHandler(io as Server, s);
-    await d(validActivate);
-    expect(e).toHaveBeenCalledWith(
-      "message",
-      expect.objectContaining({
-        payload: expect.objectContaining({ code: "ROOM_NOT_JOINED" }),
-      }),
-    );
-    expect(mocks.activatePowerUp).not.toHaveBeenCalled();
-  });
-
-  it("broadcasts public effect to room on successful activation", async () => {
-    mocks.activatePowerUp.mockResolvedValue({
-      code: "SHIELD",
-      publicEffect: { type: "SHIELD", affectedPlayerIds: ["user-1"] },
-      privateEffect: null,
+    powerUpServiceMock.activatePowerUp.mockResolvedValue({
+      roomId: "room-1",
+      userId: "user-1",
+      powerUpId: "double-down-id",
+      code: "DOUBLE_DOWN",
+      publicEffect: { type: "DOUBLE_DOWN", targetPlayerId: "user-1" },
     });
-    const { registerUsePowerupHandler } = await import("../usePowerup");
-    registerUsePowerupHandler(io as Server, socket);
-    await dispatch(validActivate);
 
-    expect((io as unknown as { to: ReturnType<typeof vi.fn> }).to).toHaveBeenCalledWith("room-1");
-    expect((io as unknown as { _roomEmit: ReturnType<typeof vi.fn> })._roomEmit).toHaveBeenCalledWith("message", {
-      type: "powerup:effect",
+    registerUsePowerupHandler(io as never, socket as never);
+
+    await dispatch({
+      type: "powerup:activate",
       version: "v1",
-      payload: { type: "SHIELD", affectedPlayerIds: ["user-1"] },
+      payload: {
+        roomId: "room-1",
+        code: "DOUBLE_DOWN",
+      },
     });
-    expect(emit).not.toHaveBeenCalled();
-  });
 
-  it("emits ELIMINATED when the room player is eliminated", async () => {
-    mocks.roomPlayerFindUnique.mockResolvedValue({ isEliminated: true });
-    const { registerUsePowerupHandler } = await import("../usePowerup");
-    registerUsePowerupHandler(io as Server, socket);
-    await dispatch(validActivate);
-
-    expect(emit).toHaveBeenCalledWith(
-      "message",
-      expect.objectContaining({
-        payload: expect.objectContaining({ code: "ELIMINATED" }),
-      }),
-    );
-    expect(mocks.activatePowerUp).not.toHaveBeenCalled();
-  });
-
-  it("sends private effect to activating socket when result includes one", async () => {
-    mocks.activatePowerUp.mockResolvedValue({
-      code: "FIFTY_FIFTY",
-      publicEffect: { type: "FIFTY_FIFTY" },
-      privateEffect: { maskedAnswerIndices: [1, 3] },
-    });
-    const { registerUsePowerupHandler } = await import("../usePowerup");
-    registerUsePowerupHandler(io as Server, socket);
-    await dispatch(validActivate);
-
-    expect(emit).toHaveBeenCalledWith("message", {
-      type: "powerup:effect_private",
-      version: "v1",
-      payload: { maskedAnswerIndices: [1, 3] },
-    });
-  });
-
-  it("passes correctAnswerIndex from Redis to PowerUpService when available", async () => {
-    mocks.redisGetJson.mockResolvedValue({ correctAnswerIndex: 2 });
-    mocks.activatePowerUp.mockResolvedValue({
-      code: "FIFTY_FIFTY",
-      publicEffect: { type: "FIFTY_FIFTY" },
-      privateEffect: null,
-    });
-    const { registerUsePowerupHandler } = await import("../usePowerup");
-    registerUsePowerupHandler(io as Server, socket);
-    await dispatch(validActivate);
-
-    expect(mocks.activatePowerUp).toHaveBeenCalledWith(
-      expect.objectContaining({ correctAnswerIndex: 2 }),
+    expect(powerUpServiceMock.activatePowerUp).toHaveBeenCalledWith(
+      {
+        roomId: "room-1",
+        userId: "user-1",
+        powerUpId: "DOUBLE_DOWN",
+        targetPlayerId: undefined,
+        roundId: undefined,
+        questionOptions: undefined,
+        correctAnswerIndex: undefined,
+      },
       io,
     );
+    expect(to).toHaveBeenCalledWith("room-1");
+    expect(roomEmit).toHaveBeenCalledWith("message", {
+      type: "powerup:activated",
+      version: "v1",
+      payload: {
+        roomId: "room-1",
+        userId: "user-1",
+        powerUpId: "double-down-id",
+        code: "DOUBLE_DOWN",
+        effect: { type: "DOUBLE_DOWN", targetPlayerId: "user-1" },
+      },
+    });
+    expect(emit).not.toHaveBeenCalled();
   });
 
-  it("emits POWERUP_ALREADY_USED on already-used ForbiddenError from PowerUpService", async () => {
-    const { ForbiddenError } = await import("../../../utils/errors");
-    mocks.activatePowerUp.mockRejectedValue(new ForbiddenError("Power-up already used this round"));
+  it("passes active question context and emits private effects only to the activating socket", async () => {
     const { registerUsePowerupHandler } = await import("../usePowerup");
-    registerUsePowerupHandler(io as Server, socket);
-    await dispatch(validActivate);
+    const { io, roomEmit } = createIo();
+    const { socket, emit, dispatch } = createSocket("room-1");
 
-    expect(emit).toHaveBeenCalledWith(
-      "message",
+    redisMock.getJson.mockResolvedValue({
+      roundId: "round-1",
+      answers: ["A", "B", "C", "D"],
+      correctAnswerIndex: 2,
+    });
+    powerUpServiceMock.activatePowerUp.mockResolvedValue({
+      roomId: "room-1",
+      userId: "user-1",
+      powerUpId: "fifty-fifty-id",
+      code: "FIFTY_FIFTY",
+      publicEffect: { type: "FIFTY_FIFTY", targetPlayerId: "user-1" },
+      privateEffect: { type: "FIFTY_FIFTY", maskedAnswerIndices: [0, 1] },
+    });
+
+    registerUsePowerupHandler(io as never, socket as never);
+
+    await dispatch({
+      type: "powerup:activate",
+      payload: {
+        roomId: "room-1",
+        powerUpId: "fifty-fifty-id",
+      },
+    });
+
+    expect(redisMock.getJson).toHaveBeenCalledWith("game:room-1:current_question");
+    expect(powerUpServiceMock.activatePowerUp).toHaveBeenCalledWith(
       expect.objectContaining({
-        payload: expect.objectContaining({
-          code: "POWERUP_ALREADY_USED",
-          message: "Power-up already used this round",
-        }),
+        roundId: "round-1",
+        questionOptions: ["A", "B", "C", "D"],
+        correctAnswerIndex: 2,
       }),
+      io,
     );
+    expect(roomEmit).toHaveBeenCalledWith(
+      "message",
+      expect.objectContaining({ type: "powerup:activated" }),
+    );
+    expect(emit).toHaveBeenCalledWith("message", {
+      type: "powerup:private_effect",
+      version: "v1",
+      payload: {
+        roomId: "room-1",
+        powerUpId: "fifty-fifty-id",
+        code: "FIFTY_FIFTY",
+        effect: { type: "FIFTY_FIFTY", maskedAnswerIndices: [0, 1] },
+      },
+    });
   });
 
-  it("emits POWERUP_NOT_FOUND on NotFoundError from PowerUpService", async () => {
-    const { NotFoundError } = await import("../../../utils/errors");
-    mocks.activatePowerUp.mockRejectedValue(new NotFoundError("Power-up not found in inventory"));
+  it("rejects activation before the socket joins a room", async () => {
     const { registerUsePowerupHandler } = await import("../usePowerup");
-    registerUsePowerupHandler(io as Server, socket);
-    await dispatch(validActivate);
+    const { io } = createIo();
+    const { socket, emit, dispatch } = createSocket();
 
-    expect(emit).toHaveBeenCalledWith(
-      "message",
-      expect.objectContaining({
-        payload: expect.objectContaining({ code: "POWERUP_NOT_FOUND" }),
-      }),
-    );
+    registerUsePowerupHandler(io as never, socket as never);
+
+    await dispatch({
+      type: "powerup:activate",
+      payload: {
+        roomId: "room-1",
+        powerUpId: "double-down-id",
+      },
+    });
+
+    expect(powerUpServiceMock.activatePowerUp).not.toHaveBeenCalled();
+    expect(emit).toHaveBeenCalledWith("message", {
+      type: "error",
+      version: "v1",
+      payload: {
+        code: "ROOM_NOT_JOINED",
+        message: "Socket has not joined a room",
+        details: undefined,
+      },
+    });
   });
 
-  it("emits INTERNAL_ERROR on unexpected error from PowerUpService", async () => {
-    mocks.activatePowerUp.mockRejectedValue(new Error("DB connection dropped"));
+  it("maps canonical service failures to socket error codes", async () => {
     const { registerUsePowerupHandler } = await import("../usePowerup");
-    registerUsePowerupHandler(io as Server, socket);
-    await dispatch(validActivate);
+    const { io } = createIo();
+    const { socket, emit, dispatch } = createSocket("room-1");
 
-    expect(emit).toHaveBeenCalledWith(
-      "message",
-      expect.objectContaining({
-        payload: expect.objectContaining({ code: "INTERNAL_ERROR" }),
-      }),
-    );
+    powerUpServiceMock.activatePowerUp.mockRejectedValueOnce(new ForbiddenError("Power-up already used in this room"));
+    powerUpServiceMock.activatePowerUp.mockRejectedValueOnce(new NotFoundError("Power-up not found"));
+
+    registerUsePowerupHandler(io as never, socket as never);
+
+    await dispatch({
+      type: "powerup:activate",
+      payload: { roomId: "room-1", id: "double-down-id" },
+    });
+    await dispatch({
+      type: "powerup:activate",
+      payload: { roomId: "room-1", id: "missing-id" },
+    });
+
+    expect(emit).toHaveBeenNthCalledWith(1, "message", {
+      type: "error",
+      version: "v1",
+      payload: {
+        code: "POWERUP_ALREADY_USED",
+        message: "Power-up already used in this room",
+        details: undefined,
+      },
+    });
+    expect(emit).toHaveBeenNthCalledWith(2, "message", {
+      type: "error",
+      version: "v1",
+      payload: {
+        code: "POWERUP_NOT_FOUND",
+        message: "Power-up not found",
+        details: undefined,
+      },
+    });
   });
 });

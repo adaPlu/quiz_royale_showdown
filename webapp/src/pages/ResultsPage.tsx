@@ -3,7 +3,7 @@ import { useNavigate, useParams } from '../navigation';
 import { useGameStore } from '@stores/gameStore';
 import { useAuthStore } from '@stores/authStore';
 import { PlayerAvatar } from '@components/PlayerAvatar';
-import { LevelUpToast } from '@components/LevelUpToast';
+import { socketService } from '@services/socketService';
 
 export default function ResultsPage() {
   const navigate = useNavigate();
@@ -15,6 +15,12 @@ export default function ResultsPage() {
   const resetRoom = useGameStore((s) => s.resetRoom);
 
   useEffect(() => { return () => resetRoom(); }, [resetRoom]);
+
+  const returnHome = () => {
+    socketService.disconnect(true);
+    resetRoom();
+    navigate('/home', { replace: true });
+  };
 
   if (!finalScores || finalScores.length === 0) {
     return (
@@ -31,7 +37,6 @@ export default function ResultsPage() {
 
   return (
     <div className="min-h-screen bg-game-bg flex flex-col p-4">
-      <LevelUpToast />
       <div className="max-w-lg mx-auto w-full flex flex-col gap-4 py-6">
         <div className="text-center">
           <p className="text-5xl mb-2">
@@ -79,13 +84,13 @@ export default function ResultsPage() {
 
         <div className="flex gap-3">
           <button
-            onClick={() => navigate('/home')}
+            onClick={returnHome}
             className="flex-1 py-3 rounded-xl border border-game-border text-white font-semibold hover:bg-game-surface"
           >
             Home
           </button>
           <button
-            onClick={() => navigate('/home')}
+            onClick={returnHome}
             className="flex-1 py-3 rounded-xl bg-brand text-white font-bold shadow-royale hover:opacity-90"
           >
             Play Again

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 type NavigateOptions = { replace?: boolean };
-type NavigateFn = (to: string | number, options?: NavigateOptions) => void;
+type NavigateFn = (to: string, options?: NavigateOptions) => void;
 type RouterState = { path: string; navigate: NavigateFn };
 
 const RouterContext = createContext<RouterState | null>(null);
@@ -24,11 +24,6 @@ export function BrowserRouter({ children }: { children: React.ReactNode }) {
     () => ({
       path,
       navigate(to, options) {
-        if (typeof to === "number") {
-          window.history.go(to);
-          return;
-        }
-
         const nextPath = normalizePath(to);
         if (options?.replace) {
           window.history.replaceState(null, "", nextPath);
@@ -56,10 +51,6 @@ export function MemoryRouter({
     () => ({
       path,
       navigate(to) {
-        if (typeof to === "number") {
-          return;
-        }
-
         setPath(normalizePath(to));
       },
     }),

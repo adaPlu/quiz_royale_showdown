@@ -15,7 +15,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.navDeepLink
-import com.quizroyale.showdown.domain.model.PowerupType
 import com.quizroyale.showdown.ui.game.GameIntent
 import com.quizroyale.showdown.ui.game.GameScreen
 import com.quizroyale.showdown.ui.game.GameSideEffect
@@ -37,6 +36,12 @@ fun AppNavGraph() {
       HomeScreen(
         onNavigateToLobby = { roomCode ->
           navController.navigate(Screen.Lobby.createRoute(roomCode))
+        },
+        onLogoutComplete = {
+          navController.navigate(Screen.Home.route) {
+            popUpTo(Screen.Home.route) { inclusive = true }
+            launchSingleTop = true
+          }
         }
       )
     }
@@ -48,13 +53,9 @@ fun AppNavGraph() {
     ) { backStackEntry ->
       val roomCode = backStackEntry.arguments?.getString("roomId").orEmpty()
       LobbyScreen(
-        onNavigateHome = {
-          navController.navigate(Screen.Home.route) {
-            popUpTo(Screen.Home.route) { inclusive = true }
-          }
-        },
-        onOpenGameplay = { activeRoomCode ->
-          navController.navigate(Screen.Game.createRoute(activeRoomCode.ifBlank { roomCode }))
+        onNavigateHome = { navController.navigate(Screen.Home.route) },
+        onOpenGameplay = { gameRoomCode ->
+          navController.navigate(Screen.Game.createRoute(gameRoomCode.ifBlank { roomCode }))
         }
       )
     }
@@ -103,6 +104,14 @@ fun AppNavGraph() {
           isReconnecting = isReconnecting,
           onNavigateToResults = { resultRoomId ->
             navController.navigate(Screen.Results.createRoute(resultRoomId))
+          },
+          onExitGame = {
+            viewModel.exitGame {
+              navController.navigate(Screen.Home.route) {
+                popUpTo(Screen.Home.route) { inclusive = true }
+                launchSingleTop = true
+              }
+            }
           },
         )
       }

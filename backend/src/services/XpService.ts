@@ -1,6 +1,5 @@
 import { prisma } from "../models/prismaClient";
 import { generateId } from "../utils/ulid";
-import type { Prisma } from "@prisma/client";
 
 export interface XpAwardInput {
   playerId: string;
@@ -27,12 +26,10 @@ export function levelFromTotalXp(totalXp: number): number {
   return Math.max(1, level);
 }
 
-export function xpThresholdForLevel(currentLevel: number): number {
+export function xpToNextLevel(currentLevel: number): number {
   const nextLevelThreshold = (currentLevel + 1) * (currentLevel + 1) * 150;
   return nextLevelThreshold;
 }
-
-export const xpToNextLevel = xpThresholdForLevel;
 
 function computeXpAward(rank: number, totalPlayers: number, score: number): number {
   const placementRatio = totalPlayers <= 1 ? 1 : (totalPlayers - rank + 1) / totalPlayers;
@@ -56,22 +53,22 @@ export async function awardMatchXp(
   });
   const currentXpMap = new Map(xpSums.map((row) => [row.userId, row._sum.amount ?? 0]));
 
-  const xpEventData: Prisma.XpEventCreateManyInput[] = [];
-
   for (const player of players) {
     const xpAwarded = computeXpAward(player.rank, player.totalPlayers, player.score);
     const prevTotalXp = currentXpMap.get(player.playerId) ?? 0;
     const newTotalXp = prevTotalXp + xpAwarded;
     const prevLevel = levelFromTotalXp(prevTotalXp);
     const newLevel = levelFromTotalXp(newTotalXp);
-    const nextLevelThreshold = (newLevel + 1) * (newLevel + 1) * 150;
+    const nextThreshold = xpToNextLevel(newLevel);
 
-    xpEventData.push({
-      id: generateId(),
-      userId: player.playerId,
-      reason: `GAME_FINISH:${roomId}`,
-      amount: xpAwarded,
-      metadata: { roomId, rank: player.rank },
+    await prisma.xpEvent.create({
+      data: {
+        id: generateId(),
+        userId: player.playerId,
+        reason: "GAME_FINISH",
+        amount: xpAwarded,
+        metadata: { roomId, rank: player.rank },
+      },
     });
 
     results.push({
@@ -81,13 +78,11 @@ export async function awardMatchXp(
       newLevel,
       prevLevel,
       didLevelUp: newLevel > prevLevel,
-      xpToNextLevel: Math.max(0, nextLevelThreshold - newTotalXp),
+      xpToNextLevel: nextThreshold,
     });
   }
-
-  await prisma.xpEvent.createMany({ data: xpEventData, skipDuplicates: true });
 
   return results;
 }
 
-export const xpService = { awardMatchXp, levelFromTotalXp, xpThresholdForLevel, xpToNextLevel };
+export const xpService = { awardMatchXp, levelFromTotalXp, xpToNextLevel };

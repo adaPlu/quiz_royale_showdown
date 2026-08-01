@@ -1,46 +1,28 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
 import { prisma } from "../models/prismaClient";
-import { levelFromTotalXp, xpThresholdForLevel } from "../services/XpService";
 import { NotFoundError } from "../utils/errors";
 
 const router = Router();
 
-// GET /users/me — current authenticated user's profile with XP, level, and season stats
+// GET /users/me — current authenticated user's profile
 router.get("/me", requireAuth, async (req, res, next) => {
   try {
     const userId = req.jwtClaims!.sub;
-
-    const [user, xpSum, seasonScore] = await Promise.all([
-      prisma.user.findUnique({
-        where: { id: userId },
-        select: { id: true, email: true, displayName: true, avatarUrl: true, rating: true, createdAt: true, updatedAt: true },
-      }),
-      prisma.xpEvent.aggregate({ where: { userId }, _sum: { amount: true } }),
-      prisma.seasonScore.findFirst({
-        where: {
-          userId,
-          season: { startsAt: { lte: new Date() }, endsAt: { gte: new Date() } },
-        },
-        select: { wins: true, gamesPlayed: true, mmr: true },
-        orderBy: { updatedAt: "desc" },
-      }),
-    ]);
-
-    if (!user) throw new NotFoundError("User not found");
-
-    const totalXp = xpSum._sum.amount ?? 0;
-    const level = levelFromTotalXp(totalXp);
-
-    res.json({
-      ...user,
-      totalXp,
-      level,
-      xpToNextLevel: Math.max(0, xpThresholdForLevel(level) - totalXp),
-      wins: seasonScore?.wins ?? 0,
-      gamesPlayed: seasonScore?.gamesPlayed ?? 0,
-      mmr: seasonScore?.mmr ?? 1000,
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        displayName: true,
+        avatarUrl: true,
+        rating: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
+    if (!user) throw new NotFoundError("User not found");
+    res.json(user);
   } catch (err) {
     next(err);
   }
@@ -51,9 +33,6 @@ router.get("/search", requireAuth, async (req, res, next) => {
   try {
     const q = String(req.query.q ?? "").trim();
     if (q.length < 2) return res.json([]);
-    if (q.length > 50) {
-      return res.status(400).json({ error: 'Query too long' });
-    }
     const users = await prisma.user.findMany({
       where: { displayName: { contains: q, mode: "insensitive" } },
       select: { id: true, displayName: true, avatarUrl: true, rating: true },
@@ -65,21 +44,12 @@ router.get("/search", requireAuth, async (req, res, next) => {
   }
 });
 
-// GET /users/:identifier/profile — authenticated profile lookup; resolves by userId first, then displayName
-router.get("/:identifier/profile", requireAuth, async (req, res, next) => {
+// GET /users/:displayName/profile — public profile
+router.get("/:displayName/profile", requireAuth, async (req, res, next) => {
   try {
-    const identifier = String(req.params.identifier ?? '').trim();
-    if (!identifier || identifier.length > 64) {
-      return res.status(400).json({ error: 'Invalid identifier' });
-    }
-    // Try userId first (exact), then fall back to displayName (case-insensitive)
+    const displayName = String(req.params.displayName);
     const user = await prisma.user.findFirst({
-      where: {
-        OR: [
-          { id: identifier },
-          { displayName: { equals: identifier, mode: "insensitive" } },
-        ],
-      },
+      where: { displayName },
       select: {
         id: true,
         displayName: true,

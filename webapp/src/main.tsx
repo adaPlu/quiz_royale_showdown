@@ -4,7 +4,6 @@ import { BrowserRouter } from './navigation';
 
 import { App } from './App';
 import { configureApiClient } from './services/apiClient';
-import { cleanupLegacyServiceWorkers } from './serviceWorkerCleanup';
 import { useAuthStore } from './stores/authStore';
 import './styles.css';
 
@@ -14,8 +13,6 @@ configureApiClient({
   setTokens: (tokens) => useAuthStore.getState().setTokens(tokens),
   clearAuth: () => useAuthStore.getState().clearAuth(),
 });
-
-void cleanupLegacyServiceWorkers();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

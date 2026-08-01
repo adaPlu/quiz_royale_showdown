@@ -2,12 +2,9 @@ package com.quizroyale.showdown.data.socket
 
 import io.socket.client.IO
 import io.socket.client.Socket
-import kotlin.math.min
-import kotlin.math.pow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -20,6 +17,12 @@ import javax.inject.Singleton
 
 @Singleton
 class WebSocketManager @Inject constructor() {
+    private companion object {
+        const val RECONNECTION_ATTEMPTS = Int.MAX_VALUE
+        const val RECONNECTION_DELAY_MS = 1_000L
+        const val RECONNECTION_DELAY_MAX_MS = 30_000L
+        const val CONNECTION_TIMEOUT_MS = 20_000L
+    }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -31,22 +34,7 @@ class WebSocketManager @Inject constructor() {
 
     private var socket: Socket? = null
 
-    // ── Exponential backoff state ─────────────────────────────────────────────
-    private var reconnectAttempts = 0
-    private val maxReconnectAttempts = 8
-    private var lastUrl: String? = null
-    private var lastToken: String? = null
-
     fun connect(url: String, accessToken: String) {
-        // Save credentials for reconnect and reset the backoff counter
-        lastUrl = url
-        lastToken = accessToken
-        reconnectAttempts = 0
-
-        connectInternal(url, accessToken)
-    }
-
-    private fun connectInternal(url: String, accessToken: String) {
         // Disconnect any existing socket before creating a new one
         socket?.let {
             it.off()
@@ -57,11 +45,17 @@ class WebSocketManager @Inject constructor() {
             path = "/ws"
             transports = arrayOf("websocket")
             auth = mapOf("token" to accessToken)
+            reconnection = true
+            reconnectionAttempts = RECONNECTION_ATTEMPTS
+            reconnectionDelay = RECONNECTION_DELAY_MS
+            reconnectionDelayMax = RECONNECTION_DELAY_MAX_MS
+            randomizationFactor = 0.5
+            timeout = CONNECTION_TIMEOUT_MS
         }
 
         // Strip trailing path from url so IO.socket gets just scheme+host+port
         val baseUrl = url
-            .replace(Regex("/ws$"), "")
+            .replace(Regex("/ws/?$"), "")
             .replace(Regex("^ws://"), "http://")
             .replace(Regex("^wss://"), "https://")
 
@@ -73,7 +67,6 @@ class WebSocketManager @Inject constructor() {
 
         newSocket.on(Socket.EVENT_DISCONNECT) {
             _isConnected.value = false
-            scheduleReconnect()
         }
 
         newSocket.on(Socket.EVENT_CONNECT_ERROR) {
@@ -96,36 +89,11 @@ class WebSocketManager @Inject constructor() {
         newSocket.connect()
     }
 
-    /**
-     * Schedules a reconnect attempt using exponential backoff.
-     * Delay = min(2^attempt * 1000, 30_000) ms, capped at [maxReconnectAttempts] tries.
-     */
-    private fun scheduleReconnect() {
-        if (reconnectAttempts >= maxReconnectAttempts) return
-        val attempt = reconnectAttempts
-        reconnectAttempts++
-
-        scope.launch {
-            val delayMs = min(2.0.pow(attempt) * 1_000.0, 30_000.0).toLong()
-            // Notify UI that a reconnect attempt is in progress
-            _events.emit("""{"type":"reconnecting","version":"v1","payload":{"attempt":$attempt}}""")
-            delay(delayMs)
-            val url = lastUrl ?: return@launch
-            val token = lastToken ?: return@launch
-            // Only reconnect if still within the attempt budget
-            if (reconnectAttempts <= maxReconnectAttempts) {
-                connectInternal(url, token)
-            }
-        }
-    }
-
     fun send(rawEnvelope: String) {
         socket?.emit("message", JSONObject(rawEnvelope))
     }
 
     fun disconnect() {
-        // Set attempts to max so any pending backoff coroutine exits without reconnecting
-        reconnectAttempts = maxReconnectAttempts
         _isConnected.value = false
         socket?.off()
         socket?.disconnect()

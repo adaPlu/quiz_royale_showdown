@@ -1,13 +1,14 @@
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 
 import type { PowerUpCode } from '@/stores/profileStore';
+import type { PowerUpFeedbackKind } from '@/utils/powerUps';
 import { getPowerUpLabel, POWER_UP_META } from '@/utils/powerUps';
 
 type PowerupFeedbackEvent = {
   id: string;
-  kind: 'activated' | 'effect';
-  powerUpCode: PowerUpCode;
-  effectType?: string;
+  kind: PowerUpFeedbackKind;
+  powerUpCode?: PowerUpCode | null;
+  effectType?: string | null;
 };
 
 type PowerUpEffectBannerProps = {

@@ -3,12 +3,13 @@ import ws from "k6/ws";
 import { check, sleep } from "k6";
 
 export const options = {
-  vus: 20,
-  duration: "30s"
+  vus: Number(__ENV.K6_VUS || 50),
+  duration: __ENV.K6_DURATION || "2m"
 };
 
 const API_BASE = __ENV.API_BASE_URL || "http://localhost:4000/api/v1";
 const WS_BASE = (__ENV.WS_BASE_URL || "ws://localhost:4000").replace(/^http/, "ws");
+const LOAD_ROOM_CODE = __ENV.LOAD_ROOM_CODE || "ROYALE";
 
 export default function () {
   const registerPayload = JSON.stringify({
@@ -27,7 +28,7 @@ export default function () {
 
   let accessToken = null;
   if (registerResponse.status === 201) {
-    accessToken = registerResponse.json("tokens.accessToken");
+    accessToken = registerResponse.json("accessToken");
   } else {
     const loginResponse = http.post(
       `${API_BASE}/auth/login`,
@@ -39,8 +40,12 @@ export default function () {
         headers: { "Content-Type": "application/json" }
       }
     );
-    accessToken = loginResponse.json("tokens.accessToken");
+    accessToken = loginResponse.json("accessToken");
   }
+
+  check(accessToken, {
+    "access token present": (token) => typeof token === "string" && token.length > 0
+  });
 
   const connectionUrl = `${WS_BASE}/ws?EIO=4&transport=websocket`;
   const socketResponse = ws.connect(
@@ -52,7 +57,9 @@ export default function () {
     },
     (socket) => {
       socket.on("open", () => {
-        socket.send('42["message",{"type":"room:join","version":"v1","payload":{"roomCode":"ROYALE"}}]');
+        socket.send(
+          `42["message",{"type":"room:join","version":"v1","payload":{"roomCode":"${LOAD_ROOM_CODE}"}}]`
+        );
       });
 
       socket.on("message", () => {

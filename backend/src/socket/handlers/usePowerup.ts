@@ -1,9 +1,8 @@
 import type { Server } from "socket.io";
 import { z } from "zod";
-import { prisma } from "../../models/prismaClient";
 import { redisService } from "../../services/RedisService";
 import { powerUpService } from "../../services/PowerUpService";
-import type { SocketErrorEvent } from "../../types/contracts";
+import type { ServerEvents, SocketErrorEvent } from "../../types/contracts";
 import { AppError } from "../../utils/errors";
 import { logger } from "../../utils/logger";
 import type { AuthenticatedSocket } from "../middleware";
@@ -14,8 +13,7 @@ const activatePowerupSchema = z.object({
   powerUpCode: z.string().min(1).optional(),
   id: z.string().min(1).optional(),
   code: z.string().min(1).optional(),
-  targetPlayerId: z.string().min(1).optional(),
-  roundId: z.string().min(1).optional(),
+  targetPlayerId: z.string().min(1).optional()
 }).superRefine((payload, ctx) => {
   if (!payload.powerUpId && !payload.powerUpCode && !payload.id && !payload.code) {
     ctx.addIssue({
@@ -27,10 +25,9 @@ const activatePowerupSchema = z.object({
 });
 
 type ActiveQuestionContext = {
-  roundId?: string;
+  roundId: string;
   answers?: string[];
   questionOptions?: string[];
-  correctIndex?: number;
   correctAnswerIndex?: number;
 };
 
@@ -109,63 +106,63 @@ export function registerUsePowerupHandler(io: Server, socket: AuthenticatedSocke
         return;
       }
 
-      const roomPlayer = await prisma.roomPlayer.findUnique({
-        where: { roomId_userId: { roomId, userId } },
-        select: { isEliminated: true },
-      });
-      if (!roomPlayer || roomPlayer.isEliminated) {
-        emitError(socket, "ELIMINATED", "You have been eliminated");
-        return;
-      }
-
       const questionContext = redisService
         ? await redisService.getJson<ActiveQuestionContext>(`game:${roomId}:current_question`)
         : null;
 
-      const result = await powerUpService.activatePowerUp(
-        {
-          roomId,
-          userId,
-          powerUpId,
-          targetPlayerId,
-          roundId: parsed.data.roundId ?? questionContext?.roundId,
-          questionOptions: questionContext?.questionOptions ?? questionContext?.answers,
-          correctAnswerIndex: questionContext?.correctAnswerIndex ?? questionContext?.correctIndex,
-        },
-        io,
-      );
+      const result = await powerUpService.activatePowerUp({
+        roomId,
+        userId,
+        powerUpId,
+        targetPlayerId,
+        roundId: questionContext?.roundId,
+        questionOptions: questionContext?.questionOptions ?? questionContext?.answers,
+        correctAnswerIndex: questionContext?.correctAnswerIndex,
+      }, io);
 
-      // Broadcast public effect to all room members
-      io.to(roomId).emit("message", {
-        type: "powerup:effect",
+      const publicEvent: ServerEvents = {
+        type: "powerup:activated",
         version: "v1",
-        payload: result.publicEffect,
-      });
+        payload: {
+          roomId: result.roomId,
+          userId: result.userId,
+          powerUpId: result.powerUpId,
+          code: result.code,
+          effect: result.publicEffect,
+        },
+      };
 
-      // Send private effect (e.g. FIFTY_FIFTY masked indices) only to the activating player
+      io.to(roomId).emit("message", publicEvent);
+
       if (result.privateEffect) {
-        socket.emit("message", {
-          type: "powerup:effect_private",
+        const privateEvent: ServerEvents = {
+          type: "powerup:private_effect",
           version: "v1",
-          payload: result.privateEffect,
-        });
+          payload: {
+            roomId: result.roomId,
+            powerUpId: result.powerUpId,
+            code: result.code,
+            effect: result.privateEffect,
+          },
+        };
+
+        socket.emit("message", privateEvent);
       }
 
       logger.info("Power-up activated", {
         roomId,
         userId,
-        powerUpId,
-        code: result.code,
+        powerUpId: result.powerUpId,
+        powerUpCode: result.code,
+        targetPlayerId
       });
     } catch (error) {
-      if (!(error instanceof AppError)) {
-        logger.error("Error in usePowerup handler", {
-          userId,
-          roomId,
-          powerUpId,
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
+      logger.error("Error in usePowerup handler", {
+        userId,
+        roomId,
+        powerUpId,
+        message: error instanceof Error ? error.message : String(error)
+      });
       emitError(socket, socketErrorCode(error), socketErrorMessage(error));
     }
   });

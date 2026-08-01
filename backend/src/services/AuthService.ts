@@ -160,10 +160,6 @@ export async function rotateRefreshToken(incomingRefreshToken: string): Promise<
       }
     });
 
-    await tx.refreshToken.deleteMany({
-      where: { userId: user.id, expiresAt: { lt: new Date() } }
-    });
-
     return { accessToken, refreshToken };
   });
 }

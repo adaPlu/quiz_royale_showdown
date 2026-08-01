@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from '../navigation';
+import { useEffect, useState } from 'react';
+import { useNavigate } from '../navigation';
 
 import { PlayerAvatar } from '@components/PlayerAvatar';
-import { api, ApiError } from '@services/apiClient';
+import { useMountedRef } from '@hooks/useMountedRef';
+import { api } from '@services/apiClient';
 import { socketService } from '@services/socketService';
 import { useAuthStore } from '@stores/authStore';
+import { useGameStore } from '@stores/gameStore';
 
 type RoomApiRecord = {
   id?: unknown;
@@ -60,33 +62,28 @@ const getErrorMessage = (error: unknown, fallback: string) =>
 
 export default function HomePage() {
   const navigate = useNavigate();
+  const mountedRef = useMountedRef();
   const user = useAuthStore((state) => state.user);
   const accessToken = useAuthStore((state) => state.accessToken);
+  const clearAuth = useAuthStore((state) => state.clearAuth);
+  const resetRoom = useGameStore((state) => state.resetRoom);
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [launchNotice, setLaunchNotice] = useState<string | null>(null);
 
-  const installPromptRef = useRef<any>(null);
-  const [showInstall, setShowInstall] = useState(false);
-
   useEffect(() => {
-    const handler = (e: Event) => {
-      e.preventDefault();
-      installPromptRef.current = e;
-      setShowInstall(true);
-    };
-    window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
-  }, []);
+    const params = new URLSearchParams(window.location.search);
+    const invitedRoomCode = params.get('roomCode')?.trim().toUpperCase();
 
-  const handleInstall = async () => {
-    if (!installPromptRef.current) return;
-    installPromptRef.current.prompt();
-    await installPromptRef.current.userChoice;
-    installPromptRef.current = null;
-    setShowInstall(false);
-  };
+    if (!invitedRoomCode) {
+      return;
+    }
+
+    setCode(invitedRoomCode.slice(0, 8));
+    setLaunchNotice('Invite code loaded. Tap Join to enter the room.');
+    window.history.replaceState(null, '', '/home');
+  }, []);
 
   const enterLobby = (session: RoomSession) => {
     const socketToken = session.wsToken ?? accessToken;
@@ -111,22 +108,14 @@ export default function HomePage() {
     setLaunchNotice(null);
 
     try {
-      let response;
-      try {
-        response = await api.post('/rooms/join', {});
-      } catch (err) {
-        if (!(err instanceof ApiError) || err.status !== 400) {
-          throw err;
-        }
-
-        response = await api.post('/rooms', { isPrivate: false, maxPlayers: 8 });
-      }
-
+      const response = await api.post('/rooms/join', { roomCode: null });
+      if (!mountedRef.current) return;
       enterLobby(normalizeRoomSession(response.data));
     } catch (err) {
+      if (!mountedRef.current) return;
       setError(getErrorMessage(err, 'Failed to find a room'));
     } finally {
-      setLoading(null);
+      if (mountedRef.current) setLoading(null);
     }
   };
 
@@ -137,34 +126,19 @@ export default function HomePage() {
 
     try {
       const response = await api.post('/rooms', { isPrivate, maxPlayers: 8 });
+      if (!mountedRef.current) return;
       enterLobby(normalizeRoomSession(response.data));
     } catch (err) {
+      if (!mountedRef.current) return;
       setError(getErrorMessage(err, 'Failed to create room'));
     } finally {
-      setLoading(null);
-    }
-  };
-
-  const playSinglePlayer = async () => {
-    setLoading('solo');
-    setError(null);
-    setLaunchNotice(null);
-
-    try {
-      const response = await api.post('/rooms', { isPrivate: true, maxPlayers: 2 });
-      const session = normalizeRoomSession(response.data);
-      enterLobby(session);
-      await api.post(`/rooms/${session.roomId}/start`, { allowSolo: true });
-    } catch (err) {
-      setError(getErrorMessage(err, 'Failed to start single player game'));
-    } finally {
-      setLoading(null);
+      if (mountedRef.current) setLoading(null);
     }
   };
 
   const joinByCode = async () => {
     const normalizedCode = code.trim().toUpperCase();
-    if (normalizedCode.length < 4) {
+    if (normalizedCode.length < 8) {
       return;
     }
 
@@ -174,11 +148,33 @@ export default function HomePage() {
 
     try {
       const response = await api.post('/rooms/join', { roomCode: normalizedCode });
+      if (!mountedRef.current) return;
       enterLobby(normalizeRoomSession(response.data, normalizedCode));
     } catch (err) {
+      if (!mountedRef.current) return;
       setError(getErrorMessage(err, 'Room not found'));
     } finally {
-      setLoading(null);
+      if (mountedRef.current) setLoading(null);
+    }
+  };
+
+  const logout = async () => {
+    setLoading('logout');
+    setError(null);
+    setLaunchNotice(null);
+
+    try {
+      await api.post('/auth/logout', {});
+    } catch {
+      // Launch-safe logout: revoke when possible, but always clear this client.
+    } finally {
+      socketService.disconnect(true);
+      resetRoom();
+      clearAuth();
+      if (mountedRef.current) {
+        setLoading(null);
+        navigate('/login', { replace: true });
+      }
     }
   };
 
@@ -192,19 +188,21 @@ export default function HomePage() {
             <p className="text-game-muted text-xs">Level {user?.level ?? 1}</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <Link
-            to="/friends"
-            className="text-game-muted hover:text-white text-sm transition"
-          >
-            Friends
-          </Link>
+        <div className="flex items-center gap-4">
           <button
             type="button"
-            onClick={() => setLaunchNotice('Profiles are local-only during launch and do not call the backend yet.')}
+            onClick={() => navigate(`/profile/${encodeURIComponent(user?.username ?? 'me')}`)}
             className="text-game-muted hover:text-white text-sm"
           >
             Profile
+          </button>
+          <button
+            type="button"
+            onClick={() => void logout()}
+            disabled={!!loading}
+            className="text-game-muted hover:text-white text-sm disabled:opacity-50"
+          >
+            {loading === 'logout' ? 'Logging out...' : 'Logout'}
           </button>
         </div>
       </header>
@@ -218,14 +216,6 @@ export default function HomePage() {
           className="w-full py-4 rounded-2xl bg-brand text-white font-bold text-lg shadow-royale hover:opacity-90 disabled:opacity-60"
         >
           {loading === 'quick' ? 'Finding game...' : 'Quick Play'}
-        </button>
-
-        <button
-          onClick={() => void playSinglePlayer()}
-          disabled={!!loading}
-          className="w-full py-3 rounded-2xl bg-answer-correct text-white font-bold shadow-royale hover:opacity-90 disabled:opacity-60"
-        >
-          {loading === 'solo' ? 'Starting solo...' : 'Single Player'}
         </button>
 
         <button
@@ -246,7 +236,7 @@ export default function HomePage() {
             />
             <button
               onClick={joinByCode}
-              disabled={code.trim().length < 4 || !!loading}
+              disabled={code.trim().length < 8 || !!loading}
               className="px-4 py-3 rounded-xl bg-brand/20 border border-brand/40 text-brand font-semibold hover:bg-brand/30 disabled:opacity-40"
             >
               Join
@@ -260,22 +250,12 @@ export default function HomePage() {
         <div className="flex gap-3 w-full pt-2">
           <button
             type="button"
-            onClick={() => setLaunchNotice('Global leaderboard is disabled for launch; in-game standings appear once a room starts.')}
+            onClick={() => navigate('/leaderboard')}
             className="flex-1 py-2 rounded-xl border border-game-border text-game-muted text-sm hover:text-white hover:border-white/30"
           >
             Leaderboard
           </button>
         </div>
-
-        {showInstall && (
-          <button
-            type="button"
-            onClick={() => void handleInstall()}
-            className="text-sm text-white/60 underline"
-          >
-            Install App
-          </button>
-        )}
       </main>
     </div>
   );

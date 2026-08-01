@@ -43,7 +43,6 @@ export async function buildRoomSnapshot(roomId: string): Promise<RoomSnapshot | 
   return {
     roomId: room.id,
     code: room.code,
-    hostId: room.hostUserId,
     phase: liveState?.phase ?? room.status,
     roundNumber: liveState?.round ?? room.currentRound,
     totalRounds: room.totalRounds,

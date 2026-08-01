@@ -4,7 +4,6 @@
  */
 
 import type { QuestionBank } from "@prisma/client";
-import { Prisma } from "@prisma/client";
 import type { Server } from "socket.io";
 import { prisma } from "../models/prismaClient";
 import {
@@ -15,13 +14,11 @@ import {
 import { eliminateBottomN } from "../game/EliminationEngine";
 import type { PlayerStanding } from "../game/types";
 import { redisService } from "./RedisService";
-import { powerUpService } from "./PowerUpService";
 import { roomService } from "./RoomService";
 import { generateId } from "../utils/ulid";
 import { BadRequestError } from "../utils/errors";
 import { logger } from "../utils/logger";
 import type { PlayerSummary, ServerEvents } from "../types/contracts";
-import { awardMatchXp, levelFromTotalXp, xpThresholdForLevel } from "./XpService";
 
 const COUNTDOWN_MS = 5_000;
 const ROUND_RESULT_DISPLAY_MS = 4_000;
@@ -49,6 +46,13 @@ type StoredAnswerRecord = {
   submittedAt: string;
 };
 
+type FinalStanding = {
+  playerId: string;
+  rank: number;
+  score: number;
+  xpAwarded: number;
+};
+
 function emitRoomEnvelope(io: Server, roomId: string, envelope: ServerEvents): void {
   io.to(roomId).emit("message", envelope);
 }
@@ -69,7 +73,6 @@ function timedDelay(roomId: string, label: string, durationMs: number): Promise<
 
 export class GameOrchestrator {
   private readonly activeRooms = new Set<string>();
-  private readonly botIds = new Map<string, string[]>();
 
   hasActiveGame(roomId: string): boolean {
     return this.activeRooms.has(roomId);
@@ -86,13 +89,6 @@ export class GameOrchestrator {
   }
 
   async startGame(roomId: string, playerIds: string[], io: Server): Promise<void> {
-    if (redisService) {
-      const acquired = await redisService.setnx(`game:${roomId}:lock`, '1', 30);
-      if (!acquired) {
-        logger.warn("GameOrchestrator.startGame: lock already held, skipping duplicate start", { roomId });
-        return;
-      }
-    }
     logger.info("GameOrchestrator starting", { roomId, playerCount: playerIds.length });
     this.activeRooms.add(roomId);
 
@@ -117,7 +113,6 @@ export class GameOrchestrator {
       const totalRounds = 10;
       const usedQuestionIds: string[] = [];
       const activePlayerIds = new Set(playerIds);
-      this.botIds.set(roomId, playerIds.filter((id) => id.startsWith('bot:')));
       let round = 0;
 
       while (round < totalRounds && state.playerCount > 1) {
@@ -141,19 +136,7 @@ export class GameOrchestrator {
             eliminateCount,
             minimumSurvivors: 2
           });
-
-          // SHIELD: remove any shielded players from this elimination wave
-          const shieldedPlayers = await powerUpService.getShieldedPlayers(roomId);
-          const shieldedSet = new Set(shieldedPlayers);
-          const unshieldedEliminated = eliminated.filter((e) => !shieldedSet.has(e.playerId));
-          for (const playerId of shieldedPlayers) {
-            if (eliminated.some((e) => e.playerId === playerId)) {
-              await powerUpService.consumeShield(roomId, playerId);
-              logger.info("Shield blocked elimination", { roomId, playerId });
-            }
-          }
-
-          const eliminatedIds = unshieldedEliminated.map((entry) => entry.playerId);
+          const eliminatedIds = eliminated.map((entry) => entry.playerId);
           eliminatedIds.forEach((playerId) => activePlayerIds.delete(playerId));
 
           state = transitionGameState(state, {
@@ -210,10 +193,6 @@ export class GameOrchestrator {
       throw error;
     } finally {
       this.activeRooms.delete(roomId);
-      this.botIds.delete(roomId);
-      if (redisService) {
-        await redisService.del(`game:${roomId}:lock`).catch(() => undefined);
-      }
     }
   }
 
@@ -236,17 +215,10 @@ export class GameOrchestrator {
   }
 
   private async runQuestion(roomId: string, io: Server, usedQuestionIds: string[]): Promise<void> {
-    const latestRound = await prisma.round.findFirst({
-      where: { roomId },
-      orderBy: { roundNumber: "desc" },
-      select: { roundNumber: true }
-    });
-    const roundNumber = (latestRound?.roundNumber ?? 0) + 1;
-
     let question: QuestionBank;
 
     try {
-      question = await this.selectQuestion(usedQuestionIds, roundNumber);
+      question = await this.selectQuestion(usedQuestionIds);
     } catch (error) {
       logger.error("No questions available", {
         roomId,
@@ -261,6 +233,12 @@ export class GameOrchestrator {
     const startTs = Date.now();
     const startedAt = new Date(startTs).toISOString();
 
+    const latestRound = await prisma.round.findFirst({
+      where: { roomId },
+      orderBy: { roundNumber: "desc" },
+      select: { roundNumber: true }
+    });
+    const roundNumber = (latestRound?.roundNumber ?? 0) + 1;
     const roundId = generateId();
 
     await prisma.round.create({
@@ -307,22 +285,7 @@ export class GameOrchestrator {
       }
     });
 
-    const botPlayerIds = this.botIds.get(roomId) ?? [];
-    const botTimers: NodeJS.Timeout[] = [];
-    for (const botId of botPlayerIds) {
-      const minDelay = 2000;
-      const maxDelay = DEFAULT_TIME_LIMIT_MS - 1000;
-      const delay = minDelay + Math.floor(Math.random() * (maxDelay - minDelay));
-      const timer = setTimeout(() => {
-        void this.submitBotAnswer(roomId, roundId, botId, question.correctIndex, startTs, DEFAULT_TIME_LIMIT_MS);
-      }, delay);
-      botTimers.push(timer);
-    }
-    try {
-      await timedDelay(roomId, "question", DEFAULT_TIME_LIMIT_MS + 500);
-    } finally {
-      botTimers.forEach((t) => clearTimeout(t));
-    }
+    await timedDelay(roomId, "question", DEFAULT_TIME_LIMIT_MS + 500);
 
     const lockedAt = new Date().toISOString();
 
@@ -481,178 +444,45 @@ export class GameOrchestrator {
     winnerIds: string[],
     finalistIds: string[]
   ): Promise<void> {
-    // Atomic compare-and-swap: claim the GAME_OVER transition exactly once
-    const claimed = await prisma.room.updateMany({
-      where: { id: roomId, status: { not: 'GAME_OVER' } },
-      data: { status: 'GAME_OVER', finishedAt: new Date() },
-    });
-    if (claimed.count === 0) return;
-
     logger.info("Game over", { roomId, winnerIds });
 
-    const humanFinalistIds = finalistIds.filter((id) => !id.startsWith('bot:'));
-    const finalScores = await this.loadScores(roomId, humanFinalistIds);
-    const sortedStandings = finalScores
+    const finalScores = await this.loadScores(roomId, finalistIds);
+    const finalStandings = finalScores
       .sort((left, right) =>
         (right.totalScore ?? right.roundScore) - (left.totalScore ?? left.roundScore) ||
         left.playerId.localeCompare(right.playerId)
       )
       .map((standing, index) => {
         const score = standing.totalScore ?? standing.roundScore;
-        return { playerId: standing.playerId, rank: index + 1, score };
+
+        return {
+          playerId: standing.playerId,
+          rank: index + 1,
+          score,
+          xpAwarded: Math.max(10, Math.round(score / 10))
+        };
       });
 
-    const xpResults = await awardMatchXp(
-      roomId,
-      sortedStandings.map((s) => ({
-        playerId: s.playerId,
-        rank: s.rank,
-        totalPlayers: sortedStandings.length,
-        score: s.score,
-      }))
-    );
-    const xpByPlayer = new Map(xpResults.map((r) => [r.playerId, r]));
+    await this.updateSeasonScores(roomId, finalStandings, winnerIds);
 
-    const finalStandings = sortedStandings.map((s) => ({
-      ...s,
-      xpAwarded: xpByPlayer.get(s.playerId)?.xpAwarded ?? 0,
-    }));
-
-    // Emit game:level_up for any player who leveled up
-    for (const result of xpResults) {
-      if (result.didLevelUp) {
-        io.to(result.playerId).emit("message", {
-          type: "game:level_up",
-          version: "v1",
-          payload: {
-            userId: result.playerId,
-            newLevel: result.newLevel,
-            xpAwarded: result.xpAwarded,
-            xpToNextLevel: result.xpToNextLevel,
+    await Promise.all(
+      finalStandings.map((standing) =>
+        prisma.xpEvent.create({
+          data: {
+            id: generateId(),
+            userId: standing.playerId,
+            reason: "GAME_FINISH",
+            amount: standing.xpAwarded,
+            metadata: { roomId, rank: standing.rank }
           }
-        });
-        logger.info("Level up emitted", { roomId, userId: result.playerId, prevLevel: result.prevLevel, newLevel: result.newLevel });
-      }
-    }
-
-    // Upsert SeasonScore for each finalist if an active season exists
-    const winnerSet = new Set(winnerIds);
-    const season = await prisma.season.findFirst({
-      where: { startsAt: { lte: new Date() }, endsAt: { gte: new Date() } },
-      orderBy: { startsAt: "desc" },
-    });
-
-    if (season) {
-      await Promise.all(
-        finalStandings.map(async (standing) => {
-          const isWinner = winnerSet.has(standing.playerId);
-          await prisma.$transaction(async (tx) => {
-            await tx.seasonScore.upsert({
-              where: { seasonId_userId: { seasonId: season.id, userId: standing.playerId } },
-              create: {
-                id: generateId(),
-                seasonId: season.id,
-                userId: standing.playerId,
-                mmr: isWinner ? 1025 : 1000,
-                wins: isWinner ? 1 : 0,
-                gamesPlayed: 1,
-              },
-              update: {
-                mmr: isWinner ? { increment: 25 } : undefined,
-                wins: isWinner ? { increment: 1 } : undefined,
-                gamesPlayed: { increment: 1 },
-              },
-            });
-            if (!isWinner) {
-              await tx.$executeRaw`
-                UPDATE "SeasonScore" SET mmr = GREATEST(mmr - 10, 0)
-                WHERE "userId" = ${standing.playerId} AND "seasonId" = ${season.id}
-              `;
-            }
-          });
         })
-      );
-      logger.info("SeasonScore upserted", { roomId, seasonId: season.id, count: finalStandings.length });
-    } else {
-      logger.info("No active season found, skipping SeasonScore upsert", { roomId });
-    }
-
-    // Track challenge progress for human players only (skip bot: prefix)
-    const today = new Date().toISOString().slice(0, 10);
-    // Count per-player correct answers and power-up uses for this room
-    const humanIds = finalStandings.map((s) => s.playerId).filter((id) => !id.startsWith('bot:'));
-    const roomRounds = await prisma.round.findMany({ where: { roomId }, select: { id: true } });
-    const roundIds = roomRounds.map((r) => r.id);
-
-    const [correctAnswerCounts, powerUpUseCounts] = await Promise.all([
-      prisma.answer.groupBy({
-        by: ['userId'],
-        where: { roundId: { in: roundIds }, userId: { in: humanIds }, isCorrect: true },
-        _count: { id: true },
-      }),
-      prisma.powerUpUse.groupBy({
-        by: ['userId'],
-        where: { roomId, userId: { in: humanIds } },
-        _count: { id: true },
-      }),
-    ]);
-    const correctByPlayer = new Map(correctAnswerCounts.map((r) => [r.userId, r._count.id]));
-    const powerUpsByPlayer = new Map(powerUpUseCounts.map((r) => [r.userId, r._count.id]));
-
-    // streak_5: check for 5 consecutive correct answers in round order
-    const allAnswers = roundIds.length > 0
-      ? await prisma.answer.findMany({
-          where: { roundId: { in: roundIds }, userId: { in: humanIds } },
-          select: { userId: true, isCorrect: true, round: { select: { roundNumber: true } } },
-          orderBy: [{ userId: 'asc' }, { round: { roundNumber: 'asc' } }],
-        })
-      : [];
-    const streakByPlayer = new Map<string, number>();
-    for (const userId of humanIds) {
-      const playerAnswers = allAnswers.filter((a) => a.userId === userId);
-      let maxStreak = 0;
-      let streak = 0;
-      for (const a of playerAnswers) {
-        streak = a.isCorrect ? streak + 1 : 0;
-        if (streak > maxStreak) maxStreak = streak;
-      }
-      streakByPlayer.set(userId, maxStreak);
-    }
-
-    await Promise.allSettled(
-      finalStandings
-        .filter((s) => !s.playerId.startsWith('bot:'))
-        .flatMap((s) => [
-          winnerSet.has(s.playerId)
-            ? this.trackChallengeProgress(s.playerId, 'win_a_game', 1, 1, today)
-            : Promise.resolve(),
-          s.rank <= 3
-            ? this.trackChallengeProgress(s.playerId, 'top_3', 1, 1, today)
-            : Promise.resolve(),
-          this.trackChallengeProgress(s.playerId, 'play_3_games', 3, 1, today),
-          this.trackChallengeProgress(s.playerId, 'answer_10', 10, correctByPlayer.get(s.playerId) ?? 0, today),
-          (streakByPlayer.get(s.playerId) ?? 0) >= 5
-            ? this.trackChallengeProgress(s.playerId, 'streak_5', 1, 1, today)
-            : Promise.resolve(),
-          (powerUpsByPlayer.get(s.playerId) ?? 0) > 0
-            ? this.trackChallengeProgress(s.playerId, 'use_powerup', 1, 1, today)
-            : Promise.resolve(),
-        ])
+      )
     );
 
-    // Persist final scores to RoomPlayer before emitting to clients
-    try {
-      await Promise.all(
-        finalStandings.map((standing) =>
-          prisma.roomPlayer.updateMany({
-            where: { roomId, userId: standing.playerId },
-            data: { score: standing.score },
-          })
-        )
-      );
-    } catch (err) {
-      logger.error("Failed to persist final scores", { roomId, error: err instanceof Error ? err.message : String(err) });
-    }
+    await prisma.room.update({
+      where: { id: roomId },
+      data: { status: "GAME_OVER", finishedAt: new Date() }
+    });
 
     emitRoomEnvelope(io, roomId, {
       type: "game:over",
@@ -664,41 +494,6 @@ export class GameOrchestrator {
       }
     });
 
-    const POWERUP_CODES = ["DOUBLE_DOWN", "FIFTY_FIFTY", "TIME_FREEZE", "SHIELD", "SABOTAGE"] as const;
-
-    // Pre-fetch all powerup records to avoid N+1
-    const allPowerUpRecords = await prisma.powerUp.findMany({});
-    const powerUpByCode = new Map(allPowerUpRecords.map((p) => [p.code, p]));
-
-    for (const playerId of finalistIds) {
-      if (playerId.startsWith('bot:')) continue;
-      const randomPowerup = POWERUP_CODES[Math.floor(Math.random() * POWERUP_CODES.length)];
-      io.to(playerId).emit("message", {
-        type: "powerup:loot_drop",
-        version: "v1",
-        payload: { powerupType: randomPowerup, quantity: 1 }
-      });
-
-      // Persist loot drop to PlayerPowerUp inventory
-      try {
-        const powerUpRecord = powerUpByCode.get(randomPowerup);
-        if (powerUpRecord) {
-          await prisma.playerPowerUp.upsert({
-            where: { userId_powerUpId: { userId: playerId, powerUpId: powerUpRecord.id } },
-            update: { quantity: { increment: 1 } },
-            create: {
-              id: generateId(),
-              userId: playerId,
-              powerUpId: powerUpRecord.id,
-              quantity: 1,
-            },
-          });
-        }
-      } catch (err) {
-        logger.error("Failed to persist loot drop", { roomId, userId: playerId, error: err instanceof Error ? err.message : String(err) });
-      }
-    }
-
     if (redisService) {
       await redisService.del(
         `game:${roomId}:state`,
@@ -709,89 +504,75 @@ export class GameOrchestrator {
     }
   }
 
-  private async submitBotAnswer(
+  private async updateSeasonScores(
     roomId: string,
-    roundId: string,
-    botId: string,
-    correctAnswerIndex: number,
-    startTs: number,
-    timeLimitMs: number
+    finalStandings: FinalStanding[],
+    winnerIds: string[]
   ): Promise<void> {
-    if (!redisService) return;
+    if (finalStandings.length === 0) {
+      return;
+    }
 
-    const lockKey = `answer_lock:${roomId}:${roundId}:${botId}`;
-    const locked = await redisService.setnx(lockKey, '1', 3600);
-    if (!locked) return;
-
-    const receivedAtMs = Date.now();
-    const answerIndex = Math.floor(Math.random() * 4);
-    const isCorrect = answerIndex === correctAnswerIndex;
-    const scoreDelta = isCorrect
-      ? Math.max(0, 1000 - Math.floor(((receivedAtMs - startTs) / timeLimitMs) * 400))
-      : 0;
-
-    await redisService.zincrby(`room:${roomId}:scores`, scoreDelta, botId);
-    await redisService.hset(
-      `room:${roomId}:round:${roundId}:answers`,
-      botId,
-      JSON.stringify({
-        answerIndex,
-        clientSentAt: new Date(receivedAtMs).toISOString(),
-        isCorrect,
-        scoreDelta,
-        submittedAt: new Date(receivedAtMs).toISOString()
-      })
-    );
-
-    logger.info("Bot answer submitted", { roomId, roundId, botId, isCorrect, scoreDelta });
-  }
-
-  private async selectQuestion(usedIds: string[], roundNumber = 1): Promise<QuestionBank> {
-    const targetDifficulty = roundNumber <= 3 ? 'EASY' : roundNumber <= 7 ? 'MEDIUM' : 'HARD';
-
-    const result = await prisma.$transaction(async (tx) => {
-      // Try preferred difficulty first, then fall back to any active question.
-      // FOR UPDATE SKIP LOCKED prevents concurrent games from selecting the same row.
-      const notInClause = usedIds.length > 0
-        ? Prisma.sql`AND id NOT IN (${Prisma.join(usedIds)})`
-        : Prisma.sql``;
-
-      let rows = await tx.$queryRaw<QuestionBank[]>`
-        SELECT * FROM "QuestionBank"
-        WHERE "isActive" = true
-          AND difficulty = ${targetDifficulty}::"Difficulty"
-          ${notInClause}
-        ORDER BY "lastUsedAt" ASC NULLS FIRST, id ASC
-        LIMIT 1
-        FOR UPDATE SKIP LOCKED
-      `;
-
-      if (rows.length === 0) {
-        rows = await tx.$queryRaw<QuestionBank[]>`
-          SELECT * FROM "QuestionBank"
-          WHERE "isActive" = true
-            ${notInClause}
-          ORDER BY "lastUsedAt" ASC NULLS FIRST, id ASC
-          LIMIT 1
-          FOR UPDATE SKIP LOCKED
-        `;
-      }
-
-      if (rows.length === 0) {
-        throw new Error("No available questions in the bank");
-      }
-
-      const question = rows[0];
-
-      await tx.questionBank.update({
-        where: { id: question.id },
-        data: { lastUsedAt: new Date() }
-      });
-
-      return question;
+    const room = await prisma.room.findUnique({
+      where: { id: roomId },
+      select: { seasonId: true }
     });
 
-    return result;
+    if (!room?.seasonId) {
+      return;
+    }
+
+    const winnerIdSet = new Set(winnerIds);
+
+    await Promise.all(
+      finalStandings.map((standing) => {
+        const isWinner = winnerIdSet.has(standing.playerId);
+        const mmrDelta = isWinner ? 25 : Math.max(-10, 10 - standing.rank * 5);
+
+        return prisma.seasonScore.upsert({
+          where: {
+            seasonId_userId: {
+              seasonId: room.seasonId as string,
+              userId: standing.playerId
+            }
+          },
+          create: {
+            id: generateId(),
+            seasonId: room.seasonId as string,
+            userId: standing.playerId,
+            mmr: 1000 + mmrDelta,
+            wins: isWinner ? 1 : 0,
+            gamesPlayed: 1
+          },
+          update: {
+            mmr: { increment: mmrDelta },
+            wins: { increment: isWinner ? 1 : 0 },
+            gamesPlayed: { increment: 1 }
+          }
+        });
+      })
+    );
+  }
+
+  private async selectQuestion(usedIds: string[]): Promise<QuestionBank> {
+    const question = await prisma.questionBank.findFirst({
+      where: {
+        isActive: true,
+        id: { notIn: usedIds.length > 0 ? usedIds : undefined }
+      },
+      orderBy: [{ lastUsedAt: "asc" }, { id: "asc" }]
+    });
+
+    if (!question) {
+      throw new Error("No available questions in the bank");
+    }
+
+    await prisma.questionBank.update({
+      where: { id: question.id },
+      data: { lastUsedAt: new Date() }
+    });
+
+    return question;
   }
 
   private async loadScores(roomId: string, playerIds: string[]): Promise<PlayerStanding[]> {
@@ -827,30 +608,6 @@ export class GameOrchestrator {
       .filter((standing) => (standing.totalScore ?? standing.roundScore) === highestScore)
       .sort((left, right) => left.playerId.localeCompare(right.playerId))
       .map((standing) => standing.playerId);
-  }
-
-  private async trackChallengeProgress(
-    playerId: string,
-    challengeId: string,
-    target: number,
-    increment: number,
-    today: string
-  ): Promise<void> {
-    await prisma.$transaction(async (tx) => {
-      const existing = await tx.xpEvent.aggregate({
-        where: { userId: playerId, reason: { startsWith: `CHALLENGE:${challengeId}:` },
-                 createdAt: { gte: new Date(`${today}T00:00:00Z`) } },
-        _sum: { amount: true },
-      });
-      const current = existing._sum.amount ?? 0;
-      if (current >= target) return; // already completed
-      const toAdd = Math.min(increment, target - current);
-      if (toAdd <= 0) return;
-      await tx.xpEvent.create({
-        data: { id: generateId(), userId: playerId, reason: `CHALLENGE:${challengeId}:${today}`, amount: toAdd,
-                metadata: { source: 'game_over' } },
-      });
-    });
   }
 
   private async persistState(roomId: string, state: GameStateSnapshot): Promise<void> {

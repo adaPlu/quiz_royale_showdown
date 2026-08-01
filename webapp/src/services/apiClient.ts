@@ -39,26 +39,22 @@ export function configureApiClient(store: TokenStore): void {
 // ---------------------------------------------------------------------------
 // Axios instance
 // ---------------------------------------------------------------------------
-function resolveBaseUrl(): string {
-  const configuredBaseUrl = (import.meta as unknown as { env: Record<string, string | undefined> }).env
-    ?.VITE_API_BASE_URL;
-  if (configuredBaseUrl) {
-    return configuredBaseUrl;
-  }
+const viteEnv = (import.meta as unknown as {
+  env?: Record<string, string | boolean | undefined>;
+}).env;
 
-  if (typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
-    return 'http://localhost:4000/api/v1';
-  }
+const configuredBaseUrl =
+  typeof viteEnv?.VITE_API_BASE_URL === 'string' ? viteEnv.VITE_API_BASE_URL.trim() : '';
 
-  throw new Error('VITE_API_BASE_URL is required outside local development');
+const BASE_URL = configuredBaseUrl || (viteEnv?.DEV === true ? 'http://localhost:4000/api/v1' : '');
+
+if (!BASE_URL) {
+  throw new Error('VITE_API_BASE_URL is required outside local Vite development.');
 }
-
-const BASE_URL = resolveBaseUrl();
 
 const axiosInstance: AxiosInstance = axios.create({
   baseURL: BASE_URL,
   withCredentials: true,
-  timeout: 10000,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -100,13 +96,8 @@ export async function refreshAuthSession(): Promise<RefreshResponse> {
       `${BASE_URL}/auth/refresh`,
       {},
       {
-        headers: {
-          'Content-Type': 'application/json',
-          'x-csrf-protection': '1',
-          'x-refresh-token-response': 'cookie',
-        },
+        headers: { 'Content-Type': 'application/json' },
         withCredentials: true,
-        timeout: 5000,
       },
     );
 

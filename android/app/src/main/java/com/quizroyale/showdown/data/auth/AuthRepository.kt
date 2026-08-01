@@ -69,20 +69,13 @@ class AuthRepository @Inject constructor(
 
   fun currentUserId(): String? = prefs.getString(KEY_USER_ID, null)
 
-  fun currentUsername(): String? = prefs.getString(KEY_DISPLAY_NAME, null)
-
   fun clearSession() {
     prefs.edit().clear().apply()
   }
 
   private fun persistSession(response: AuthResponse) {
     persistTokens(response.toTokens())
-    response.user?.let { user ->
-      prefs.edit()
-        .putString(KEY_USER_ID, user.id)
-        .putString(KEY_DISPLAY_NAME, user.displayName)
-        .apply()
-    }
+    response.user?.id?.let { prefs.edit().putString(KEY_USER_ID, it).apply() }
   }
 
   private fun persistTokens(tokens: AuthTokens) {
@@ -101,6 +94,5 @@ class AuthRepository @Inject constructor(
     private const val KEY_ACCESS_TOKEN = "access_token"
     private const val KEY_REFRESH_TOKEN = "refresh_token"
     private const val KEY_USER_ID = "user_id"
-    private const val KEY_DISPLAY_NAME = "display_name"
   }
 }

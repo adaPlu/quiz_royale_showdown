@@ -1,8 +1,7 @@
-// NOTE: Challenge progress is incremented server-side from GameOrchestrator game events only.
-// The POST /:id/progress endpoint was removed (security: client-authoritative XP farming).
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
 import { prisma } from "../models/prismaClient";
+import { generateId } from "../utils/ulid";
 
 const router = Router();
 
@@ -15,7 +14,7 @@ function todayKey(): string {
 const DAILY_CHALLENGE_TEMPLATES = [
   { id: "win_a_game",       title: "Victory Lap",       description: "Win a game",              target: 1,  xpReward: 200 },
   { id: "answer_10",        title: "Quick Draw",         description: "Answer 10 questions correctly", target: 10, xpReward: 150 },
-  { id: "top_3",            title: "Podium Finish",     description: "Finish in the top 3",     target: 1,  xpReward: 100 },
+  { id: "top_3",            title: "Podium Finish",     description: "Finish in the top 3",     target: 3,  xpReward: 100 },
   { id: "use_powerup",      title: "Power Player",       description: "Use a power-up",          target: 1,  xpReward: 75  },
   { id: "play_3_games",     title: "Hat Trick",          description: "Play 3 games today",      target: 3,  xpReward: 125 },
   { id: "streak_5",         title: "On Fire",            description: "Get a 5-answer streak",   target: 5,  xpReward: 175 },
@@ -47,11 +46,12 @@ router.get("/daily", requireAuth, async (req, res, next) => {
       },
     });
 
-    const progressMap = new Map<string, number>();
-    for (const row of progressRows) {
-      const key = row.reason.split(":")[1];
-      progressMap.set(key, (progressMap.get(key) ?? 0) + row.amount);
-    }
+    const progressMap = new Map(
+      progressRows.map((row) => {
+        const parts = row.reason.split(":");
+        return [parts[1], row.amount];
+      }),
+    );
 
     res.json(
       challenges.map((c) => ({
@@ -64,6 +64,59 @@ router.get("/daily", requireAuth, async (req, res, next) => {
         completed: (progressMap.get(c.id) ?? 0) >= c.target,
       })),
     );
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /challenges/:id/progress — record progress toward a challenge
+router.post("/:id/progress", requireAuth, async (req, res, next) => {
+  try {
+    const userId = req.jwtClaims!.sub;
+    const challengeId = req.params.id;
+    const delta = Number(req.body?.delta ?? 1);
+    const today = todayKey();
+
+    const template = DAILY_CHALLENGE_TEMPLATES.find((c) => c.id === challengeId);
+    if (!template) return res.status(404).json({ error: "Challenge not found" });
+
+    const existing = await prisma.xpEvent.findFirst({
+      where: { userId, reason: `CHALLENGE:${challengeId}:${today}` },
+    });
+
+    const currentProgress = existing?.amount ?? 0;
+    const newProgress = Math.min(currentProgress + delta, template.target);
+    const justCompleted = currentProgress < template.target && newProgress >= template.target;
+
+    if (existing) {
+      await prisma.xpEvent.update({
+        where: { id: existing.id },
+        data: { amount: newProgress },
+      });
+    } else {
+      await prisma.xpEvent.create({
+        data: {
+          id: generateId(),
+          userId,
+          reason: `CHALLENGE:${challengeId}:${today}`,
+          amount: newProgress,
+        },
+      });
+    }
+
+    if (justCompleted) {
+      await prisma.xpEvent.create({
+        data: {
+          id: generateId(),
+          userId,
+          reason: `CHALLENGE_REWARD:${challengeId}:${today}`,
+          amount: template.xpReward,
+          metadata: { challengeId, today },
+        },
+      });
+    }
+
+    res.json({ progress: newProgress, target: template.target, completed: newProgress >= template.target, justCompleted });
   } catch (err) {
     next(err);
   }

@@ -2,7 +2,6 @@ package com.quizroyale.showdown.ui.game
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
@@ -47,7 +46,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import com.quizroyale.showdown.domain.model.PowerupType
 import com.quizroyale.showdown.ui.game.components.PowerUpTray
 import com.quizroyale.showdown.ui.theme.AnswerCorrect
@@ -77,6 +75,7 @@ fun GameScreen(
     onIntent: ((GameIntent) -> Unit)? = null,
     isReconnecting: Boolean = false,
     onNavigateToResults: ((String) -> Unit)? = null,
+    onExitGame: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val haptic  = LocalHapticFeedback.current
@@ -149,9 +148,10 @@ fun GameScreen(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                val timerSeconds = (state as? GameUiState.ActiveQuestion)?.timerSeconds ?: 0
-                val timeLimitSec = ((state as? GameUiState.ActiveQuestion)?.timeLimitMs ?: 20_000) / 1_000
-                CountdownRing(timerSeconds = timerSeconds, maxSeconds = timeLimitSec)
+                CountdownRing(
+                    timerSeconds = (state as? GameUiState.ActiveQuestion)?.timerSeconds ?: 0,
+                    timeLimitMs = (state as? GameUiState.ActiveQuestion)?.timeLimitMs ?: 0,
+                )
 
                 when (state) {
                     is GameUiState.ActiveQuestion -> {
@@ -220,6 +220,17 @@ fun GameScreen(
         }
 
         // ── Loot-drop animated banner (slides from top) ───────────────────────
+        Button(
+            onClick = { onExitGame?.invoke() },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .systemBarsPadding()
+                .padding(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2A2A40)),
+        ) {
+            Text("Exit Game", color = Color.White)
+        }
+
         AnimatedVisibility(
             visible = lootDropVisible,
             enter   = slideInVertically(initialOffsetY  = { -it }),
@@ -282,15 +293,17 @@ fun GameScreen(
 // ── Countdown ring ────────────────────────────────────────────────────────────
 
 @Composable
-private fun CountdownRing(timerSeconds: Int = 20, maxSeconds: Int = 20) {
+private fun CountdownRing(timerSeconds: Int, timeLimitMs: Int) {
     val trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
     val progressColor = MaterialTheme.colorScheme.primary
-
-    val fraction = if (maxSeconds > 0) timerSeconds.toFloat() / maxSeconds.toFloat() else 0f
-    val animatedSweep by animateFloatAsState(
-        targetValue = 360f * fraction.coerceIn(0f, 1f),
-        animationSpec = tween(durationMillis = 900),
-        label = "countdownSweep",
+    val progress = if (timeLimitMs > 0) {
+        ((timerSeconds * 1_000f) / timeLimitMs.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    val sweepAngle by animateFloatAsState(
+        targetValue = progress * 360f,
+        label = "countdownRingSweep",
     )
 
     Canvas(
@@ -309,7 +322,7 @@ private fun CountdownRing(timerSeconds: Int = 20, maxSeconds: Int = 20) {
         drawArc(
             color      = progressColor,
             startAngle = -90f,
-            sweepAngle = animatedSweep,
+            sweepAngle = sweepAngle,
             useCenter  = false,
             topLeft    = Offset(center.x - radius, center.y - radius),
             size       = androidx.compose.ui.geometry.Size(radius * 2, radius * 2),

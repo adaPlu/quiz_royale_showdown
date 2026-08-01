@@ -1,9 +1,9 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect } from 'react';
 
-import type { PowerUpCode as PowerupType } from '@/stores/profileStore';
+import type { PowerUpCode } from '@/stores/profileStore';
 
-const ICONS: Record<PowerupType, string> = {
+const ICONS: Record<PowerUpCode, string> = {
   FIFTY_FIFTY: '✂️',
   SHIELD: '🛡️',
   TIME_FREEZE: '⏱️',
@@ -11,7 +11,7 @@ const ICONS: Record<PowerupType, string> = {
   DOUBLE_DOWN: '🔄',
 };
 
-const LABELS: Record<PowerupType, string> = {
+const LABELS: Record<PowerUpCode, string> = {
   FIFTY_FIFTY: '50 / 50',
   SHIELD: 'Shield',
   TIME_FREEZE: 'Time Freeze',
@@ -20,7 +20,7 @@ const LABELS: Record<PowerupType, string> = {
 };
 
 interface LootDropToastProps {
-  powerupCode: PowerupType | null;
+  powerupCode: PowerUpCode | null;
   onDismiss: () => void;
 }
 

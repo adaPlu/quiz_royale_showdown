@@ -1,12 +1,13 @@
 # Infrastructure Setup
 
-## Local Phase 0
+## Local Development
 
 1. Copy `.env.example` to `.env`.
-2. Start backing services with `docker compose up --build`.
-3. Backend listens on `http://localhost:4000`.
-4. PgAdmin is exposed on `http://localhost:5050`.
-5. Web app expects `http://localhost:5173` during local development.
+2. Install Node dependencies with `npm ci`.
+3. Start backing services with `docker compose up --build`.
+4. Backend listens on `http://localhost:4000`.
+5. PgAdmin is exposed on `http://localhost:5050`.
+6. Web app expects `http://localhost:5173` during local development.
 
 ## Cloud Targets
 

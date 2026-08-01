@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate } from '../navigation';
 
-import { powerupLootDropPayloadSchema } from '@/lib/contracts';
 import { socketService } from '@/services/socketService';
 import { useGameStore } from '@/stores/gameStore';
 
@@ -18,10 +17,9 @@ export function useGameSocket(roomId: string | undefined) {
   const applyRoundResult = useGameStore((state) => state.applyRoundResult);
   const applyElimination = useGameStore((state) => state.applyElimination);
   const applyFinaleStarted = useGameStore((state) => state.applyFinaleStarted);
+  const applyPowerupActivated = useGameStore((state) => state.applyPowerupActivated);
+  const applyPowerupPrivateEffect = useGameStore((state) => state.applyPowerupPrivateEffect);
   const applyGameOver = useGameStore((state) => state.applyGameOver);
-  const applyLootDrop = useGameStore((state) => state.applyLootDrop);
-  const applyLevelUp = useGameStore((state) => state.applyLevelUp);
-  const applyFiftyFiftyMask = useGameStore((state) => state.applyFiftyFiftyMask);
 
   useEffect(() => {
     if (roomId && roomCode) {
@@ -98,37 +96,21 @@ export function useGameSocket(roomId: string | undefined) {
     );
 
     unsubs.push(
+      socketService.on('powerup:activated', (payload) => {
+        applyPowerupActivated(payload);
+      }),
+    );
+
+    unsubs.push(
+      socketService.on('powerup:private_effect', (payload) => {
+        applyPowerupPrivateEffect(payload);
+      }),
+    );
+
+    unsubs.push(
       socketService.on('game:over', (payload) => {
         applyGameOver(payload);
         navigate(`/results/${payload.roomId}`, { replace: true });
-      }),
-    );
-
-    unsubs.push(
-      socketService.on('game:level_up', (payload) => {
-        applyLevelUp({
-          playerId: payload.userId,
-          newLevel: payload.newLevel,
-          xp: payload.xpAwarded,
-          xpToNextLevel: payload.xpToNextLevel,
-        });
-      }),
-    );
-
-    unsubs.push(
-      socketService.on('powerup:loot_drop', (payload) => {
-        const parsed = powerupLootDropPayloadSchema.safeParse(payload);
-        if (parsed.success) {
-          applyLootDrop(parsed.data.powerupType, parsed.data.quantity);
-        }
-      }),
-    );
-
-    unsubs.push(
-      socketService.on('powerup:effect_private', (payload) => {
-        if (payload.type === 'FIFTY_FIFTY' && Array.isArray(payload.maskedAnswerIndices)) {
-          applyFiftyFiftyMask(payload.maskedAnswerIndices as number[]);
-        }
       }),
     );
 
@@ -145,13 +127,12 @@ export function useGameSocket(roomId: string | undefined) {
     applyAnswerLocked,
     applyCountdown,
     applyElimination,
-    applyFiftyFiftyMask,
     applyFinaleStarted,
     applyGameOver,
-    applyLevelUp,
-    applyLootDrop,
     applyPlayerJoined,
     applyPlayerLeft,
+    applyPowerupActivated,
+    applyPowerupPrivateEffect,
     applyQuestion,
     applyRoomState,
     applyRoundResult,

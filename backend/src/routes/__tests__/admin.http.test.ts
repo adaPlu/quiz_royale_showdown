@@ -20,6 +20,8 @@ const loggerMock = vi.hoisted(() => ({
   error: vi.fn(),
 }));
 
+const TEST_ADMIN_SECRET = "change-me-in-production";
+
 vi.mock("../../models/prismaClient", () => ({
   prisma: prismaMock,
 }));
@@ -31,8 +33,6 @@ vi.mock("../../services/QuestionGeneratorService", () => ({
 vi.mock("../../utils/logger", () => ({
   logger: loggerMock,
 }));
-
-import { env } from "../../config/env";
 
 interface TestResponse {
   status: number;
@@ -95,6 +95,8 @@ async function createAdminTestApp(): Promise<Express> {
 describe("admin routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.ADMIN_SECRET = TEST_ADMIN_SECRET;
+    process.env.NODE_ENV = "test";
     questionGeneratorServiceMock.isAvailable = true;
     questionGeneratorServiceMock.generateAndStore.mockResolvedValue(undefined);
     questionGeneratorServiceMock.refillIfNeeded.mockResolvedValue(undefined);
@@ -109,7 +111,7 @@ describe("admin routes", () => {
     const app = await createAdminTestApp();
 
     const response = await request(app, "GET", "/api/v1/admin/questions/count", undefined, {
-      "x-admin-key": env.adminSecret,
+      "x-admin-key": TEST_ADMIN_SECRET,
     });
 
     expect(response.status).toBe(200);
@@ -122,7 +124,7 @@ describe("admin routes", () => {
     const response = await request(
       app,
       "GET",
-      `/api/v1/admin/questions/count?adminKey=${encodeURIComponent(env.adminSecret)}`
+      `/api/v1/admin/questions/count?adminKey=${TEST_ADMIN_SECRET}`
     );
 
     expect(response.status).toBe(401);
@@ -133,7 +135,7 @@ describe("admin routes", () => {
     const app = await createAdminTestApp();
 
     const response = await request(app, "POST", "/api/v1/admin/questions/refill", {
-      adminKey: env.adminSecret,
+      adminKey: TEST_ADMIN_SECRET,
     });
 
     expect(response.status).toBe(401);
@@ -146,13 +148,13 @@ describe("admin routes", () => {
 
     for (let requestNumber = 0; requestNumber < 20; requestNumber += 1) {
       const response = await request(app, "GET", "/api/v1/admin/questions/count", undefined, {
-        "x-admin-key": env.adminSecret,
+        "x-admin-key": TEST_ADMIN_SECRET,
       });
       expect(response.status).toBe(200);
     }
 
     const limited = await request(app, "GET", "/api/v1/admin/questions/count", undefined, {
-      "x-admin-key": env.adminSecret,
+      "x-admin-key": TEST_ADMIN_SECRET,
     });
 
     expect(limited.status).toBe(429);
@@ -170,7 +172,7 @@ describe("admin routes", () => {
       "POST",
       "/api/v1/admin/questions/generate",
       { count: 10_000 },
-      { "x-admin-key": env.adminSecret }
+      { "x-admin-key": TEST_ADMIN_SECRET }
     );
 
     expect(response.status).toBe(200);
@@ -189,7 +191,7 @@ describe("admin routes", () => {
       "POST",
       "/api/v1/admin/questions/generate",
       { count: 0 },
-      { "x-admin-key": env.adminSecret }
+      { "x-admin-key": TEST_ADMIN_SECRET }
     );
 
     expect(response.status).toBe(400);
@@ -206,7 +208,7 @@ describe("admin routes", () => {
       "POST",
       "/api/v1/admin/questions/generate",
       { count: 5 },
-      { "x-admin-key": env.adminSecret }
+      { "x-admin-key": TEST_ADMIN_SECRET }
     );
     await new Promise((resolve) => setTimeout(resolve, 0));
 

@@ -1,10 +1,9 @@
 import bcrypt from "bcrypt";
+import { Prisma } from "@prisma/client";
 import type { Request, Response } from "express";
 import { Router } from "express";
-import rateLimit from "express-rate-limit";
 import { z } from "zod";
 
-import { env } from "../config/env";
 import { requireAuth } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { prisma } from "../models/prismaClient";
@@ -17,18 +16,13 @@ import {
 import { ConflictError, ForbiddenError, UnauthorizedError } from "../utils/errors";
 import { generateId } from "../utils/ulid";
 import { logger } from "../utils/logger";
+import { env } from "../config/env";
 
 const BCRYPT_ROUNDS = 12;
 
-const REFRESH_COOKIE_NAME = "qrs.rt";
-const REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-const REFRESH_COOKIE_SAME_SITE = env.isProduction ? "none" : "lax";
-const REFRESH_TOKEN_RESPONSE_HEADER = "x-refresh-token-response";
-const CSRF_PROTECTION_HEADER = "x-csrf-protection";
-
 const registerSchema = z
   .object({
-    email: z.string().email().max(254),
+    email: z.string().email(),
     username: z
       .string()
       .trim()
@@ -36,8 +30,8 @@ const registerSchema = z
       .max(24)
       .regex(/^\w+$/, "username must be alphanumeric")
       .optional(),
-    displayName: z.string().trim().min(1).max(32).optional(),
-    password: z.string().min(8).max(128)
+    displayName: z.string().trim().min(1).max(40).optional(),
+    password: z.string().min(8).max(72)
   })
   .refine((value) => Boolean(value.displayName ?? value.username), {
     message: "displayName or username is required",
@@ -45,71 +39,32 @@ const registerSchema = z
   });
 
 const loginSchema = z.object({
-  email: z.string().email().max(254),
-  password: z.string().min(1).max(128)
+  email: z.string().email(),
+  password: z.string().min(1)
 });
 
-const refreshSchema = z
+const optionalRefreshSchema = z
   .object({
     refreshToken: z.string().min(20).optional()
   })
   .default({});
 
-const registerLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many registration attempts, please try again later." },
-});
-
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many login attempts, please try again later." },
-});
-
-const logoutLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many logout attempts, please try again later." },
-});
-
-const refreshLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many refresh attempts, please try again later." },
-});
-
-const meLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many requests to /me, please try again later." },
-});
+const REFRESH_COOKIE_NAME = "quiz_refresh";
+const REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const CSRF_HEADER_NAME = "x-csrf-protection";
+const REFRESH_TOKEN_RESPONSE_HEADER = "x-refresh-token-response";
+const refreshCookieSameSite = env.isProduction ? "none" : "lax";
 
 export const authRouter = Router();
 
-function isUniqueConstraintError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "P2002"
-  );
+function isUniqueConstraintError(error: unknown): error is Prisma.PrismaClientKnownRequestError {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
 
 function formatAuthPayload(
   user: { id: string; email: string; displayName: string },
   tokens: { accessToken: string; refreshToken: string },
-  includeRefreshToken = false
+  includeRefreshToken: boolean
 ) {
   return {
     user: {
@@ -126,9 +81,9 @@ function setRefreshCookie(res: Response, refreshToken: string): void {
   res.cookie(REFRESH_COOKIE_NAME, refreshToken, {
     httpOnly: true,
     secure: env.isProduction,
-    sameSite: REFRESH_COOKIE_SAME_SITE,
+    sameSite: refreshCookieSameSite,
     path: "/api/v1/auth",
-    maxAge: REFRESH_COOKIE_MAX_AGE_MS,
+    maxAge: REFRESH_COOKIE_MAX_AGE_MS
   });
 }
 
@@ -136,44 +91,55 @@ function clearRefreshCookie(res: Response): void {
   res.clearCookie(REFRESH_COOKIE_NAME, {
     httpOnly: true,
     secure: env.isProduction,
-    sameSite: REFRESH_COOKIE_SAME_SITE,
-    path: "/api/v1/auth",
+    sameSite: refreshCookieSameSite,
+    path: "/api/v1/auth"
   });
+}
+
+function getCookieValue(req: Request, name: string): string | null {
+  const cookieHeader = req.headers.cookie;
+  if (!cookieHeader) return null;
+
+  for (const cookie of cookieHeader.split(";")) {
+    const [rawName, ...rawValueParts] = cookie.trim().split("=");
+    if (rawName !== name) continue;
+
+    const rawValue = rawValueParts.join("=");
+    if (!rawValue) return null;
+
+    try {
+      return decodeURIComponent(rawValue);
+    } catch {
+      return rawValue;
+    }
+  }
+
+  return null;
 }
 
 function wantsRefreshTokenInBody(req: Request): boolean {
   return req.get(REFRESH_TOKEN_RESPONSE_HEADER)?.toLowerCase() === "body";
 }
 
-function getBodyRefreshToken(req: Request): string | null {
-  const token = (req.body as { refreshToken?: string }).refreshToken;
-  return typeof token === "string" && token.length > 0 ? token : null;
-}
-
-function getCookieRefreshToken(req: Request): string | null {
-  const token = req.cookies?.[REFRESH_COOKIE_NAME];
-  return typeof token === "string" && token.length > 0 ? token : null;
-}
-
-function getRequestRefreshToken(req: Request): string | null {
-  const bodyToken = getBodyRefreshToken(req);
-  if (bodyToken) {
-    return bodyToken;
-  }
-
-  const cookieToken = getCookieRefreshToken(req);
-  if (!cookieToken) {
-    return null;
-  }
-
-  if (req.get(CSRF_PROTECTION_HEADER) !== "1") {
+function assertCookieCsrfHeader(req: Request): void {
+  if (req.get(CSRF_HEADER_NAME) !== "1") {
     throw new ForbiddenError("Missing CSRF protection header");
   }
-
-  return cookieToken;
 }
 
-authRouter.post("/register", registerLimiter, validate({ body: registerSchema }), async (req, res, next) => {
+function getRequestRefreshToken(req: Request): { token: string | null; fromCookie: boolean } {
+  const cookieToken = getCookieValue(req, REFRESH_COOKIE_NAME);
+  if (cookieToken) {
+    return { token: cookieToken, fromCookie: true };
+  }
+
+  return {
+    token: (req.body as { refreshToken?: string }).refreshToken ?? null,
+    fromCookie: false
+  };
+}
+
+authRouter.post("/register", validate({ body: registerSchema }), async (req, res, next) => {
   try {
     const { email, username, displayName, password } = req.body as z.infer<typeof registerSchema>;
     const normalizedEmail = email.toLowerCase().trim();
@@ -223,7 +189,7 @@ authRouter.post("/register", registerLimiter, validate({ body: registerSchema })
   }
 });
 
-authRouter.post("/login", loginLimiter, validate({ body: loginSchema }), async (req, res, next) => {
+authRouter.post("/login", validate({ body: loginSchema }), async (req, res, next) => {
   try {
     const { email, password } = req.body as z.infer<typeof loginSchema>;
     const normalizedEmail = email.toLowerCase().trim();
@@ -263,15 +229,18 @@ authRouter.post("/login", loginLimiter, validate({ body: loginSchema }), async (
   }
 });
 
-authRouter.post("/refresh", refreshLimiter, validate({ body: refreshSchema }), async (req, res, next) => {
+authRouter.post("/refresh", validate({ body: optionalRefreshSchema }), async (req, res, next) => {
   try {
     const refreshToken = getRequestRefreshToken(req);
-
-    if (!refreshToken) {
+    if (!refreshToken.token) {
       throw new UnauthorizedError("Missing refresh token");
     }
 
-    const tokens = await rotateRefreshToken(refreshToken);
+    if (refreshToken.fromCookie) {
+      assertCookieCsrfHeader(req);
+    }
+
+    const tokens = await rotateRefreshToken(refreshToken.token);
 
     logger.info("Tokens refreshed");
 
@@ -285,12 +254,16 @@ authRouter.post("/refresh", refreshLimiter, validate({ body: refreshSchema }), a
   }
 });
 
-authRouter.post("/logout", logoutLimiter, validate({ body: refreshSchema }), async (req, res, next) => {
+authRouter.post("/logout", validate({ body: optionalRefreshSchema }), async (req, res, next) => {
   try {
     const refreshToken = getRequestRefreshToken(req);
 
-    if (refreshToken) {
-      await revokeRefreshToken(refreshToken);
+    if (refreshToken.fromCookie) {
+      assertCookieCsrfHeader(req);
+    }
+
+    if (refreshToken.token) {
+      await revokeRefreshToken(refreshToken.token);
     }
 
     clearRefreshCookie(res);
@@ -300,7 +273,7 @@ authRouter.post("/logout", logoutLimiter, validate({ body: refreshSchema }), asy
   }
 });
 
-authRouter.get("/me", meLimiter, requireAuth, async (req, res, next) => {
+authRouter.get("/me", requireAuth, async (req, res, next) => {
   try {
     const userId = req.jwtClaims?.sub;
 

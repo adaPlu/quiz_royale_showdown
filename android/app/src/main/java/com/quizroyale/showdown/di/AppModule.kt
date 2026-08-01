@@ -95,9 +95,7 @@ object AppModule {
   @Provides
   @Singleton
   fun provideDatabase(@ApplicationContext context: Context): AppDatabase {
-    return Room.databaseBuilder(context, AppDatabase::class.java, "quiz_royale.db")
-        .addMigrations(AppDatabase.MIGRATION_1_2)
-        .build()
+    return Room.databaseBuilder(context, AppDatabase::class.java, "quiz_royale.db").build()
   }
 
   private fun OkHttpClient.Builder.addDebugLogging(): OkHttpClient.Builder {

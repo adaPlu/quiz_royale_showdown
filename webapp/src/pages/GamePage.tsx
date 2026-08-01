@@ -1,12 +1,13 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect } from 'react';
-import { useParams } from '../navigation';
+import { useCallback, useEffect, useState } from 'react';
+import { useNavigate, useParams } from '../navigation';
 
 import { CountdownBar } from '@/components/CountdownBar';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { PowerUpTray } from '@/components/PowerUpTray';
 import type { PowerupSlot } from '@/components/PowerUpTray';
 import { useGameSocket } from '@/hooks/useGameSocket';
+import { api } from '@/services/apiClient';
 import { socketService } from '@/services/socketService';
 import { useAuthStore } from '@/stores/authStore';
 import {
@@ -46,6 +47,8 @@ function answerButtonClass(
 // ---------------------------------------------------------------------------
 export const GamePage = () => {
   const { roomId } = useParams<{ roomId: string }>();
+  const navigate = useNavigate();
+  const [isExiting, setIsExiting] = useState(false);
 
   // Wire all WS events → gameStore, and navigate on game:over
   useGameSocket(roomId);
@@ -62,23 +65,23 @@ export const GamePage = () => {
   const revealedOptionIndex = useGameStore((s) => s.revealedOptionIndex);
   const timeBoostActive = useGameStore((s) => s.timeBoostActive);
   const setMyAnswer = useGameStore((s) => s.setMyAnswer);
+  const resetRoom = useGameStore((s) => s.resetRoom);
   const leaderboard = useGameStore(selectLeaderboard);
   const players     = useGameStore((s) => s.players);
 
-  const powerupInventory = useGameStore((s) => s.powerupInventory);
-
   const powerupSlots: PowerupSlot[] = [
-    { type: 'fifty_fifty',  owned: (powerupInventory['FIFTY_FIFTY'] ?? 0) > 0, used: fiftyFiftyEliminated.length > 0 },
-    { type: 'shield',       owned: (powerupInventory['SHIELD'] ?? 0) > 0, used: false },
-    { type: 'time_boost',   owned: (powerupInventory['TIME_FREEZE'] ?? 0) > 0, used: timeBoostActive },
-    { type: 'reveal_wrong', owned: (powerupInventory['DOUBLE_DOWN'] ?? 0) > 0, used: revealedOptionIndex !== null },
+    { type: 'DOUBLE_DOWN', owned: false, used: false },
+    { type: 'FIFTY_FIFTY', owned: false, used: fiftyFiftyEliminated.length > 0 },
+    { type: 'TIME_FREEZE', owned: false, used: timeBoostActive },
+    { type: 'SHIELD', owned: false, used: false },
+    { type: 'SABOTAGE', owned: false, used: revealedOptionIndex !== null },
   ];
 
   const isLocked = myAnswer !== null || phase === 'ANSWER_LOCKED' || phase === 'ROUND_RESULT';
   const correctIndex = result?.correctAnswerIndex ?? null;
   const durationSec = question ? question.timeLimitMs / 1000 : 20;
 
-  const handleAnswer = (index: number) => {
+  const handleAnswer = useCallback((index: number) => {
     if (isLocked || !question || !roomId) return;
     setMyAnswer(index);
     socketService.emit('round:submit_answer', {
@@ -87,28 +90,52 @@ export const GamePage = () => {
       answerIndex: index,
       clientSentAt: new Date().toISOString(),
     });
-  };
+  }, [isLocked, question, roomId, setMyAnswer]);
 
-  // ── Keyboard shortcuts 1–4 for answer selection ──────────────────────────
+  const handleExitGame = useCallback(async () => {
+    if (isExiting) return;
+
+    setIsExiting(true);
+    try {
+      if (roomId) {
+        await api.post(`/rooms/${roomId}/leave`);
+      }
+    } catch {
+      // Local exit still wins so the player is not trapped by a transient API failure.
+    } finally {
+      socketService.disconnect(true);
+      resetRoom();
+      navigate('/home', { replace: true });
+    }
+  }, [isExiting, navigate, resetRoom, roomId]);
+
   useEffect(() => {
-    if (phase !== 'QUESTION_ACTIVE' || !question) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
 
-    const onKeyDown = (event: KeyboardEvent) => {
-      // Skip if the user is typing in a form field
-      const tag = (event.target as HTMLElement | null)?.tagName ?? '';
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      const target = event.target as HTMLElement | null;
+      const tagName = target?.tagName;
+      if (
+        target?.isContentEditable ||
+        tagName === 'INPUT' ||
+        tagName === 'TEXTAREA' ||
+        tagName === 'SELECT'
+      ) {
+        return;
+      }
 
-      const keyToIndex: Record<string, number> = { '1': 0, '2': 1, '3': 2, '4': 3 };
-      const index = keyToIndex[event.key];
-      if (index === undefined) return;
+      const optionIndex = Number(event.key) - 1;
+      if (!Number.isInteger(optionIndex) || optionIndex < 0 || optionIndex > 3) return;
+      if (isLocked || !question || !roomId) return;
+      if (fiftyFiftyEliminated.includes(optionIndex)) return;
 
-      handleAnswer(index);
+      event.preventDefault();
+      handleAnswer(optionIndex);
     };
 
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, question, isLocked, roomId]);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [fiftyFiftyEliminated, handleAnswer, isLocked, question, roomId]);
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(255,215,0,0.12),_transparent_40%),linear-gradient(180deg,#101020,#06060C)] px-4 py-6 text-white md:px-8">
@@ -121,7 +148,6 @@ export const GamePage = () => {
             initial={{ y: -80, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: -80, opacity: 0 }}
-            role="alert"
             className="fixed inset-x-0 top-0 z-50 flex items-center justify-center bg-answer-wrong/90 py-4 text-xl font-black uppercase tracking-widest backdrop-blur"
           >
             💀 A player has been eliminated!
@@ -152,13 +178,19 @@ export const GamePage = () => {
               </h1>
             </div>
 
-            {/* Countdown pill */}
-            <div
-              role="timer"
-              aria-live="polite"
-              className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-2xl font-black text-gold"
-            >
-              {question ? `${Math.round(durationSec)}` : '--'}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => void handleExitGame()}
+                disabled={isExiting}
+                className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-white/80 transition hover:border-white/30 hover:text-white disabled:opacity-50"
+              >
+                {isExiting ? 'Exiting...' : 'Exit Game'}
+              </button>
+              {/* Countdown pill */}
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-2xl font-black text-gold">
+                {question ? `${Math.round(durationSec)}` : '--'}
+              </div>
             </div>
           </div>
 
@@ -190,8 +222,6 @@ export const GamePage = () => {
                     type="button"
                     disabled={isLocked || !question}
                     onClick={() => handleAnswer(index)}
-                    aria-label={`Answer ${index + 1}: ${answer}`}
-                    aria-pressed={myAnswer === index}
                     whileHover={!isLocked && !!question ? { scale: 1.02 } : {}}
                     whileTap={!isLocked && !!question ? { scale: 0.97 } : {}}
                     className={[

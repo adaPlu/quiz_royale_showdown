@@ -1,10 +1,7 @@
-import { randomBytes } from "crypto";
 import { Router } from "express";
-import { logger } from "../utils/logger";
 import { z } from "zod";
 
 import { requireAuth } from "../middleware/auth";
-import { apiLimiter } from "../middleware/rateLimiter";
 import { validate } from "../middleware/validate";
 import { prisma } from "../models/prismaClient";
 import { gameOrchestrator } from "../services/GameOrchestrator";
@@ -14,7 +11,7 @@ import {
   roomService,
 } from "../services/RoomService";
 import { getIo } from "../socket";
-import { NotFoundError, UnauthorizedError } from "../utils/errors";
+import { UnauthorizedError } from "../utils/errors";
 import { isValidId } from "../utils/ulid";
 
 export const roomsRouter = Router();
@@ -28,7 +25,7 @@ const joinRoomSchema = z.object({
   roomCode: z
     .string()
     .trim()
-    .min(4)
+    .min(8)
     .max(8)
     .nullable()
     .optional()
@@ -42,7 +39,7 @@ const roomCodeParamsSchema = z.object({
   roomCode: z
     .string()
     .trim()
-    .length(6, "roomCode must be exactly 6 characters")
+    .length(8, "roomCode must be exactly 8 characters")
     .transform((value) => value.toUpperCase()),
 });
 
@@ -50,18 +47,8 @@ const roomIdParamsSchema = z.object({
   roomId: z.string().trim().refine(isValidId, "roomId must be a valid ULID"),
 });
 
-const startRoomSchema = z
-  .object({
-    allowSolo: z.boolean().optional().default(false),
-  })
-  .default({ allowSolo: false });
-
-const inviteCodeParamsSchema = z.object({
-  inviteCode: z
-    .string()
-    .trim()
-    .length(16, "inviteCode must be exactly 16 characters")
-    .regex(/^[A-Za-z0-9_-]+$/, "inviteCode contains invalid characters"),
+const startRoomSchema = z.object({
+  allowSolo: z.boolean().optional().default(false),
 });
 
 function getAuthenticatedUserId(jwtSub?: string): string {
@@ -188,9 +175,7 @@ roomsRouter.post(
         gameOrchestrator.hasActiveGame(roomId)
       );
 
-      const room = allowSolo
-        ? await roomService.startGame(roomId, requesterId, { allowSolo: true })
-        : await roomService.startGame(roomId, requesterId);
+      const room = await roomService.startGame(roomId, requesterId, { allowSolo });
 
       try {
         await gameOrchestrator.assertQuestionBankReady();
@@ -202,92 +187,21 @@ roomsRouter.post(
         throw error;
       }
 
-      // Fetch player IDs, optionally wait for a second player (bot fill),
-      // then fire the game loop asynchronously.
-      // Do NOT await the orchestrator — the FSM drives itself over socket events.
+      // Fetch player IDs and fire the game loop asynchronously.
+      // Do NOT await — the FSM drives itself over socket events.
       const playerRows = await prisma.roomPlayer.findMany({
         where: { roomId },
         select: { userId: true },
       });
-      const humanPlayerIds = playerRows.map((row) => row.userId);
+      const playerIds = playerRows.map((row) => row.userId);
 
-      // waitForPlayersOrFillBots waits up to 10 s for a second human; injects
-      // a QuizBot if none joins in time. Fire-and-forget the whole block.
-      void roomService.waitForPlayersOrFillBots(roomId, humanPlayerIds, {
-        delayMs: allowSolo ? 0 : undefined,
-      }).then((playerIds) =>
-        gameOrchestrator.startGame(roomId, playerIds, getIo())
-      ).catch((err: unknown) => {
+      void gameOrchestrator.startGame(roomId, playerIds, getIo()).catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
         // Logger is imported transitively via RoomService; use console as fallback here.
-        logger.error("[rooms] GameOrchestrator.startGame failed", { roomId, message });
+        console.error("[rooms] GameOrchestrator.startGame failed", { roomId, message });
       });
 
       res.json(formatRoomResponse(room));
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-// GET /rooms/join/:inviteCode — look up a room by invite code (no auth required)
-roomsRouter.get("/join/:inviteCode", apiLimiter, validate({ params: inviteCodeParamsSchema }), async (req, res, next) => {
-  try {
-    const { inviteCode } = req.params as z.infer<typeof inviteCodeParamsSchema>;
-    const room = await prisma.room.findFirst({
-      where: { inviteCode, status: "WAITING" },
-      select: {
-        id: true,
-        code: true,
-        players: { select: { id: true } },
-      },
-    });
-
-    if (!room) {
-      throw new NotFoundError("Room not found or not accepting players");
-    }
-
-    res.json({
-      roomId: room.id,
-      code: room.code,
-      playerCount: room.players.length,
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// POST /rooms/:id/invite — generate an invite code (auth required, host only)
-roomsRouter.post(
-  "/:roomId/invite",
-  requireAuth,
-  validate({ params: roomIdParamsSchema }),
-  async (req, res, next) => {
-    try {
-      const userId = getAuthenticatedUserId(req.jwtClaims?.sub);
-      const { roomId } = req.params as z.infer<typeof roomIdParamsSchema>;
-
-      const room = await prisma.room.findUnique({
-        where: { id: roomId },
-        select: { hostUserId: true },
-      });
-
-      if (!room) {
-        throw new NotFoundError("Room not found");
-      }
-
-      if (room.hostUserId !== userId) {
-        throw new UnauthorizedError("Only the room host can generate an invite code");
-      }
-
-      const inviteCode = randomBytes(12).toString("base64url");
-
-      await prisma.room.update({
-        where: { id: roomId },
-        data: { inviteCode },
-      });
-
-      res.json({ inviteCode });
     } catch (error) {
       next(error);
     }

@@ -7,14 +7,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { UnauthorizedError } from "../../utils/errors";
 
 const prismaMock = vi.hoisted(() => ({
-  friendship: {
-    findMany: vi.fn(),
-  },
   user: {
     findMany: vi.fn(),
-  },
-  xpEvent: {
-    groupBy: vi.fn(),
   },
 }));
 
@@ -96,12 +90,7 @@ describe("leaderboard routes", () => {
     expect(prismaMock.user.findMany).not.toHaveBeenCalled();
   });
 
-  it("returns the authenticated user instead of global top users when there are no friends", async () => {
-    prismaMock.friendship.findMany.mockResolvedValue([]);
-    prismaMock.user.findMany.mockResolvedValue([
-      { id: "viewer-1", displayName: "Viewer", avatarUrl: null },
-    ]);
-    prismaMock.xpEvent.groupBy.mockResolvedValue([]);
+  it("returns an empty friends leaderboard instead of global top users", async () => {
     const app = await createLeaderboardTestApp();
 
     const response = await request(app, "/api/v1/leaderboard/friends", {
@@ -109,19 +98,7 @@ describe("leaderboard routes", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual([
-      {
-        rank: 1,
-        userId: "viewer-1",
-        displayName: "Viewer",
-        avatarUrl: null,
-        totalXp: 0,
-        level: 1,
-      },
-    ]);
-    expect(prismaMock.user.findMany).toHaveBeenCalledWith({
-      where: { id: { in: ["viewer-1"] } },
-      select: { id: true, displayName: true, avatarUrl: true },
-    });
+    expect(response.body).toEqual([]);
+    expect(prismaMock.user.findMany).not.toHaveBeenCalled();
   });
 });

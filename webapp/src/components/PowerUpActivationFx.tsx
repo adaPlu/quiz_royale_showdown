@@ -1,8 +1,8 @@
 import { AnimatePresence, motion } from 'framer-motion';
 
-import type { PowerUpCode as PowerupType } from '@/stores/profileStore';
+import type { PowerUpCode } from '@/stores/profileStore';
 
-const FX_META: Record<PowerupType, { label: string; emoji: string; color: string }> = {
+const FX_META: Record<PowerUpCode, { label: string; emoji: string; color: string }> = {
   FIFTY_FIFTY: { label: '50 / 50', emoji: '✂️', color: 'from-violet-600 to-fuchsia-700' },
   SHIELD: { label: 'Shield Active', emoji: '🛡️', color: 'from-sky-500 to-blue-700' },
   TIME_FREEZE: { label: 'Time Frozen', emoji: '⏱️', color: 'from-amber-400 to-orange-600' },
@@ -11,7 +11,7 @@ const FX_META: Record<PowerupType, { label: string; emoji: string; color: string
 };
 
 interface PowerUpActivationFxProps {
-  powerupCode: PowerupType | null;
+  powerupCode: PowerUpCode | null;
   activatingUserId: string;
   currentUserId: string;
   onComplete: () => void;

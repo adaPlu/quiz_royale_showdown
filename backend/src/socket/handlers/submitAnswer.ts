@@ -1,11 +1,8 @@
 import type { Server } from "socket.io";
 import { z } from "zod";
-import { prisma } from "../../models/prismaClient";
-import { powerUpService } from "../../services/PowerUpService";
 import { redisService } from "../../services/RedisService";
 import type { SocketErrorEvent } from "../../types/contracts";
 import { logger } from "../../utils/logger";
-import { generateId } from "../../utils/ulid";
 import type { AuthenticatedSocket } from "../middleware";
 
 const submitAnswerSchema = z.object({
@@ -15,7 +12,7 @@ const submitAnswerSchema = z.object({
   clientSentAt: z.string().datetime()
 });
 
-const ANSWER_LOCK_TTL_SECONDS = 300;
+const ANSWER_LOCK_TTL_SECONDS = 3600;
 const ANSWER_GRACE_MS = 500;
 
 type CurrentQuestionContext = {
@@ -70,8 +67,6 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
 
     const { roomId, questionId, answerIndex, clientSentAt } = parsed.data;
     const userId = socket.data.userId;
-    let lockKey: string | null = null;
-    let answerWritten = false;
 
     try {
       if (!redisService) {
@@ -88,15 +83,6 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
         return;
       }
 
-      const roomPlayer = await prisma.roomPlayer.findUnique({
-        where: { roomId_userId: { roomId, userId } },
-        select: { isEliminated: true },
-      });
-      if (!roomPlayer || roomPlayer.isEliminated) {
-        emitError(socket, 'ELIMINATED', 'You have been eliminated');
-        return;
-      }
-
       const questionContext = await redisService.getJson<CurrentQuestionContext>(
         `game:${roomId}:current_question`
       );
@@ -107,37 +93,24 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
       }
 
       const receivedAtMs = Date.now();
-      // TIME_FREEZE: fetch any extra deadline ms granted to this player
-      const timeBoostMs = await powerUpService.getTimeBoostMs(roomId, userId);
-      const deadline = questionContext.startTs + questionContext.timeLimitMs + ANSWER_GRACE_MS + timeBoostMs;
+      const deadline = questionContext.startTs + questionContext.timeLimitMs + ANSWER_GRACE_MS;
 
       if (receivedAtMs > deadline) {
         emitError(socket, "ANSWER_TOO_LATE", "Answer submitted after the round was locked");
         return;
       }
 
-      lockKey = `answer_lock:${roomId}:${questionContext.roundId}:${userId}`;
+      const lockKey = `answer_lock:${roomId}:${questionContext.roundId}:${userId}`;
       const locked = await redisService.setnx(lockKey, "1", ANSWER_LOCK_TTL_SECONDS);
       if (!locked) {
         emitError(socket, "ALREADY_ANSWERED", "You have already submitted an answer for this round");
-        lockKey = null;
         return;
       }
 
-      // Consume time boost now that the answer is accepted
-      if (timeBoostMs > 0) await powerUpService.consumeTimeBoost(roomId, userId);
-
-      // SABOTAGE: server forces answer wrong regardless of what was submitted
-      const isSabotaged = await powerUpService.consumeSabotage(roomId, userId);
-      const isCorrect = !isSabotaged && answerIndex === questionContext.correctAnswerIndex;
-
-      const baseScore = isCorrect
+      const isCorrect = answerIndex === questionContext.correctAnswerIndex;
+      const scoreDelta = isCorrect
         ? calculateScore(receivedAtMs, questionContext.startTs, questionContext.timeLimitMs)
         : 0;
-
-      // DOUBLE_DOWN: multiply score for correct answers only
-      const multiplier = isCorrect ? await powerUpService.consumeScoreMultiplier(roomId, userId) : 1;
-      const scoreDelta = Math.round(baseScore * multiplier);
 
       await redisService.zincrby(`room:${roomId}:scores`, scoreDelta, userId);
 
@@ -152,22 +125,6 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
           submittedAt: new Date(receivedAtMs).toISOString()
         })
       );
-
-      answerWritten = true;
-
-      const answerTimeMs = Math.max(0, receivedAtMs - questionContext.startTs);
-      await prisma.answer.upsert({
-        where: { roundId_userId: { roundId: questionContext.roundId, userId } },
-        update: { answerIndex, isCorrect, answerTimeMs },
-        create: {
-          id: generateId(),
-          roundId: questionContext.roundId,
-          userId,
-          answerIndex,
-          isCorrect,
-          answerTimeMs,
-        },
-      });
 
       logger.info("Answer submitted", {
         roomId,
@@ -184,10 +141,6 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
         message: error instanceof Error ? error.message : String(error)
       });
       emitError(socket, "INTERNAL_ERROR", "Failed to submit answer");
-    } finally {
-      if (lockKey && !answerWritten && redisService) {
-        await redisService.del(lockKey).catch(() => undefined);
-      }
     }
   });
 }

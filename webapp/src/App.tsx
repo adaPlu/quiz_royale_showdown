@@ -13,9 +13,6 @@ const HomePage = lazy(() => import('@/pages/HomePage'));
 const ResultsPage = lazy(() => import('@/pages/ResultsPage'));
 const ProfilePage = lazy(() => import('@/pages/ProfilePage'));
 const LeaderboardPage = lazy(() => import('@/pages/LeaderboardPage'));
-const CosmeticsPage = lazy(() => import('@/pages/CosmeticsPage'));
-const FriendsPage = lazy(() => import('@/pages/FriendsPage'));
-const JoinPage = lazy(() => import('@/pages/JoinPage'));
 
 const Spinner = () => (
   <div className="min-h-screen bg-game-bg flex items-center justify-center">
@@ -75,7 +72,6 @@ export const App = () => {
       <Routes>
         <Route path="/login" element={<PublicOnly><LoginPage /></PublicOnly>} />
         <Route path="/register" element={<PublicOnly><RegisterPage /></PublicOnly>} />
-        <Route path="/join/:inviteCode" element={<JoinPage />} />
 
         <Route path="/home" element={<RequireAuth><HomePage /></RequireAuth>} />
         <Route path="/lobby/:roomId" element={<RequireAuth><LobbyPage /></RequireAuth>} />
@@ -83,8 +79,6 @@ export const App = () => {
         <Route path="/results/:roomId" element={<RequireAuth><ResultsPage /></RequireAuth>} />
         <Route path="/profile/:username" element={<RequireAuth><ProfilePage /></RequireAuth>} />
         <Route path="/leaderboard" element={<RequireAuth><LeaderboardPage /></RequireAuth>} />
-        <Route path="/cosmetics" element={<RequireAuth><CosmeticsPage /></RequireAuth>} />
-        <Route path="/friends" element={<RequireAuth><FriendsPage /></RequireAuth>} />
 
         <Route path="/" element={<RootRedirect />} />
         <Route path="*" element={<RootRedirect />} />

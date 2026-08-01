@@ -9,7 +9,6 @@ import type { Request, Response, NextFunction } from "express";
 import { ZodError } from "zod";
 import { isAppError } from "../utils/errors";
 import { logger } from "../utils/logger";
-import { Sentry } from "../utils/sentry";
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function errorHandler(
@@ -37,7 +36,6 @@ export function errorHandler(
         message: err.message,
         stack: err.stack
       });
-      Sentry.captureException(err);
     }
 
     const body: Record<string, unknown> = {
@@ -60,7 +58,6 @@ export function errorHandler(
     message: err instanceof Error ? err.message : String(err),
     stack: err instanceof Error ? err.stack : undefined
   });
-  Sentry.captureException(err);
 
   const isDev = process.env.NODE_ENV !== "production";
 
