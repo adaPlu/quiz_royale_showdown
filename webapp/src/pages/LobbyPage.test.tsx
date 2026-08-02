@@ -41,5 +41,6 @@ describe('LobbyPage', () => {
     expect(html).toContain('Copy for Friends');
     expect(html).toContain('Email Invite');
     expect(html).toContain('Multiplayer starts after at least one more player joins.');
+    expect(html).toContain('Solo starts automatically in 30s.');
   });
 });

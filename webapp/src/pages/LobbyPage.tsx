@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from '../navigation';
 
 import { PlayerAvatar } from '@/components/PlayerAvatar';
@@ -19,6 +19,8 @@ const phaseCopy: Record<string, string> = {
   FINALE: 'Finale',
   GAME_OVER: 'Game over',
 };
+
+const SOLO_AUTO_START_SECONDS = 30;
 
 export const LobbyPage = () => {
   const navigate = useNavigate();
@@ -59,6 +61,8 @@ export const LobbyPage = () => {
   const [inviteNotice, setInviteNotice] = useState<string | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [email, setEmail] = useState('');
+  const [soloAutoStartRemaining, setSoloAutoStartRemaining] = useState(SOLO_AUTO_START_SECONDS);
+  const soloAutoStartFiredRef = useRef(false);
   const hasMinimumPlayers = players.length >= 2;
   const resetRoom = useGameStore((state) => state.resetRoom);
 
@@ -115,7 +119,7 @@ export const LobbyPage = () => {
     setInviteNotice('Email invite opened.');
   };
 
-  const handleStartGame = async (allowSolo = false) => {
+  const handleStartGame = useCallback(async (allowSolo = false) => {
     if (!roomId) return;
 
     if (!allowSolo && !hasMinimumPlayers) {
@@ -142,7 +146,36 @@ export const LobbyPage = () => {
     } finally {
       if (mountedRef.current) setIsStarting(false);
     }
-  };
+  }, [hasMinimumPlayers, mountedRef, roomId]);
+
+  useEffect(() => {
+    if (phase !== 'WAITING' || hasMinimumPlayers) {
+      soloAutoStartFiredRef.current = false;
+      setSoloAutoStartRemaining(SOLO_AUTO_START_SECONDS);
+      return;
+    }
+
+    if (!roomId || isStarting || soloAutoStartFiredRef.current) {
+      return;
+    }
+
+    const startedAt = Date.now();
+    setSoloAutoStartRemaining(SOLO_AUTO_START_SECONDS);
+
+    const timer = window.setInterval(() => {
+      const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
+      const remainingSeconds = Math.max(0, SOLO_AUTO_START_SECONDS - elapsedSeconds);
+      setSoloAutoStartRemaining(remainingSeconds);
+
+      if (remainingSeconds === 0 && !soloAutoStartFiredRef.current) {
+        soloAutoStartFiredRef.current = true;
+        window.clearInterval(timer);
+        void handleStartGame(true);
+      }
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [handleStartGame, hasMinimumPlayers, isStarting, phase, roomId]);
 
   const handleLeaveLobby = async () => {
     if (isLeaving) return;
@@ -255,7 +288,7 @@ export const LobbyPage = () => {
 
                 {!hasMinimumPlayers && (
                   <p className="mt-3 text-xs text-white/45">
-                    Multiplayer starts after at least one more player joins.
+                    Multiplayer starts after at least one more player joins. Solo starts automatically in {soloAutoStartRemaining}s.
                   </p>
                 )}
                 {startNotice && <p className="mt-3 text-sm text-brand-gold">{startNotice}</p>}

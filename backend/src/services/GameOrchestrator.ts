@@ -113,9 +113,10 @@ export class GameOrchestrator {
       const totalRounds = 10;
       const usedQuestionIds: string[] = [];
       const activePlayerIds = new Set(playerIds);
+      const isSoloGame = playerIds.length === 1;
       let round = 0;
 
-      while (round < totalRounds && state.playerCount > 1) {
+      while (round < totalRounds && (isSoloGame || state.playerCount > 1)) {
         round++;
 
         state = transitionGameState(state, { type: "BEGIN_QUESTION" });
@@ -155,7 +156,7 @@ export class GameOrchestrator {
 
       const finalistIds = [...activePlayerIds];
 
-      if (finalistIds.length > 0) {
+      if (finalistIds.length > 1) {
         state = transitionGameState(state, {
           type: "START_FINALE",
           finalistIds
