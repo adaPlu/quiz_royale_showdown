@@ -1,13 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Server } from "socket.io";
 
 const redisMock = {
   zrevrangeWithScores: vi.fn(),
-  del: vi.fn()
+  del: vi.fn(),
+  zadd: vi.fn(),
+  sadd: vi.fn(),
+  set: vi.fn(),
+  setJson: vi.fn(),
+  getJson: vi.fn(),
+  hgetall: vi.fn()
 };
 
 const prismaMock = {
   questionBank: {
-    count: vi.fn()
+    count: vi.fn(),
+    findFirst: vi.fn(),
+    update: vi.fn()
+  },
+  round: {
+    findFirst: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    updateMany: vi.fn()
   },
   xpEvent: {
     create: vi.fn()
@@ -54,8 +69,39 @@ describe("GameOrchestrator hardening", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     redisMock.del.mockResolvedValue(1);
+    redisMock.zadd.mockResolvedValue(1);
+    redisMock.sadd.mockResolvedValue(1);
+    redisMock.set.mockResolvedValue("OK");
+    redisMock.setJson.mockResolvedValue("OK");
+    redisMock.getJson.mockResolvedValue({
+      roundId: "round-1",
+      questionId: "question-1",
+      prompt: "Question?",
+      answers: ["A", "B", "C", "D"],
+      correctAnswerIndex: 0,
+      startTs: Date.now(),
+      startedAt: new Date().toISOString(),
+      timeLimitMs: 20_000
+    });
+    redisMock.hgetall.mockResolvedValue({});
     prismaMock.room.findUnique.mockResolvedValue({ seasonId: null });
     prismaMock.room.update.mockResolvedValue({});
+    prismaMock.questionBank.count.mockResolvedValue(10);
+    prismaMock.questionBank.findFirst.mockResolvedValue({
+      id: "question-1",
+      prompt: "Question?",
+      optionA: "A",
+      optionB: "B",
+      optionC: "C",
+      optionD: "D",
+      correctIndex: 0,
+      difficulty: "easy"
+    });
+    prismaMock.questionBank.update.mockResolvedValue({});
+    prismaMock.round.findFirst.mockResolvedValue({ roundNumber: 0 });
+    prismaMock.round.create.mockResolvedValue({});
+    prismaMock.round.update.mockResolvedValue({});
+    prismaMock.round.updateMany.mockResolvedValue({ count: 1 });
     prismaMock.xpEvent.create.mockResolvedValue({});
     prismaMock.seasonScore.upsert.mockResolvedValue({});
   });
@@ -202,5 +248,38 @@ describe("GameOrchestrator hardening", () => {
         gamesPlayed: { increment: 1 }
       }
     });
+  });
+
+  it("runs solo games through question rounds instead of failing on finale transition", async () => {
+    vi.useFakeTimers();
+    const { GameOrchestrator } = await import("../GameOrchestrator");
+    const orchestrator = new GameOrchestrator();
+    const { io, emit } = createIoMock();
+
+    redisMock.zrevrangeWithScores.mockResolvedValue([{ member: "solo-player", score: 0 }]);
+
+    const startPromise = orchestrator.startGame("room-1", ["solo-player"], io as unknown as Server);
+    await vi.runAllTimersAsync();
+    await startPromise;
+    vi.useRealTimers();
+
+    expect(emit).toHaveBeenCalledWith(
+      "message",
+      expect.objectContaining({ type: "round:question_started" })
+    );
+    expect(emit).toHaveBeenCalledWith(
+      "message",
+      expect.objectContaining({
+        type: "game:over",
+        payload: expect.objectContaining({ winnerId: "solo-player" })
+      })
+    );
+    expect(emit).not.toHaveBeenCalledWith(
+      "message",
+      expect.objectContaining({
+        type: "error",
+        payload: expect.objectContaining({ code: "GAME_START_FAILED" })
+      })
+    );
   });
 });
