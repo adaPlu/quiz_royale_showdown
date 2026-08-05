@@ -32,15 +32,15 @@ function renderLobby() {
 }
 
 describe('LobbyPage', () => {
-  it('shows solo, multiplayer, and invite actions while waiting alone', () => {
+  it('shows one unrestricted start action and invite controls while waiting alone', () => {
     const html = renderLobby();
 
-    expect(html).toContain('Start Solo');
-    expect(html).toContain('Start Multiplayer');
+    expect(html).toContain('Start Game');
+    expect(html).not.toContain('Start Solo');
+    expect(html).not.toContain('Start Multiplayer');
+    expect(html).toContain('Manual start works with any player count.');
     expect(html).toContain('Copy Invite');
     expect(html).toContain('Copy for Friends');
     expect(html).toContain('Email Invite');
-    expect(html).toContain('Multiplayer starts after at least one more player joins.');
-    expect(html).toContain('Solo starts automatically in 30s.');
   });
 });
