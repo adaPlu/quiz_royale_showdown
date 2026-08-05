@@ -94,6 +94,7 @@ export const gameOverPayloadSchema = z.object({
   finalStandings: z.array(
     z.object({
       playerId: z.string(),
+      displayName: z.string(),
       rank: z.number(),
       score: z.number(),
       xpAwarded: z.number()
