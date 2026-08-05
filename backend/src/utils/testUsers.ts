@@ -22,12 +22,13 @@ const AUTOMATED_TEST_NAME_PATTERNS = [
 export function isAutomatedTestUser(user: TestUserIdentity): boolean {
   const email = user.email.trim().toLowerCase();
   const displayName = user.displayName?.trim() ?? "";
+  const usesReservedTestDomain = email.endsWith("@example.com");
   const isScriptEmail =
-    email.endsWith("@example.com") &&
+    usesReservedTestDomain &&
     AUTOMATED_TEST_EMAIL_PREFIXES.some((prefix) => email.startsWith(prefix));
   const isScriptName = AUTOMATED_TEST_NAME_PATTERNS.some((pattern) =>
     pattern.test(displayName)
   );
 
-  return isScriptEmail || isScriptName;
+  return isScriptEmail || (usesReservedTestDomain && isScriptName);
 }
