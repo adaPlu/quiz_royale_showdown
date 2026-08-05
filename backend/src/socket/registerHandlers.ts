@@ -5,6 +5,7 @@ import { redisService } from "../services/RedisService";
 import { roomService } from "../services/RoomService";
 import type { ClientEvents, ServerEvents, SocketErrorEvent } from "../types/contracts";
 import { logger } from "../utils/logger";
+import { isAutomatedTestUser } from "../utils/testUsers";
 import type { AuthenticatedSocket } from "./middleware";
 import { buildRoomSnapshot } from "./handlers/playerReady";
 import { syncRoomState } from "./handlers/reconnect";
@@ -122,6 +123,12 @@ async function handleRoomJoin(io: Server, socket: AuthenticatedSocket, roomCode:
   const existingRoom = await prisma.room.findUnique({
     where: { code: normalizedRoomCode },
     include: {
+      host: {
+        select: {
+          email: true,
+          displayName: true
+        }
+      },
       players: {
         select: {
           userId: true
@@ -132,6 +139,31 @@ async function handleRoomJoin(io: Server, socket: AuthenticatedSocket, roomCode:
 
   if (!existingRoom) {
     emitError(socket, "ROOM_NOT_FOUND", `Room ${normalizedRoomCode} not found`);
+    return;
+  }
+
+  const joiningUser = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      email: true,
+      displayName: true
+    }
+  });
+
+  if (!joiningUser) {
+    emitError(socket, "USER_NOT_FOUND", "Authenticated user no longer exists");
+    return;
+  }
+
+  const joiningUserIsAutomatedTest = isAutomatedTestUser(joiningUser);
+  const roomIsAutomatedTest = isAutomatedTestUser(existingRoom.host);
+
+  if (joiningUserIsAutomatedTest !== roomIsAutomatedTest) {
+    emitError(
+      socket,
+      "TEST_ROOM_ISOLATION",
+      "Automated test accounts and regular players cannot join the same room"
+    );
     return;
   }
 

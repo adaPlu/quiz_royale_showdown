@@ -13,30 +13,42 @@ import {
   revokeRefreshToken,
   rotateRefreshToken
 } from "../services/AuthService";
-import { ConflictError, ForbiddenError, UnauthorizedError } from "../utils/errors";
-import { generateId } from "../utils/ulid";
-import { logger } from "../utils/logger";
 import { env } from "../config/env";
+import { ConflictError, ForbiddenError, UnauthorizedError } from "../utils/errors";
+import { logger } from "../utils/logger";
+import { buildAutoDisplayName } from "../utils/publicDisplayName";
+import { generateId } from "../utils/ulid";
 
 const BCRYPT_ROUNDS = 12;
 
-const registerSchema = z
-  .object({
-    email: z.string().email(),
-    username: z
-      .string()
-      .trim()
-      .min(3)
-      .max(24)
-      .regex(/^\w+$/, "username must be alphanumeric")
-      .optional(),
-    displayName: z.string().trim().min(1).max(40).optional(),
-    password: z.string().min(8).max(72)
-  })
-  .refine((value) => Boolean(value.displayName ?? value.username), {
-    message: "displayName or username is required",
-    path: ["displayName"]
-  });
+const optionalUsernameSchema = z.preprocess(
+  (value) =>
+    value === null || (typeof value === "string" && value.trim().length === 0)
+      ? undefined
+      : value,
+  z
+    .string()
+    .trim()
+    .min(3)
+    .max(24)
+    .regex(/^\w+$/, "username must be alphanumeric")
+    .optional()
+);
+
+const optionalDisplayNameSchema = z.preprocess(
+  (value) =>
+    value === null || (typeof value === "string" && value.trim().length === 0)
+      ? undefined
+      : value,
+  z.string().trim().min(1).max(40).optional()
+);
+
+const registerSchema = z.object({
+  email: z.string().email(),
+  username: optionalUsernameSchema,
+  displayName: optionalDisplayNameSchema,
+  password: z.string().min(8).max(72)
+});
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -143,11 +155,9 @@ authRouter.post("/register", validate({ body: registerSchema }), async (req, res
   try {
     const { email, username, displayName, password } = req.body as z.infer<typeof registerSchema>;
     const normalizedEmail = email.toLowerCase().trim();
-    const resolvedDisplayName = displayName?.trim() || username?.trim();
-
-    if (!resolvedDisplayName) {
-      throw new ConflictError("displayName or username is required");
-    }
+    const userId = generateId();
+    const resolvedDisplayName =
+      displayName?.trim() || username?.trim() || buildAutoDisplayName(userId);
 
     const existingUser = await prisma.user.findUnique({
       where: { email: normalizedEmail },
@@ -161,7 +171,7 @@ authRouter.post("/register", validate({ body: registerSchema }), async (req, res
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
     const user = await prisma.user.create({
       data: {
-        id: generateId(),
+        id: userId,
         email: normalizedEmail,
         displayName: resolvedDisplayName,
         passwordHash

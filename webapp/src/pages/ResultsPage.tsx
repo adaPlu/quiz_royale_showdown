@@ -4,6 +4,7 @@ import { useGameStore } from '@stores/gameStore';
 import { useAuthStore } from '@stores/authStore';
 import { PlayerAvatar } from '@components/PlayerAvatar';
 import { socketService } from '@services/socketService';
+import { resolvePlayerName } from '@/utils/playerNames';
 
 export default function ResultsPage() {
   const navigate = useNavigate();
@@ -33,7 +34,9 @@ export default function ResultsPage() {
   const myScore = finalScores.find((s) => s.playerId === user?.id);
   const winner = finalScores.find((s) => s.playerId === winnerId);
   const winnerPlayer = players.find((p) => p.id === winnerId);
-  const winnerName = winnerPlayer?.displayName ?? winnerId;
+  const winnerName = winnerId
+    ? resolvePlayerName(winnerPlayer?.displayName, winnerId)
+    : 'userID001';
 
   return (
     <div className="min-h-screen bg-game-bg flex flex-col p-4">
@@ -59,26 +62,31 @@ export default function ResultsPage() {
             <h2 className="text-white font-bold">Final Standings</h2>
           </div>
           <div className="divide-y divide-game-border">
-            {finalScores.map((s, i) => (
-              <div
-                key={s.playerId}
-                className={`flex items-center gap-3 px-4 py-3 ${s.playerId === user?.id ? 'bg-brand/10' : ''}`}
-              >
-                <span className="text-lg w-8 text-center">
-                  {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`}
-                </span>
-                <PlayerAvatar username={players.find((p) => p.id === s.playerId)?.displayName ?? s.playerId} size="xs" />
-                <span className="flex-1 text-white text-sm font-medium truncate">
-                  {players.find((p) => p.id === s.playerId)?.displayName ?? s.playerId}{s.playerId === user?.id ? ' (you)' : ''}
-                </span>
-                <span className="text-white font-bold text-sm tabular-nums">
-                  {s.score.toLocaleString()}
-                </span>
-                {s.xpAwarded > 0 && (
-                  <span className="text-gold text-xs">+{s.xpAwarded}xp</span>
-                )}
-              </div>
-            ))}
+            {finalScores.map((s, i) => {
+              const player = players.find((candidate) => candidate.id === s.playerId);
+              const playerName = resolvePlayerName(player?.displayName, s.playerId);
+
+              return (
+                <div
+                  key={s.playerId}
+                  className={`flex items-center gap-3 px-4 py-3 ${s.playerId === user?.id ? 'bg-brand/10' : ''}`}
+                >
+                  <span className="text-lg w-8 text-center">
+                    {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`}
+                  </span>
+                  <PlayerAvatar username={playerName} size="xs" />
+                  <span className="flex-1 text-white text-sm font-medium truncate">
+                    {playerName}{s.playerId === user?.id ? ' (you)' : ''}
+                  </span>
+                  <span className="text-white font-bold text-sm tabular-nums">
+                    {s.score.toLocaleString()}
+                  </span>
+                  {s.xpAwarded > 0 && (
+                    <span className="text-gold text-xs">+{s.xpAwarded}xp</span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 

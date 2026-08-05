@@ -1,5 +1,6 @@
 import React from 'react';
 import type { PlayerSummary } from '@/types/game';
+import { resolvePlayerName } from '@/utils/playerNames';
 
 // ── Legacy shape used by GamePage / LobbyPage ──────────────────────────────
 type LegacyProps = {
@@ -33,8 +34,9 @@ export const PlayerAvatar = (props: PlayerAvatarProps) => {
   // ── New API ──
   if ('username' in props && props.username !== undefined) {
     const { username, avatarUrl, size = 'md', showTitle } = props;
+    const safeUsername = username.trim() || 'userID001';
     const sizeClass = SIZE_CLASSES[size] ?? SIZE_CLASSES.md;
-    const initials = username.slice(0, 2).toUpperCase();
+    const initials = safeUsername.slice(0, 2).toUpperCase();
 
     return (
       <div className="flex flex-col items-center gap-1">
@@ -42,13 +44,13 @@ export const PlayerAvatar = (props: PlayerAvatarProps) => {
           className={`flex items-center justify-center rounded-2xl border border-brand/60 bg-gradient-to-br from-brand to-purple-800 font-bold text-white ${sizeClass}`}
         >
           {avatarUrl ? (
-            <img src={avatarUrl} alt={username} className="h-full w-full rounded-2xl object-cover" />
+            <img src={avatarUrl} alt={safeUsername} className="h-full w-full rounded-2xl object-cover" />
           ) : (
             initials
           )}
         </div>
         {showTitle && (
-          <span className="text-xs text-game-muted">{username}</span>
+          <span className="text-xs text-game-muted">{safeUsername}</span>
         )}
       </div>
     );
@@ -56,6 +58,8 @@ export const PlayerAvatar = (props: PlayerAvatarProps) => {
 
   // ── Legacy API (PlayerSummary) ──
   const { player } = props;
+  const safeDisplayName = resolvePlayerName(player.displayName, player.id);
+
   return (
     <div
       className={`rounded-3xl border p-3 transition ${
@@ -66,10 +70,10 @@ export const PlayerAvatar = (props: PlayerAvatarProps) => {
     >
       <div className="mb-3 flex items-center gap-3">
         <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-gold/60 bg-gradient-to-br from-brand to-purple-800 font-bold text-white">
-          {player.displayName.slice(0, 2).toUpperCase()}
+          {safeDisplayName.slice(0, 2).toUpperCase()}
         </div>
         <div>
-          <p className="font-semibold">{player.displayName}</p>
+          <p className="font-semibold">{safeDisplayName}</p>
           <p className="text-sm text-white/65">Streak {player.streak}</p>
         </div>
       </div>
