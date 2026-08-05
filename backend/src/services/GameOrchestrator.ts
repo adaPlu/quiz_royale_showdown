@@ -19,6 +19,7 @@ import type { PlayerSummary, ServerEvents } from "../types/contracts";
 import { BadRequestError } from "../utils/errors";
 import { logger } from "../utils/logger";
 import { resolvePublicDisplayName } from "../utils/publicDisplayName";
+import { isGuestEmail } from "../utils/guestUsers";
 import { generateId } from "../utils/ulid";
 import {
   DEFAULT_GAME_DIFFICULTY,
@@ -28,6 +29,7 @@ import {
   type GameDifficulty
 } from "./GameDifficultyService";
 import { redisService } from "./RedisService";
+import { questionGeneratorService } from "./QuestionGeneratorService";
 import { roomService } from "./RoomService";
 
 const COUNTDOWN_MS = 5_000;
@@ -58,6 +60,7 @@ type StoredAnswerRecord = {
 
 type FinalStanding = {
   playerId: string;
+  displayName: string;
   rank: number;
   score: number;
   xpAwarded: number;
@@ -89,18 +92,24 @@ export class GameOrchestrator {
   }
 
   async assertQuestionBankReady(
-    gameDifficulty: GameDifficulty = DEFAULT_GAME_DIFFICULTY
+    gameDifficulty: GameDifficulty = DEFAULT_GAME_DIFFICULTY,
+    minimumRequired = 10,
   ): Promise<void> {
-    const activeQuestionCount = await prisma.questionBank.count({
-      where: {
-        isActive: true,
-        difficulty: { in: [...getAllowedQuestionDifficulties(gameDifficulty)] }
-      }
+    const allowedDifficulties = [...getAllowedQuestionDifficulties(gameDifficulty)];
+    let activeQuestionCount = await prisma.questionBank.count({
+      where: { isActive: true, difficulty: { in: allowedDifficulties } }
     });
 
-    if (activeQuestionCount === 0) {
+    if (activeQuestionCount < minimumRequired) {
+      activeQuestionCount = await questionGeneratorService.ensureCapacity(
+        allowedDifficulties,
+        minimumRequired,
+      );
+    }
+
+    if (activeQuestionCount < minimumRequired) {
       throw new BadRequestError(
-        `No active ${gameDifficulty} questions are available. Add questions before starting a game.`
+        `At least ${minimumRequired} active ${gameDifficulty} questions are required; ${activeQuestionCount} are available.`
       );
     }
   }
@@ -521,6 +530,12 @@ export class GameOrchestrator {
     logger.info("Game over", { roomId, winnerIds });
 
     const finalScores = await this.loadScores(roomId, finalistIds);
+    const userRows = await prisma.user.findMany({
+      where: { id: { in: finalScores.map((standing) => standing.playerId) } },
+      select: { id: true, email: true, displayName: true }
+    });
+    const usersById = new Map(userRows.map((user) => [user.id, user]));
+    const guestIds = new Set(userRows.filter((user) => isGuestEmail(user.email)).map((user) => user.id));
     const finalStandings = finalScores
       .sort((left, right) =>
         (right.totalScore ?? right.roundScore) - (left.totalScore ?? left.roundScore) ||
@@ -528,19 +543,23 @@ export class GameOrchestrator {
       )
       .map((standing, index) => {
         const score = standing.totalScore ?? standing.roundScore;
+        const user = usersById.get(standing.playerId);
+        const isGuest = guestIds.has(standing.playerId);
 
         return {
           playerId: standing.playerId,
+          displayName: resolvePublicDisplayName(user?.displayName, standing.playerId),
           rank: index + 1,
           score,
-          xpAwarded: Math.max(10, Math.round(score / 10))
+          xpAwarded: isGuest ? 0 : Math.max(10, Math.round(score / 10))
         };
       });
+    const persistentStandings = finalStandings.filter((standing) => !guestIds.has(standing.playerId));
 
-    await this.updateSeasonScores(roomId, finalStandings, winnerIds);
+    await this.updateSeasonScores(roomId, persistentStandings, winnerIds);
 
     await Promise.all(
-      finalStandings.map((standing) =>
+      persistentStandings.map((standing) =>
         prisma.xpEvent.create({
           data: {
             id: generateId(),
@@ -639,30 +658,36 @@ export class GameOrchestrator {
       ...allowedDifficulties.filter((difficulty) => difficulty !== targetDifficulty)
     ];
 
-    for (const difficulty of preferredDifficulties) {
-      const candidates = await prisma.questionBank.findMany({
-        where: {
-          isActive: true,
-          difficulty,
-          id: { notIn: usedIds.length > 0 ? usedIds : undefined }
-        }
-      });
-
-      if (candidates.length === 0) {
-        continue;
+    const findCandidate = async (): Promise<QuestionBank | null> => {
+      for (const difficulty of preferredDifficulties) {
+        const candidates = await prisma.questionBank.findMany({
+          where: {
+            isActive: true,
+            difficulty,
+            id: { notIn: usedIds.length > 0 ? usedIds : undefined }
+          },
+          orderBy: [{ lastUsedAt: "asc" }, { createdAt: "asc" }],
+          take: 50
+        });
+        if (candidates.length > 0) return candidates[randomInt(candidates.length)];
       }
+      return null;
+    };
 
-      const question = candidates[randomInt(candidates.length)];
-
-      await prisma.questionBank.update({
-        where: { id: question.id },
-        data: { lastUsedAt: new Date() }
-      });
-
-      return question;
+    let question = await findCandidate();
+    if (!question) {
+      await questionGeneratorService.ensureCapacity(allowedDifficulties, 10);
+      question = await findCandidate();
+    }
+    if (!question) {
+      throw new Error(`No unused ${gameDifficulty} questions are available in the bank`);
     }
 
-    throw new Error(`No unused ${gameDifficulty} questions are available in the bank`);
+    await prisma.questionBank.update({
+      where: { id: question.id },
+      data: { lastUsedAt: new Date() }
+    });
+    return question;
   }
 
   private async loadScores(roomId: string, playerIds: string[]): Promise<PlayerStanding[]> {

@@ -77,6 +77,7 @@ export default function HomePage() {
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [launchNotice, setLaunchNotice] = useState<string | null>(null);
+  const isGuest = user?.isGuest === true;
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -101,7 +102,6 @@ export default function HomePage() {
     socketService.setActiveRoom({
       roomId: session.roomId,
       roomCode: session.roomCode,
-      token: socketToken,
     });
     socketService.joinRoom(session.roomCode, session.roomId);
 
@@ -134,7 +134,11 @@ export default function HomePage() {
     setLaunchNotice(null);
 
     try {
-      const response = await api.post('/rooms', { isPrivate, maxPlayers: 8 });
+      const response = await api.post('/rooms', {
+        isPrivate,
+        maxPlayers: 8,
+        autoStartSolo: action === 'solo',
+      });
       if (!mountedRef.current) return;
       enterLobby(normalizeRoomSession(response.data));
     } catch (err) {
@@ -219,32 +223,32 @@ export default function HomePage() {
       <main className="flex-1 flex flex-col items-center justify-center gap-4 px-4 max-w-sm mx-auto w-full">
         <h1 className="text-white text-3xl font-black text-center">Ready to Play?</h1>
 
-        <button
+        {!isGuest && <button
           onClick={quickPlay}
           disabled={!!loading}
           className="w-full py-4 rounded-2xl bg-brand text-white font-bold text-lg shadow-royale hover:opacity-90 disabled:opacity-60"
         >
           {loading === 'quick' ? 'Finding game...' : 'Quick Play'}
-        </button>
+        </button>}
 
-        <button
+        {!isGuest && <button
           onClick={() => createRoom(true, 'solo')}
           disabled={!!loading}
           className="w-full py-4 rounded-2xl bg-brand-gold text-black font-black text-lg shadow-royale hover:opacity-90 disabled:opacity-60"
         >
           {loading === 'solo' ? 'Creating solo game...' : 'Single Player'}
-        </button>
-        <p className="-mt-2 text-center text-xs text-game-muted">
-          Create a private lobby, then tap Play Solo.
-        </p>
+        </button>}
+        {!isGuest && <p className="-mt-2 text-center text-xs text-game-muted">
+          Create a private lobby, then tap Play Solo or wait for the solo countdown.
+        </p>}
 
-        <button
+        {!isGuest && <button
           onClick={() => createRoom(true)}
           disabled={!!loading}
           className="w-full py-3 rounded-2xl bg-game-surface border border-game-border text-white font-semibold hover:border-brand/50 disabled:opacity-60"
         >
           {loading === 'private' ? 'Creating...' : 'Create Private Room'}
-        </button>
+        </button>}
 
         <div className="w-full border-t border-game-border pt-4">
           <div className="flex gap-2">

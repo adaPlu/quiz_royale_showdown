@@ -1,4 +1,5 @@
 import bcrypt from "bcrypt";
+import { randomBytes } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import type { Request, Response } from "express";
 import { Router } from "express";
@@ -10,13 +11,15 @@ import { prisma } from "../models/prismaClient";
 import {
   findUserById,
   issueTokenPair,
+  signTokenPair,
   revokeRefreshToken,
   rotateRefreshToken
 } from "../services/AuthService";
 import { env } from "../config/env";
-import { ConflictError, ForbiddenError, UnauthorizedError } from "../utils/errors";
+import { ConflictError, ForbiddenError, NotFoundError, UnauthorizedError } from "../utils/errors";
 import { logger } from "../utils/logger";
 import { buildAutoDisplayName } from "../utils/publicDisplayName";
+import { buildGuestEmail } from "../utils/guestUsers";
 import { generateId } from "../utils/ulid";
 
 const BCRYPT_ROUNDS = 12;
@@ -53,6 +56,13 @@ const registerSchema = z.object({
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1)
+});
+
+const guestSchema = z.object({
+  roomCode: z.string().trim().refine((value) => value.length === 6 || value.length === 8,
+    "roomCode must be 6 characters (8-character legacy codes are accepted)"
+  ).transform((value) => value.toUpperCase()),
+  displayName: optionalDisplayNameSchema
 });
 
 const optionalRefreshSchema = z
@@ -195,6 +205,44 @@ authRouter.post("/register", validate({ body: registerSchema }), async (req, res
       return;
     }
 
+    next(error);
+  }
+});
+
+authRouter.post("/guest", validate({ body: guestSchema }), async (req, res, next) => {
+  try {
+    const { roomCode, displayName } = req.body as z.infer<typeof guestSchema>;
+    const room = await prisma.room.findUnique({
+      where: { code: roomCode },
+      select: { id: true, status: true }
+    });
+
+    if (!room) {
+      throw new NotFoundError(`Room with code ${roomCode} not found`);
+    }
+    if (room.status !== "WAITING") {
+      throw new ForbiddenError("Room is no longer accepting guest players");
+    }
+
+    const userId = generateId();
+    const resolvedDisplayName = displayName?.trim() || buildAutoDisplayName(userId);
+    const user = await prisma.user.create({
+      data: {
+        id: userId,
+        email: buildGuestEmail(userId),
+        displayName: resolvedDisplayName,
+        passwordHash: await bcrypt.hash(randomBytes(32).toString("hex"), BCRYPT_ROUNDS)
+      },
+      select: { id: true, email: true, displayName: true }
+    });
+    const { accessToken } = signTokenPair(user);
+
+    res.status(201).json({
+      user: { ...user, isGuest: true },
+      accessToken,
+      roomCode
+    });
+  } catch (error) {
     next(error);
   }
 });

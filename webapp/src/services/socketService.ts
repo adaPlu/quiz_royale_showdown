@@ -16,14 +16,35 @@ type Unsubscribe = () => void;
 type RoomSession = {
   roomCode: string;
   roomId?: string;
-  token?: string | null;
 };
 
 const ROOM_SESSION_STORAGE_KEY = "quiz-room-session";
-
 const isBrowser = typeof window !== "undefined";
+const viteEnv = (import.meta as unknown as {
+  env?: Record<string, string | boolean | undefined>;
+}).env;
 
 const normalizeRoomCode = (roomCode: string) => roomCode.trim().toUpperCase();
+
+function resolveWebSocketBaseUrl(): string {
+  const configuredWs =
+    typeof viteEnv?.VITE_WS_BASE_URL === "string" ? viteEnv.VITE_WS_BASE_URL.trim() : "";
+  if (configuredWs) {
+    return configuredWs;
+  }
+
+  const configuredApi =
+    typeof viteEnv?.VITE_API_BASE_URL === "string" ? viteEnv.VITE_API_BASE_URL.trim() : "";
+  if (configuredApi) {
+    return configuredApi.replace(/\/api\/v1\/?$/, "");
+  }
+
+  if (viteEnv?.DEV === true) {
+    return "http://localhost:4000";
+  }
+
+  throw new Error("VITE_WS_BASE_URL or VITE_API_BASE_URL is required in production.");
+}
 
 const normalizePowerupPayload = (payload: PowerupActivatePayload) => ({
   roomId: payload.roomId,
@@ -64,7 +85,6 @@ class SocketService {
   private token: string | null = null;
   private activeRoom: RoomSession | null = this.readStoredRoomSession();
   private listeners = new Map<ServerEventType, Set<(payload: unknown) => void>>();
-
   private connectionListeners = new Set<(connected: boolean) => void>();
 
   onConnectionChange(handler: (connected: boolean) => void): () => void {
@@ -73,30 +93,22 @@ class SocketService {
   }
 
   private notifyConnectionChange(connected: boolean): void {
-    this.connectionListeners.forEach((h) => h(connected));
+    this.connectionListeners.forEach((handler) => handler(connected));
   }
 
   connect(token: string): void {
     const trimmedToken = token.trim();
-    if (!trimmedToken) {
-      return;
-    }
+    if (!trimmedToken) return;
 
     if (this.socket && this.token === trimmedToken) {
-      if (!this.socket.connected) {
-        this.socket.connect();
-      }
+      if (!this.socket.connected) this.socket.connect();
       return;
     }
 
     this.disconnect(false);
     this.token = trimmedToken;
 
-    const wsBaseUrl =
-      (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_WS_BASE_URL ??
-      "http://localhost:4000";
-
-    this.socket = io(wsBaseUrl, {
+    this.socket = io(resolveWebSocketBaseUrl(), {
       path: "/ws",
       transports: ["websocket"],
       auth: { token: trimmedToken },
@@ -108,11 +120,7 @@ class SocketService {
 
     this.socket.on("message", (raw: unknown) => {
       const parsed = serverEventSchema.safeParse(raw);
-      if (!parsed.success) {
-        return;
-      }
-
-      this.handleServerEvent(parsed.data);
+      if (parsed.success) this.handleServerEvent(parsed.data);
     });
 
     this.socket.on("connect", () => {
@@ -121,22 +129,15 @@ class SocketService {
         this.emit("room:join", { roomCode: this.activeRoom.roomCode });
       }
     });
-
-    this.socket.on("disconnect", () => {
-      this.notifyConnectionChange(false);
-    });
-
-    this.socket.on("connect_error", () => {
-      this.notifyConnectionChange(false);
-    });
+    this.socket.on("disconnect", () => this.notifyConnectionChange(false));
+    this.socket.on("connect_error", () => this.notifyConnectionChange(false));
   }
 
   disconnect(clearSession = false): void {
     this.socket?.disconnect();
     this.socket = null;
-    this.token = clearSession ? null : this.token;
-
     if (clearSession) {
+      this.token = null;
       this.activeRoom = null;
       this.clearStoredRoomSession();
     }
@@ -149,18 +150,13 @@ class SocketService {
   setActiveRoom(room: RoomSession): void {
     this.activeRoom = {
       roomCode: normalizeRoomCode(room.roomCode),
-      roomId: room.roomId,
-      token: room.token ?? this.activeRoom?.token ?? this.token
+      roomId: room.roomId
     };
     this.storeRoomSession(this.activeRoom);
   }
 
   updateRoomSnapshot(roomId: string, roomCode: string): void {
-    this.setActiveRoom({
-      roomId,
-      roomCode,
-      token: this.activeRoom?.token ?? this.token
-    });
+    this.setActiveRoom({ roomId, roomCode });
   }
 
   getActiveRoom(): RoomSession | null {
@@ -174,11 +170,9 @@ class SocketService {
 
   joinRoom(roomCode: string, roomId?: string): void {
     const normalizedRoomCode = normalizeRoomCode(roomCode);
-
     this.setActiveRoom({
       roomCode: normalizedRoomCode,
-      roomId: roomId ?? this.activeRoom?.roomId,
-      token: this.activeRoom?.token ?? this.token
+      roomId: roomId ?? this.activeRoom?.roomId
     });
 
     if (this.socket?.connected) {
@@ -187,8 +181,7 @@ class SocketService {
   }
 
   emit<TType extends ClientEventType>(type: TType, payload: ClientEventPayload<TType>): void {
-    const envelope = normalizeClientEvent(type, payload);
-    this.socket?.emit("message", envelope);
+    this.socket?.emit("message", normalizeClientEvent(type, payload));
   }
 
   on<TType extends ServerEventType>(
@@ -202,9 +195,7 @@ class SocketService {
     return () => {
       const currentHandlers = this.listeners.get(eventType);
       currentHandlers?.delete(handler as (payload: unknown) => void);
-      if (currentHandlers && currentHandlers.size === 0) {
-        this.listeners.delete(eventType);
-      }
+      if (currentHandlers?.size === 0) this.listeners.delete(eventType);
     };
   }
 
@@ -232,43 +223,27 @@ class SocketService {
         handler({ type: eventType, version: "v1", payload } as ServerEvent);
       })
     );
-
-    return () => {
-      unsubs.forEach((unsubscribe) => unsubscribe());
-    };
+    return () => unsubs.forEach((unsubscribe) => unsubscribe());
   }
 
   private handleServerEvent(event: ServerEvent): void {
     if (event.type === "room:state_sync") {
       this.updateRoomSnapshot(event.payload.room.roomId, event.payload.room.code);
     }
-
-    const handlers = this.listeners.get(event.type);
-    handlers?.forEach((handler) => {
-      handler(event.payload);
-    });
+    this.listeners.get(event.type)?.forEach((handler) => handler(event.payload));
   }
 
   private readStoredRoomSession(): RoomSession | null {
-    if (!isBrowser) {
-      return null;
-    }
-
+    if (!isBrowser) return null;
     const raw = window.sessionStorage.getItem(ROOM_SESSION_STORAGE_KEY);
-    if (!raw) {
-      return null;
-    }
+    if (!raw) return null;
 
     try {
       const parsed = JSON.parse(raw) as RoomSession;
-      if (!parsed.roomCode) {
-        return null;
-      }
-
+      if (!parsed.roomCode) return null;
       return {
         roomCode: normalizeRoomCode(parsed.roomCode),
-        roomId: parsed.roomId,
-        token: parsed.token ?? null
+        roomId: parsed.roomId
       };
     } catch {
       return null;
@@ -276,19 +251,15 @@ class SocketService {
   }
 
   private storeRoomSession(room: RoomSession): void {
-    if (!isBrowser) {
-      return;
-    }
-
-    window.sessionStorage.setItem(ROOM_SESSION_STORAGE_KEY, JSON.stringify(room));
+    if (!isBrowser) return;
+    window.sessionStorage.setItem(
+      ROOM_SESSION_STORAGE_KEY,
+      JSON.stringify({ roomCode: room.roomCode, roomId: room.roomId })
+    );
   }
 
   private clearStoredRoomSession(): void {
-    if (!isBrowser) {
-      return;
-    }
-
-    window.sessionStorage.removeItem(ROOM_SESSION_STORAGE_KEY);
+    if (isBrowser) window.sessionStorage.removeItem(ROOM_SESSION_STORAGE_KEY);
   }
 }
 

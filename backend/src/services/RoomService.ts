@@ -18,6 +18,7 @@ import {
   NotFoundError,
 } from "../utils/errors";
 import { logger } from "../utils/logger";
+import { resolvePublicDisplayName } from "../utils/publicDisplayName";
 import { isValidId } from "../utils/ulid";
 import { generateId } from "../utils/ulid";
 import { signTokenPair } from "./AuthService";
@@ -26,11 +27,13 @@ import { redisService } from "./RedisService";
 interface CreateRoomOpts {
   isPrivate: boolean;
   maxPlayers: number;
+  autoStartSolo: boolean;
 }
 
 interface RoomConfig {
   isPrivate: boolean;
   maxPlayers: number;
+  autoStartSolo: boolean;
 }
 
 interface StartGameOpts {
@@ -62,6 +65,7 @@ const JOIN_ROOM_MAX_ATTEMPTS = 3;
 const DEFAULT_ROOM_CONFIG: RoomConfig = {
   isPrivate: true,
   maxPlayers: 8,
+  autoStartSolo: false,
 };
 
 const roomWithPlayersInclude = Prisma.validator<Prisma.RoomInclude>()({
@@ -261,13 +265,21 @@ export class RoomService {
       throw new BadRequestError("At least 2 players are required to start");
     }
 
-    await prisma.room.update({
-      where: { id: roomId },
+    const startResult = await prisma.room.updateMany({
+      where: {
+        id: roomId,
+        hostUserId: requesterId,
+        status: "WAITING",
+      },
       data: {
         status: "COUNTDOWN",
         startedAt: new Date(),
       },
     });
+
+    if (startResult.count !== 1) {
+      throw new ConflictError("Game has already started");
+    }
 
     logger.info("Game started", { roomId, hostUserId: requesterId });
 
@@ -374,6 +386,7 @@ export class RoomService {
     const room = await this.createRoomEntity(userId, {
       isPrivate: false,
       maxPlayers: DEFAULT_ROOM_CONFIG.maxPlayers,
+      autoStartSolo: false,
     });
 
     if (redisService) {
@@ -387,6 +400,7 @@ export class RoomService {
     const config: RoomConfig = {
       isPrivate: opts.isPrivate ?? DEFAULT_ROOM_CONFIG.isPrivate,
       maxPlayers: opts.maxPlayers ?? DEFAULT_ROOM_CONFIG.maxPlayers,
+      autoStartSolo: opts.autoStartSolo ?? DEFAULT_ROOM_CONFIG.autoStartSolo,
     };
 
     if (config.maxPlayers < 2 || config.maxPlayers > 100) {
@@ -609,7 +623,7 @@ export class RoomService {
   ): PlayerSummary {
     return {
       id: player.user.id,
-      displayName: player.user.displayName,
+      displayName: resolvePublicDisplayName(player.user.displayName, player.user.id),
       avatarUrl: player.user.avatarUrl ?? undefined,
       score: player.score,
       streak: player.streak,

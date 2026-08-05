@@ -25,7 +25,7 @@ type GameDifficulty = 'easy' | 'medium' | 'hard';
 type RoomSnapshot = ServerEventPayload<'room:state_sync'>['room'];
 type RoomStateResponse = {
   room: RoomSnapshot;
-  config: { difficulty: GameDifficulty };
+  config: { difficulty: GameDifficulty; autoStartSolo?: boolean };
 };
 
 const difficultyOptions: Array<{
@@ -74,7 +74,7 @@ export const LobbyPage = () => {
     }
 
     const activeRoom = socketService.getActiveRoom();
-    const token = activeRoom?.token ?? accessToken;
+    const token = accessToken;
     const roomCode = activeRoom?.roomCode ?? code;
 
     if (!token || !roomCode) {
@@ -82,7 +82,7 @@ export const LobbyPage = () => {
     }
 
     socketService.connect(token);
-    socketService.setActiveRoom({ roomId, roomCode, token });
+    socketService.setActiveRoom({ roomId, roomCode });
     socketService.joinRoom(roomCode, roomId);
   }, [accessToken, code, roomId]);
 
@@ -90,6 +90,8 @@ export const LobbyPage = () => {
   const [isLeaving, setIsLeaving] = useState(false);
   const [isSavingDifficulty, setIsSavingDifficulty] = useState(false);
   const [difficulty, setDifficulty] = useState<GameDifficulty>('medium');
+  const [autoStartSolo, setAutoStartSolo] = useState(false);
+  const [soloSecondsRemaining, setSoloSecondsRemaining] = useState<number | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const [startNotice, setStartNotice] = useState<string | null>(null);
   const [inviteNotice, setInviteNotice] = useState<string | null>(null);
@@ -114,6 +116,7 @@ export const LobbyPage = () => {
         if (!cancelled && mountedRef.current) {
           applyRoomState({ room: response.data.room });
           setDifficulty(response.data.config.difficulty);
+          setAutoStartSolo(response.data.config.autoStartSolo === true);
           socketService.updateRoomSnapshot(
             response.data.room.roomId,
             response.data.room.code,
@@ -234,7 +237,15 @@ export const LobbyPage = () => {
     );
 
     try {
-      await api.post(`/rooms/${roomId}/start`, { allowSolo: !hasMultiplePlayers });
+      const response = await api.post<RoomStateResponse>(
+        `/rooms/${roomId}/start`,
+        { allowSolo: !hasMultiplePlayers },
+      );
+      if (!mountedRef.current) return;
+      applyRoomState({ room: response.data.room });
+      if (response.data.room.phase !== 'WAITING') {
+        navigate(`/game/${roomId}`, { replace: true });
+      }
     } catch (err: unknown) {
       if (!mountedRef.current) return;
       const message =
@@ -248,7 +259,27 @@ export const LobbyPage = () => {
     } finally {
       if (mountedRef.current) setIsStarting(false);
     }
-  }, [difficulty, hasMultiplePlayers, isHost, mountedRef, roomId]);
+  }, [applyRoomState, difficulty, hasMultiplePlayers, isHost, mountedRef, navigate, roomId]);
+
+  useEffect(() => {
+    if (!autoStartSolo || !isHost || phase !== 'WAITING' || hasMultiplePlayers || isStarting) {
+      setSoloSecondsRemaining(null);
+      return;
+    }
+
+    const deadline = Date.now() + 30_000;
+    const updateCountdown = () => {
+      setSoloSecondsRemaining(Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
+    };
+    updateCountdown();
+    const intervalId = window.setInterval(updateCountdown, 1000);
+    const timeoutId = window.setTimeout(() => void handleStartGame(), 30_000);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.clearTimeout(timeoutId);
+    };
+  }, [autoStartSolo, handleStartGame, hasMultiplePlayers, isHost, isStarting, phase]);
 
   const handleLeaveLobby = async () => {
     if (isLeaving) return;
@@ -378,7 +409,7 @@ export const LobbyPage = () => {
                     <p className="mt-2 text-sm text-white/70">
                       {hasMultiplePlayers
                         ? `${players.length} players are connected. Start a ${difficulty} game when ready.`
-                        : `Play all ten trivia rounds by yourself on ${difficulty} difficulty.`}
+                        : `Play all ten trivia rounds by yourself on ${difficulty} difficulty.${soloSecondsRemaining !== null ? ` Auto-starting in ${soloSecondsRemaining}s.` : ''}`}
                     </p>
                     <button
                       type="button"

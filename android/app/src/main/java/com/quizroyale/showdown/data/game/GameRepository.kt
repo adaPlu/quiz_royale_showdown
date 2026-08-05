@@ -278,6 +278,7 @@ class GameRepository @Inject constructor(
           add(
             FinalStanding(
               playerId = standing.optString("playerId"),
+              displayName = standing.optString("displayName", "userID001"),
               rank = standing.optInt("rank", index + 1),
               score = standing.optInt("score", standing.optInt("totalScore", 0)),
               xpAwarded = standing.optInt("xpAwarded", 0)

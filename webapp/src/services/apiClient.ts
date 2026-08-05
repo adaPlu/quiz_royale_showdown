@@ -86,6 +86,7 @@ function shouldAttemptRefresh(url?: string): boolean {
   return (
     !normalizedUrl.includes('/auth/login') &&
     !normalizedUrl.includes('/auth/register') &&
+    !normalizedUrl.includes('/auth/guest') &&
     !normalizedUrl.includes('/auth/refresh')
   );
 }
