@@ -22,4 +22,25 @@ describe("public display names", () => {
   it("uses the generated fallback for blank names", () => {
     expect(resolvePublicDisplayName("   ", "user-id")).toMatch(/^userID\d{3}$/);
   });
+
+  it("replaces ULID, UUID, and long hex display names", () => {
+    expect(
+      resolvePublicDisplayName(
+        "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      ),
+    ).toMatch(/^userID\d{3}$/);
+    expect(
+      resolvePublicDisplayName(
+        "550e8400-e29b-41d4-a716-446655440000",
+        "user-id",
+      ),
+    ).toMatch(/^userID\d{3}$/);
+    expect(
+      resolvePublicDisplayName(
+        "29021eeb02befe3b4372a964d283a4d7",
+        "user-id",
+      ),
+    ).toMatch(/^userID\d{3}$/);
+  });
 });
