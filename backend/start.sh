@@ -29,6 +29,16 @@ else
   echo "Use /health/ready and the deployment logs to diagnose database readiness."
 fi
 
+BACKFILL_TIMEOUT_SECONDS="${BACKFILL_TIMEOUT_SECONDS:-30}"
+echo "Assigning fallback names to unnamed players..."
+if timeout "$BACKFILL_TIMEOUT_SECONDS" node dist/scripts/backfillDisplayNames.js; then
+  echo "Player display names are ready."
+else
+  backfill_status=$?
+  echo "WARNING: Display-name backfill failed with exit code ${backfill_status}."
+  echo "The server will still start and client-safe fallback names remain enabled."
+fi
+
 SEED_TIMEOUT_SECONDS="${SEED_TIMEOUT_SECONDS:-60}"
 echo "Ensuring the production question bank is ready..."
 if timeout "$SEED_TIMEOUT_SECONDS" node dist/scripts/seed.js; then
