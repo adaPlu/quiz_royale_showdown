@@ -57,12 +57,13 @@ async function bootstrap(): Promise<void> {
     }
   }
 
-  // 4. HTTP server
+  // 4. HTTP server. Railway routes traffic to the injected PORT on 0.0.0.0.
   await new Promise<void>((resolve) => {
-    server.listen(env.port, resolve);
+    server.listen(env.port, "0.0.0.0", resolve);
   });
 
   logger.info("Quiz Royale backend started", {
+    host: "0.0.0.0",
     port: env.port,
     env: env.nodeEnv,
     wsPath: "/ws"
