@@ -10,10 +10,6 @@ const LEGACY_DUPLICATE_MIGRATIONS = [
 ] as const;
 
 const CURRENT_BASELINE_MIGRATION = "20260425000000_init";
-const KNOWN_BASELINE_MIGRATIONS = [
-  ...LEGACY_DUPLICATE_MIGRATIONS,
-  CURRENT_BASELINE_MIGRATION,
-] as const;
 
 /**
  * A non-empty database may only be auto-reconciled when it already contains
@@ -144,36 +140,27 @@ async function main(): Promise<void> {
   const migrationsToResolve = new Set<string>();
 
   // The first two migration directories are identical historical snapshots.
-  // On a provably empty database, marking them applied is safe because the next
-  // migration creates the complete baseline schema.
+  // On a provably empty database, marking only those duplicates applied is safe;
+  // the canonical baseline must still run to create the tables.
   //
   // Older production instances may already have the complete canonical schema
   // while their migration table contains missing or failed records from the
-  // former best-effort startup script. Auto-reconcile only the three known
-  // baseline migrations when the full canonical schema fingerprint is present.
-  // Unknown or partial non-empty databases remain fail-closed.
-  const mayReconcileKnownBaseline =
-    databaseIsEmpty ||
-    state.canonicalSchemaPresent ||
-    allowLegacyBaseline ||
-    allowCurrentBaseline;
-
-  if (mayReconcileKnownBaseline) {
-    for (const migrationName of KNOWN_BASELINE_MIGRATIONS) {
-      const explicitlyAllowed =
-        LEGACY_DUPLICATE_MIGRATIONS.includes(
-          migrationName as (typeof LEGACY_DUPLICATE_MIGRATIONS)[number],
-        )
-          ? allowLegacyBaseline
-          : allowCurrentBaseline;
-
-      if (
-        (databaseIsEmpty || state.canonicalSchemaPresent || explicitlyAllowed) &&
-        !state.appliedMigrations.has(migrationName)
-      ) {
+  // former best-effort startup script. In that known-safe case, all three
+  // historical baseline records can be reconciled. Unknown or partial non-empty
+  // databases remain fail-closed.
+  if (databaseIsEmpty || state.canonicalSchemaPresent || allowLegacyBaseline) {
+    for (const migrationName of LEGACY_DUPLICATE_MIGRATIONS) {
+      if (!state.appliedMigrations.has(migrationName)) {
         migrationsToResolve.add(migrationName);
       }
     }
+  }
+
+  if (
+    (state.canonicalSchemaPresent || allowCurrentBaseline) &&
+    !state.appliedMigrations.has(CURRENT_BASELINE_MIGRATION)
+  ) {
+    migrationsToResolve.add(CURRENT_BASELINE_MIGRATION);
   }
 
   await prisma.$disconnect();
