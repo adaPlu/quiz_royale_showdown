@@ -21,16 +21,32 @@ import { generateId } from "../utils/ulid";
 
 const BCRYPT_ROUNDS = 12;
 
-const registerSchema = z.object({
-  email: z.string().email(),
-  username: z
+const optionalUsernameSchema = z.preprocess(
+  (value) =>
+    value === null || (typeof value === "string" && value.trim().length === 0)
+      ? undefined
+      : value,
+  z
     .string()
     .trim()
     .min(3)
     .max(24)
     .regex(/^\w+$/, "username must be alphanumeric")
-    .optional(),
-  displayName: z.string().trim().min(1).max(40).optional(),
+    .optional()
+);
+
+const optionalDisplayNameSchema = z.preprocess(
+  (value) =>
+    value === null || (typeof value === "string" && value.trim().length === 0)
+      ? undefined
+      : value,
+  z.string().trim().min(1).max(40).optional()
+);
+
+const registerSchema = z.object({
+  email: z.string().email(),
+  username: optionalUsernameSchema,
+  displayName: optionalDisplayNameSchema,
   password: z.string().min(8).max(72)
 });
 
