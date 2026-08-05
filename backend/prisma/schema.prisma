@@ -30,25 +30,34 @@ enum CosmeticType {
   TITLE
 }
 
+enum PowerUpBetStatus {
+  PLACED
+  WON
+  LOST
+  REFUNDED
+}
+
 model User {
-  id               String            @id @db.VarChar(26)
-  email            String            @unique
-  displayName      String
-  passwordHash     String
-  avatarUrl        String?
-  rating           Int               @default(1000)
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  refreshTokens    RefreshToken[]
-  roomsHosted      Room[]            @relation("HostedRooms")
-  roomPlayers      RoomPlayer[]
-  answers          Answer[]
-  playerPowerUps   PlayerPowerUp[]
-  powerUpUses      PowerUpUse[]
-  userCosmetics    UserCosmetic[]
-  xpEvents         XpEvent[]
-  seasonScores     SeasonScore[]
-  purchaseReceipts PurchaseReceipt[]
+  id                String             @id @db.VarChar(26)
+  email             String             @unique
+  displayName       String
+  passwordHash      String
+  avatarUrl         String?
+  rating            Int                @default(1000)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  refreshTokens     RefreshToken[]
+  roomsHosted       Room[]             @relation("HostedRooms")
+  roomPlayers       RoomPlayer[]
+  answers           Answer[]
+  playerPowerUps    PlayerPowerUp[]
+  powerUpUses       PowerUpUse[]
+  powerUpBets       PowerUpBet[]
+  gameWinnerRewards GameWinnerReward[]
+  userCosmetics     UserCosmetic[]
+  xpEvents          XpEvent[]
+  seasonScores      SeasonScore[]
+  purchaseReceipts  PurchaseReceipt[]
 }
 
 model RefreshToken {
@@ -58,23 +67,31 @@ model RefreshToken {
   expiresAt DateTime
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
 }
 
 model Room {
-  id             String       @id @db.VarChar(26)
-  code           String       @unique @db.VarChar(8)
-  hostUserId     String       @db.VarChar(26)
-  seasonId       String?      @db.VarChar(26)
-  status         RoomStatus   @default(WAITING)
-  currentRound   Int          @default(0)
-  totalRounds    Int          @default(10)
-  createdAt      DateTime     @default(now())
-  startedAt      DateTime?
-  finishedAt     DateTime?
-  host           User         @relation("HostedRooms", fields: [hostUserId], references: [id])
-  rounds         Round[]
-  players        RoomPlayer[]
-  season         Season?      @relation(fields: [seasonId], references: [id])
+  id                String             @id @db.VarChar(26)
+  code              String             @unique @db.VarChar(8)
+  hostUserId        String             @db.VarChar(26)
+  seasonId          String?            @db.VarChar(26)
+  status            RoomStatus         @default(WAITING)
+  currentRound      Int                @default(0)
+  totalRounds       Int                @default(10)
+  createdAt         DateTime           @default(now())
+  startedAt         DateTime?
+  finishedAt        DateTime?
+  host              User               @relation("HostedRooms", fields: [hostUserId], references: [id])
+  rounds            Round[]
+  players           RoomPlayer[]
+  season            Season?            @relation(fields: [seasonId], references: [id])
+  powerUpBets       PowerUpBet[]
+  gameWinnerRewards GameWinnerReward[]
+  settlement        GameSettlement?
+
+  @@index([status, createdAt])
+  @@index([hostUserId])
 }
 
 model RoomPlayer {
@@ -105,6 +122,7 @@ model Round {
   room           Room         @relation(fields: [roomId], references: [id], onDelete: Cascade)
   question       QuestionBank @relation(fields: [questionId], references: [id])
   answers        Answer[]
+  powerUpBets    PowerUpBet[]
 
   @@unique([roomId, roundNumber])
 }
@@ -137,19 +155,23 @@ model QuestionBank {
   isActive         Boolean      @default(true)
   createdAt        DateTime     @default(now())
   rounds           Round[]
+
+  @@index([isActive, difficulty, lastUsedAt])
 }
 
 model PowerUp {
-  id             String         @id @db.VarChar(26)
-  code           String         @unique
+  id             String             @id @db.VarChar(26)
+  code           String             @unique
   name           String
   description    String
   rarity         String
   cooldownSecs   Int
-  isActive       Boolean        @default(true)
-  createdAt      DateTime       @default(now())
+  isActive       Boolean            @default(true)
+  createdAt      DateTime           @default(now())
   playerPowerUps PlayerPowerUp[]
   uses           PowerUpUse[]
+  bets           PowerUpBet[]
+  winnerRewards  GameWinnerReward[]
 }
 
 model PlayerPowerUp {
@@ -175,6 +197,48 @@ model PowerUpUse {
   createdAt      DateTime @default(now())
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   powerUp        PowerUp  @relation(fields: [powerUpId], references: [id], onDelete: Cascade)
+}
+
+model PowerUpBet {
+  id             String           @id @db.VarChar(26)
+  roomId         String           @db.VarChar(26)
+  roundId        String           @db.VarChar(26)
+  userId         String           @db.VarChar(26)
+  powerUpId      String           @db.VarChar(26)
+  quantity       Int              @default(1)
+  status         PowerUpBetStatus @default(PLACED)
+  payoutQuantity Int              @default(0)
+  createdAt      DateTime         @default(now())
+  settledAt      DateTime?
+  room           Room             @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  round          Round            @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  powerUp        PowerUp          @relation(fields: [powerUpId], references: [id], onDelete: Restrict)
+
+  @@unique([roundId, userId])
+  @@index([roomId, status])
+}
+
+model GameSettlement {
+  id        String   @id @db.VarChar(26)
+  roomId    String   @unique @db.VarChar(26)
+  settledAt DateTime @default(now())
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+}
+
+model GameWinnerReward {
+  id        String   @id @db.VarChar(26)
+  roomId    String   @db.VarChar(26)
+  userId    String   @db.VarChar(26)
+  powerUpId String   @db.VarChar(26)
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now())
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  powerUp   PowerUp  @relation(fields: [powerUpId], references: [id], onDelete: Restrict)
+
+  @@unique([roomId, userId])
+  @@index([userId, createdAt])
 }
 
 model Cosmetic {
@@ -208,6 +272,8 @@ model XpEvent {
   metadata    Json?
   createdAt   DateTime @default(now())
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 model Season {
@@ -219,6 +285,8 @@ model Season {
   createdAt     DateTime      @default(now())
   rooms         Room[]
   seasonScores  SeasonScore[]
+
+  @@index([startsAt, endsAt])
 }
 
 model SeasonScore {

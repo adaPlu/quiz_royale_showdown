@@ -68,6 +68,7 @@ jobs:
             -e JWT_ACCESS_SECRET=ci-access-secret-that-is-at-least-32-characters \
             -e JWT_REFRESH_SECRET=ci-refresh-secret-that-is-at-least-32-characters \
             -e ADMIN_SECRET=ci-admin-secret-that-is-at-least-32-characters \
+            -e BUILD_SHA="${DEPLOY_SHA}" \
             "$IMAGE"
 
           for attempt in {1..75}; do
@@ -107,9 +108,13 @@ jobs:
           echo "RAILWAY_TOKEN is not configured."
           exit 1
 
-      - name: Trigger Railway deploy
-        if: env.HAS_RAILWAY_TOKEN == 'true'
-        run: npm exec --yes --package @railway/cli@5.24.0 -- railway up --service quiz_royale_showdown --detach
+      - name: Set Railway deployment SHA
+        run: npm exec --yes --package @railway/cli@5.24.0 -- railway variable set "BUILD_SHA=${DEPLOY_SHA}" --service quiz_royale_showdown
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+      - name: Deploy Railway backend
+        run: npm exec --yes --package @railway/cli@5.24.0 -- railway up --service quiz_royale_showdown --ci
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
 
@@ -128,40 +133,83 @@ jobs:
         with:
           node-version: 24
 
-      - name: Vercel credentials not configured
+      - name: Require Vercel credentials
         if: env.HAS_VERCEL_CONFIG != 'true'
-        run: echo "Skipping Vercel CLI deploy because its credentials are incomplete; the Vercel Git integration may still deploy this commit."
+        run: |
+          echo "VERCEL_TOKEN, VERCEL_ORG_ID, and VERCEL_PROJECT_ID are required."
+          exit 1
 
       - name: Pull Vercel project config
-        id: vercel-pull
-        if: env.HAS_VERCEL_CONFIG == 'true'
-        continue-on-error: true
         run: npm exec --yes --package vercel@58.4.4 -- vercel pull --yes --environment=production --scope adaplus-projects --token "${{ secrets.VERCEL_TOKEN }}"
         working-directory: webapp
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
-      - name: Build Vercel output
-        id: vercel-build
-        if: env.HAS_VERCEL_CONFIG == 'true' && steps.vercel-pull.outcome == 'success'
-        continue-on-error: true
+      - name: Build Vercel output for deployment SHA
         run: npm exec --yes --package vercel@58.4.4 -- vercel build --prod --scope adaplus-projects --token "${{ secrets.VERCEL_TOKEN }}"
         working-directory: webapp
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VITE_BUILD_SHA: ${{ env.DEPLOY_SHA }}
 
       - name: Deploy Vercel output
-        id: vercel-deploy
-        if: env.HAS_VERCEL_CONFIG == 'true' && steps.vercel-build.outcome == 'success'
-        continue-on-error: true
         run: npm exec --yes --package vercel@58.4.4 -- vercel deploy --prebuilt --prod --scope adaplus-projects --token "${{ secrets.VERCEL_TOKEN }}"
         working-directory: webapp
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
-      - name: Report Vercel credential failure
-        if: always() && env.HAS_VERCEL_CONFIG == 'true' && steps.vercel-pull.outcome == 'failure'
-        run: echo "Vercel CLI authentication failed. Rotate VERCEL_TOKEN; Railway deployment was handled independently."
+  release-gate:
+    needs:
+      - deploy-railway
+      - deploy-vercel
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+      FRONTEND_URL: ${{ vars.PRODUCTION_FRONTEND_URL }}
+      BACKEND_URL: ${{ vars.PRODUCTION_BACKEND_URL }}
+    steps:
+      - name: Require production service URLs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${FRONTEND_URL}" ] || [ -z "${BACKEND_URL}" ]; then
+            echo "PRODUCTION_FRONTEND_URL and PRODUCTION_BACKEND_URL repository variables are required."
+            exit 1
+          fi
+
+      - name: Verify live frontend and backend SHA synchronization
+        shell: bash
+        run: |
+          set -euo pipefail
+          FRONTEND_URL="${FRONTEND_URL%/}"
+          BACKEND_URL="${BACKEND_URL%/}"
+
+          for attempt in {1..36}; do
+            BACKEND_JSON="$(curl --fail --silent --show-error --max-time 10 "${BACKEND_URL}/health" || true)"
+            FRONTEND_HTML="$(curl --fail --silent --show-error --max-time 10 "${FRONTEND_URL}/" || true)"
+
+            BACKEND_SHA="$(printf '%s' "$BACKEND_JSON" | python3 -c 'import json,sys
+try:
+    print(json.load(sys.stdin).get("buildSha", ""))
+except Exception:
+    print("")')"
+            FRONTEND_SHA="$(printf '%s' "$FRONTEND_HTML" | python3 -c 'import re,sys
+html=sys.stdin.read()
+match=re.search(r"<meta\s+name=[\"\x27]quiz-build-sha[\"\x27]\s+content=[\"\x27]([^\"\x27]+)", html, re.I)
+print(match.group(1) if match else "")')"
+
+            echo "Synchronization attempt ${attempt}: frontend=${FRONTEND_SHA:-missing} backend=${BACKEND_SHA:-missing} expected=${DEPLOY_SHA}"
+
+            if [ "$FRONTEND_SHA" = "$DEPLOY_SHA" ] && [ "$BACKEND_SHA" = "$DEPLOY_SHA" ]; then
+              echo "Frontend and backend are live on the same release SHA."
+              exit 0
+            fi
+
+            sleep 5
+          done
+
+          echo "Live services did not converge on ${DEPLOY_SHA}."
+          exit 1

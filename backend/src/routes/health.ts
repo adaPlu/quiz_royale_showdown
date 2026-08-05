@@ -11,6 +11,7 @@ export interface HealthResponse {
   status: ComponentStatus;
   ts: number;
   version: string;
+  buildSha: string;
   service: string;
   timestamp: string;
   components: { postgres: ComponentHealth; redis: ComponentHealth; questions: ComponentHealth };
@@ -21,6 +22,7 @@ interface HealthDependencies {
   now?: () => Date;
 }
 const VERSION = process.env.npm_package_version ?? "1.0.0";
+const BUILD_SHA = process.env.BUILD_SHA?.trim() || "unknown";
 const SERVICE = "quiz-royale-backend";
 const MIN_READY_QUESTIONS = 10;
 
@@ -58,6 +60,7 @@ export async function getHealth({ prisma: prismaClient, redis, now = () => new D
     status,
     ts: timestamp.getTime(),
     version: VERSION,
+    buildSha: BUILD_SHA,
     service: SERVICE,
     timestamp: timestamp.toISOString(),
     components: { postgres, redis: redisHealth, questions },
@@ -66,7 +69,14 @@ export async function getHealth({ prisma: prismaClient, redis, now = () => new D
 
 healthRouter.get("/", (_req, res) => {
   const timestamp = new Date();
-  res.status(200).json({ status: "ok", ts: timestamp.getTime(), version: VERSION, service: SERVICE, timestamp: timestamp.toISOString() });
+  res.status(200).json({
+    status: "ok",
+    ts: timestamp.getTime(),
+    version: VERSION,
+    buildSha: BUILD_SHA,
+    service: SERVICE,
+    timestamp: timestamp.toISOString(),
+  });
 });
 
 healthRouter.get("/ready", async (_req, res) => {

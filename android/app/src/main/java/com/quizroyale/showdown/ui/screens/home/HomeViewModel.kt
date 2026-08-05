@@ -24,6 +24,7 @@ data class HomeUiState(
 )
 
 enum class HomeAction {
+    CREATE_SOLO,
     CREATE_OPEN,
     CREATE_PRIVATE,
     JOIN_BY_CODE,
@@ -60,6 +61,8 @@ class HomeViewModel @Inject constructor(
             )
         }
     }
+
+    fun createSinglePlayerRoom() = createRoom(HomeAction.CREATE_SOLO, isPrivate = true)
 
     fun createOpenRoom() = createRoom(HomeAction.CREATE_OPEN, isPrivate = false)
 
@@ -137,7 +140,10 @@ class HomeViewModel @Inject constructor(
                 )
             }
             runCatching {
-                roomRepository.createRoom(isPrivate = isPrivate)
+                roomRepository.createRoom(
+                    isPrivate = isPrivate,
+                    autoStartSolo = false,
+                )
             }.onSuccess { room ->
                 _uiState.update {
                     it.copy(

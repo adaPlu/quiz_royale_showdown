@@ -4,10 +4,12 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Link, useNavigate } from '../navigation';
 
+import { roomSnapshotSchema } from '@/lib/contracts';
 import { api } from '@services/apiClient';
 import { socketService } from '@services/socketService';
 import { useMountedRef } from '@hooks/useMountedRef';
 import { type AuthResponse, useAuthStore } from '@stores/authStore';
+import { useGameStore } from '@stores/gameStore';
 
 const schema = z.object({
   email: z.string().email('Enter a valid email'),
@@ -19,7 +21,7 @@ type RoomFlowResponse = {
   roomId?: string;
   roomCode?: string;
   wsToken?: string;
-  room?: { roomId?: string; id?: string; code?: string; roomCode?: string };
+  room?: unknown;
 };
 
 const normalizeCode = (value: string) =>
@@ -31,6 +33,7 @@ export default function LoginPage() {
   const mountedRef = useMountedRef();
   const setSession = useAuthStore((state) => state.setSession);
   const clearAuth = useAuthStore((state) => state.clearAuth);
+  const applyRoomState = useGameStore((state) => state.applyRoomState);
   const invitedCode = normalizeCode(
     typeof window === 'undefined'
       ? ''
@@ -80,10 +83,14 @@ export default function LoginPage() {
       setSession(authResponse.data);
 
       const joinResponse = await api.post<RoomFlowResponse>('/rooms/join', { roomCode });
-      const room = joinResponse.data.room ?? {};
-      const roomId = joinResponse.data.roomId ?? room.roomId ?? room.id;
-      const joinedCode = joinResponse.data.roomCode ?? room.code ?? room.roomCode ?? roomCode;
+      const parsedRoom = roomSnapshotSchema.safeParse(joinResponse.data.room);
+      const roomId = joinResponse.data.roomId ?? (parsedRoom.success ? parsedRoom.data.roomId : undefined);
+      const joinedCode = joinResponse.data.roomCode ?? (parsedRoom.success ? parsedRoom.data.code : roomCode);
       if (!roomId || !joinedCode) throw new Error('Room response is incomplete');
+
+      if (parsedRoom.success) {
+        applyRoomState({ room: parsedRoom.data });
+      }
 
       const socketToken = joinResponse.data.wsToken ?? authResponse.data.accessToken;
       socketService.connect(socketToken);

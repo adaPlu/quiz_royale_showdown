@@ -97,7 +97,10 @@ export async function refreshAuthSession(): Promise<RefreshResponse> {
       `${BASE_URL}/auth/refresh`,
       {},
       {
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-csrf-protection': '1',
+        },
         withCredentials: true,
       },
     );

@@ -14,6 +14,7 @@ const redisMock = {
 };
 
 const prismaMock = {
+  $transaction: vi.fn(),
   questionBank: {
     count: vi.fn(),
     findMany: vi.fn(),
@@ -37,6 +38,23 @@ const prismaMock = {
   },
   user: {
     findMany: vi.fn()
+  },
+  gameSettlement: {
+    create: vi.fn()
+  },
+  gameWinnerReward: {
+    create: vi.fn(),
+    findMany: vi.fn()
+  },
+  powerUp: {
+    findMany: vi.fn()
+  },
+  playerPowerUp: {
+    upsert: vi.fn()
+  },
+  powerUpBet: {
+    findMany: vi.fn(),
+    updateMany: vi.fn()
   }
 };
 
@@ -73,6 +91,9 @@ function createIoMock() {
 describe("GameOrchestrator hardening", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    prismaMock.$transaction.mockImplementation(
+      async (callback: (tx: typeof prismaMock) => Promise<unknown>) => callback(prismaMock),
+    );
     redisMock.del.mockResolvedValue(1);
     redisMock.zadd.mockResolvedValue(1);
     redisMock.sadd.mockResolvedValue(1);
@@ -119,6 +140,15 @@ describe("GameOrchestrator hardening", () => {
     prismaMock.round.updateMany.mockResolvedValue({ count: 1 });
     prismaMock.xpEvent.create.mockResolvedValue({});
     prismaMock.seasonScore.upsert.mockResolvedValue({});
+    prismaMock.gameSettlement.create.mockResolvedValue({});
+    prismaMock.gameWinnerReward.create.mockResolvedValue({});
+    prismaMock.gameWinnerReward.findMany.mockResolvedValue([]);
+    prismaMock.powerUp.findMany.mockResolvedValue([
+      { id: "powerup-shield", code: "SHIELD", name: "Shield" }
+    ]);
+    prismaMock.playerPowerUp.upsert.mockResolvedValue({});
+    prismaMock.powerUpBet.findMany.mockResolvedValue([]);
+    prismaMock.powerUpBet.updateMany.mockResolvedValue({ count: 0 });
   });
 
   it("computes winners from finalists only, excluding eliminated high scorers", async () => {
@@ -138,7 +168,7 @@ describe("GameOrchestrator hardening", () => {
     expect(winners).toEqual(["finalist-b"]);
   });
 
-  it("emits game over, writes XP, and cleans Redis for finalists only", async () => {
+  it("settles game over once, rewards the winner, and cleans Redis", async () => {
     const { GameOrchestrator } = await import("../GameOrchestrator");
     const orchestrator = new GameOrchestrator();
     const { io, emit } = createIoMock();
@@ -154,16 +184,19 @@ describe("GameOrchestrator hardening", () => {
         roomId: string,
         io: unknown,
         winnerIds: string[],
-        finalistIds: string[]
+        allPlayerIds: string[]
       ): Promise<void>;
     }).runGameOver("room-1", io, ["finalist-b"], ["finalist-a", "finalist-b"]);
 
+    expect(prismaMock.gameSettlement.create).toHaveBeenCalledWith({
+      data: { id: "generated-id", roomId: "room-1" }
+    });
     expect(prismaMock.xpEvent.create).toHaveBeenCalledTimes(2);
     expect(prismaMock.seasonScore.upsert).not.toHaveBeenCalled();
     expect(prismaMock.xpEvent.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         userId: "finalist-b",
-        reason: "GAME_FINISH",
+        reason: "GAME_FINISH:room-1",
         amount: 40,
         metadata: { roomId: "room-1", rank: 1 }
       })
@@ -171,10 +204,25 @@ describe("GameOrchestrator hardening", () => {
     expect(prismaMock.xpEvent.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         userId: "finalist-a",
-        reason: "GAME_FINISH",
+        reason: "GAME_FINISH:room-1",
         amount: 30,
         metadata: { roomId: "room-1", rank: 2 }
       })
+    });
+    expect(prismaMock.playerPowerUp.upsert).toHaveBeenCalledWith({
+      where: {
+        userId_powerUpId: {
+          userId: "finalist-b",
+          powerUpId: "powerup-shield"
+        }
+      },
+      create: {
+        id: "generated-id",
+        userId: "finalist-b",
+        powerUpId: "powerup-shield",
+        quantity: 1
+      },
+      update: { quantity: { increment: 1 } }
     });
     expect(prismaMock.room.update).toHaveBeenCalledWith({
       where: { id: "room-1" },
@@ -186,6 +234,16 @@ describe("GameOrchestrator hardening", () => {
       payload: {
         roomId: "room-1",
         winnerId: "finalist-b",
+        winnerIds: ["finalist-b"],
+        winnerPowerUpRewards: [
+          {
+            playerId: "finalist-b",
+            powerUpId: "powerup-shield",
+            code: "SHIELD",
+            name: "Shield",
+            quantity: 1
+          }
+        ],
         finalStandings: [
           {
             playerId: "finalist-b",
@@ -212,7 +270,7 @@ describe("GameOrchestrator hardening", () => {
     );
   });
 
-  it("upserts season scores for season games at game over", async () => {
+  it("upserts season scores inside the game settlement transaction", async () => {
     const { GameOrchestrator } = await import("../GameOrchestrator");
     const orchestrator = new GameOrchestrator();
     const { io } = createIoMock();
@@ -228,7 +286,7 @@ describe("GameOrchestrator hardening", () => {
         roomId: string,
         io: unknown,
         winnerIds: string[],
-        finalistIds: string[]
+        allPlayerIds: string[]
       ): Promise<void>;
     }).runGameOver("room-1", io, ["finalist-b"], ["finalist-a", "finalist-b"]);
 
@@ -299,7 +357,12 @@ describe("GameOrchestrator hardening", () => {
       "message",
       expect.objectContaining({
         type: "game:over",
-        payload: expect.objectContaining({ winnerId: "solo-player" })
+        payload: expect.objectContaining({
+          winnerId: "solo-player",
+          winnerPowerUpRewards: [
+            expect.objectContaining({ playerId: "solo-player", quantity: 1 })
+          ]
+        })
       })
     );
     expect(emit).not.toHaveBeenCalledWith(

@@ -14,7 +14,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20.19.0
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
@@ -31,6 +31,9 @@ jobs:
 
       - name: Backend tests
         run: npm run test -w backend
+
+      - name: Validate production backend image
+        run: docker build -t quiz-royale-backend:pr-${{ github.event.pull_request.number || github.run_number }} ./backend
 
       - name: Web typecheck
         run: npm run typecheck -w webapp
@@ -49,6 +52,41 @@ jobs:
       - name: Audit backend image dependencies
         run: npm audit --audit-level=high --workspaces=false
         working-directory: backend
+
+  migration-rehearsal:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: migration-password
+          POSTGRES_DB: quiz_royale_migration
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d quiz_royale_migration"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres:migration-password@127.0.0.1:5432/quiz_royale_migration
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate -w backend
+
+      - name: Rehearse populated upgrade and fresh bootstrap
+        run: npm run test:migrations -w backend
 
   android:
     runs-on: ubuntu-latest

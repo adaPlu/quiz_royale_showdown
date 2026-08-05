@@ -3,16 +3,23 @@ import { useNavigate } from '../navigation';
 
 import { PlayerAvatar } from '@components/PlayerAvatar';
 import { useMountedRef } from '@hooks/useMountedRef';
+import { roomSnapshotSchema, type ServerEventPayload } from '@/lib/contracts';
 import { api } from '@services/apiClient';
 import { socketService } from '@services/socketService';
 import { useAuthStore } from '@stores/authStore';
 import { useGameStore } from '@stores/gameStore';
 
+type RoomSnapshot = ServerEventPayload<'room:state_sync'>['room'];
 type RoomApiRecord = {
   id?: unknown;
   roomId?: unknown;
   code?: unknown;
   roomCode?: unknown;
+  hostUserId?: unknown;
+  phase?: unknown;
+  roundNumber?: unknown;
+  totalRounds?: unknown;
+  players?: unknown;
 };
 
 type RoomFlowResponse = {
@@ -27,18 +34,23 @@ type RoomSession = {
   roomId: string;
   roomCode: string;
   wsToken?: string;
+  room?: RoomSnapshot;
 };
 
 const normalizeRoomSession = (data: unknown, fallbackRoomCode?: string): RoomSession => {
   const payload = (data ?? {}) as RoomFlowResponse;
   const room = payload.room ?? {};
+  const parsedRoom = roomSnapshotSchema.safeParse(room);
 
-  const roomIdCandidate = room.id ?? room.roomId ?? payload.roomId;
+  const roomIdCandidate = parsedRoom.success
+    ? parsedRoom.data.roomId
+    : room.id ?? room.roomId ?? payload.roomId;
   if (typeof roomIdCandidate !== 'string' || !roomIdCandidate.trim()) {
     throw new Error('Room response is missing roomId');
   }
 
   const roomCodeCandidate =
+    (parsedRoom.success ? parsedRoom.data.code : undefined) ??
     room.code ??
     room.roomCode ??
     payload.code ??
@@ -54,6 +66,7 @@ const normalizeRoomSession = (data: unknown, fallbackRoomCode?: string): RoomSes
     roomId: roomIdCandidate,
     roomCode: roomCodeCandidate.trim().toUpperCase(),
     wsToken: typeof payload.wsToken === 'string' && payload.wsToken.trim() ? payload.wsToken : undefined,
+    room: parsedRoom.success ? parsedRoom.data : undefined,
   };
 };
 
@@ -72,6 +85,7 @@ export default function HomePage() {
   const user = useAuthStore((state) => state.user);
   const accessToken = useAuthStore((state) => state.accessToken);
   const clearAuth = useAuthStore((state) => state.clearAuth);
+  const applyRoomState = useGameStore((state) => state.applyRoomState);
   const resetRoom = useGameStore((state) => state.resetRoom);
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState<string | null>(null);
@@ -96,6 +110,10 @@ export default function HomePage() {
     const socketToken = session.wsToken ?? accessToken;
     if (!socketToken) {
       throw new Error('Missing websocket auth token');
+    }
+
+    if (session.room) {
+      applyRoomState({ room: session.room });
     }
 
     socketService.connect(socketToken);
@@ -137,7 +155,7 @@ export default function HomePage() {
       const response = await api.post('/rooms', {
         isPrivate,
         maxPlayers: 8,
-        autoStartSolo: action === 'solo',
+        autoStartSolo: false,
       });
       if (!mountedRef.current) return;
       enterLobby(normalizeRoomSession(response.data));
@@ -239,7 +257,7 @@ export default function HomePage() {
           {loading === 'solo' ? 'Creating solo game...' : 'Single Player'}
         </button>}
         {!isGuest && <p className="-mt-2 text-center text-xs text-game-muted">
-          Create a private lobby, then tap Play Solo or wait for the solo countdown.
+          Create a private lobby, choose a difficulty, then tap Play Solo.
         </p>}
 
         {!isGuest && <button

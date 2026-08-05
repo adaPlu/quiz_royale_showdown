@@ -16,7 +16,7 @@ export class RedisService {
       lazyConnect: true,
       maxRetriesPerRequest: 3,
       retryStrategy: (times) => {
-        if (times > 10) return null; // stop retrying
+        if (times > 10) return null;
         return Math.min(times * 200, 3000);
       }
     });
@@ -34,8 +34,6 @@ export class RedisService {
     });
   }
 
-  // ─── Lifecycle ──────────────────────────────────────────────────────────
-
   async connect(): Promise<void> {
     if (this.client.status === "wait") {
       await this.client.connect();
@@ -52,8 +50,6 @@ export class RedisService {
     return this.client.ping();
   }
 
-  // ─── String ─────────────────────────────────────────────────────────────
-
   async get(key: string): Promise<string | null> {
     return this.client.get(key);
   }
@@ -66,7 +62,6 @@ export class RedisService {
     }
   }
 
-  /** SET only if key does Not eXist.  Returns true if the key was set. */
   async setnx(key: string, value: string, ttlSeconds?: number): Promise<boolean> {
     if (ttlSeconds) {
       const result = await this.client.set(key, value, "EX", ttlSeconds, "NX");
@@ -101,8 +96,6 @@ export class RedisService {
     return this.client.incrby(key, increment);
   }
 
-  // ─── JSON helpers ────────────────────────────────────────────────────────
-
   async setJson<T>(key: string, value: T, ttlSeconds?: number): Promise<void> {
     await this.set(key, JSON.stringify(value), ttlSeconds);
   }
@@ -111,8 +104,6 @@ export class RedisService {
     const raw = await this.get(key);
     return raw ? (JSON.parse(raw) as T) : null;
   }
-
-  // ─── Hash ────────────────────────────────────────────────────────────────
 
   async hset(key: string, field: string, value: string): Promise<void> {
     await this.client.hset(key, field, value);
@@ -134,8 +125,6 @@ export class RedisService {
     await this.client.hset(key, data);
   }
 
-  // ─── Set ─────────────────────────────────────────────────────────────────
-
   async sadd(key: string, ...members: string[]): Promise<number> {
     return this.client.sadd(key, ...members);
   }
@@ -156,8 +145,6 @@ export class RedisService {
   async scard(key: string): Promise<number> {
     return this.client.scard(key);
   }
-
-  // ─── Sorted Set ──────────────────────────────────────────────────────────
 
   async zadd(key: string, score: number, member: string): Promise<number> {
     return this.client.zadd(key, score, member);
@@ -204,32 +191,18 @@ export class RedisService {
     return this.client.zrem(key, ...members);
   }
 
-  // ─── Pub/Sub ─────────────────────────────────────────────────────────────
-
   async publish(channel: string, message: string): Promise<number> {
     return this.client.publish(channel, message);
   }
 
-  /**
-   * Returns a NEW ioredis client subscribed to the given channel.
-   * Caller is responsible for calling `.disconnect()` on the returned client.
-   */
   createSubscriber(): RedisClient {
     return this.client.duplicate();
   }
-
-  // ─── Pipeline ────────────────────────────────────────────────────────────
 
   pipeline(): ChainableCommander {
     return this.client.pipeline();
   }
 
-  // ─── Lua Scripting ───────────────────────────────────────────────────────
-
-  /**
-   * Atomically set a key only if the given expected value matches.
-   * Returns true if the swap happened.
-   */
   async compareAndSet(key: string, expected: string, next: string): Promise<boolean> {
     const script = `
       local current = redis.call("GET", KEYS[1])
@@ -243,9 +216,30 @@ export class RedisService {
     const result = await this.client.eval(script, 1, key, expected, next);
     return result === 1;
   }
+
+  async compareAndExpire(key: string, expected: string, ttlSeconds: number): Promise<boolean> {
+    const script = `
+      if redis.call("GET", KEYS[1]) == ARGV[1] then
+        return redis.call("EXPIRE", KEYS[1], ARGV[2])
+      end
+      return 0
+    `;
+    const result = await this.client.eval(script, 1, key, expected, String(ttlSeconds));
+    return result === 1;
+  }
+
+  async compareAndDelete(key: string, expected: string): Promise<boolean> {
+    const script = `
+      if redis.call("GET", KEYS[1]) == ARGV[1] then
+        return redis.call("DEL", KEYS[1])
+      end
+      return 0
+    `;
+    const result = await this.client.eval(script, 1, key, expected);
+    return result === 1;
+  }
 }
 
-/** Singleton Redis service instance. */
 export let redisService: RedisService | null = null;
 
 export function initRedis(url: string): RedisService {
