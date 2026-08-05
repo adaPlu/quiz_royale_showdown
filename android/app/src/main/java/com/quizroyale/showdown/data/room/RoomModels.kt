@@ -1,11 +1,26 @@
 package com.quizroyale.showdown.data.room
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+
+@Serializable
+enum class GameDifficulty {
+    @SerialName("easy")
+    EASY,
+
+    @SerialName("medium")
+    MEDIUM,
+
+    @SerialName("hard")
+    HARD,
+}
 
 @Serializable
 data class CreateRoomRequest(
     val isPrivate: Boolean,
     val maxPlayers: Int,
+    val difficulty: GameDifficulty = GameDifficulty.MEDIUM,
+    val autoStartSolo: Boolean = false,
 )
 
 @Serializable
@@ -16,6 +31,11 @@ data class JoinRoomRequest(
 @Serializable
 data class StartGameRequest(
     val allowSolo: Boolean = false,
+)
+
+@Serializable
+data class UpdateDifficultyRequest(
+    val difficulty: GameDifficulty,
 )
 
 data class RoomPlayerSummary(
@@ -37,6 +57,7 @@ data class RoomSnapshot(
     val maxPlayers: Int?,
     val players: List<RoomPlayerSummary>,
     val hostUserId: String?,
+    val difficulty: GameDifficulty,
     val wsToken: String?,
 )
 
