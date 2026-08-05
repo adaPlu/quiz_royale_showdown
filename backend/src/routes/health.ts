@@ -34,6 +34,7 @@ interface HealthDependencies {
 }
 
 const VERSION = process.env.npm_package_version ?? "1.0.0";
+const SERVICE = "quiz-royale-backend";
 
 async function checkComponent(check: () => Promise<void>): Promise<ComponentHealth> {
   const startedAt = Date.now();
@@ -82,7 +83,7 @@ export async function getHealth({
     status,
     ts: timestamp.getTime(),
     version: VERSION,
-    service: "quiz-royale-backend",
+    service: SERVICE,
     timestamp: timestamp.toISOString(),
     components: {
       postgres,
@@ -91,7 +92,22 @@ export async function getHealth({
   };
 }
 
-healthRouter.get("/", async (_req, res) => {
+// Liveness endpoint used by Railway. If this handler responds, the HTTP process
+// is running and accepting requests. Dependency health is exposed separately so
+// a transient Postgres/Redis delay does not cause Railway to discard a good image.
+healthRouter.get("/", (_req, res) => {
+  const timestamp = new Date();
+  res.status(200).json({
+    status: "ok",
+    ts: timestamp.getTime(),
+    version: VERSION,
+    service: SERVICE,
+    timestamp: timestamp.toISOString()
+  });
+});
+
+// Readiness/dependency diagnostics for operators and monitoring.
+healthRouter.get("/ready", async (_req, res) => {
   const health = await getHealth({
     prisma,
     redis: redisService
