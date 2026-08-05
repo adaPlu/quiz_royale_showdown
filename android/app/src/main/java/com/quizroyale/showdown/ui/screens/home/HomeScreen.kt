@@ -140,7 +140,7 @@ fun HomeScreen(
                     value = uiState.joinCode,
                     onValueChange = viewModel::onJoinCodeChange,
                     label = { Text("Room Code") },
-                    supportingText = { Text("Use the room code shared by the host.") },
+                    supportingText = { Text("Use the 6-character code shared by the host.") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                 )

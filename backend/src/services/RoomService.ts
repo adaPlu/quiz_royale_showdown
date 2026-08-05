@@ -618,7 +618,7 @@ export class RoomService {
 
   private async generateRoomCode(): Promise<string> {
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    const codeLength = 8;
+    const codeLength = 6;
     const maxAttempts = 10;
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {

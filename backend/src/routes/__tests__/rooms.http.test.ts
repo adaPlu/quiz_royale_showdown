@@ -5,7 +5,7 @@ import type { Express, NextFunction, Request, Response } from "express";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const VALID_ROOM_ID = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
-const VALID_ROOM_CODE = "ABCD2345";
+const VALID_ROOM_CODE = "ABCD23";
 
 const roomServiceMock = vi.hoisted(() => ({
   createRoom: vi.fn(),

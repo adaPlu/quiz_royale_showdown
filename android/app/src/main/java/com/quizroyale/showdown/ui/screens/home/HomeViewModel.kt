@@ -67,7 +67,7 @@ class HomeViewModel @Inject constructor(
 
     fun joinByCode() {
         val roomCode = _uiState.value.joinCode.trim().uppercase()
-        if (roomCode.length < MIN_ROOM_CODE_LENGTH) {
+        if (!isSupportedRoomCode(roomCode)) {
             _uiState.update {
                 it.copy(errorMessage = "Enter a valid room code to join.")
             }
@@ -157,7 +157,11 @@ class HomeViewModel @Inject constructor(
     }
 
     companion object {
-        private const val MIN_ROOM_CODE_LENGTH = 4
-        private const val MAX_ROOM_REFERENCE_LENGTH = 8
+        private const val ROOM_CODE_LENGTH = 6
+        private const val LEGACY_ROOM_CODE_LENGTH = 8
+        private const val MAX_ROOM_REFERENCE_LENGTH = LEGACY_ROOM_CODE_LENGTH
+
+        private fun isSupportedRoomCode(value: String): Boolean =
+            value.length == ROOM_CODE_LENGTH || value.length == LEGACY_ROOM_CODE_LENGTH
     }
 }
