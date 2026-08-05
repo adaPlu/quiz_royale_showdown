@@ -17,5 +17,8 @@ interface RoomApi {
     suspend fun getRoom(@Path("roomReference") roomReference: String): JsonObject
 
     @POST("rooms/{roomId}/start")
-    suspend fun startGame(@Path("roomId") roomId: String): JsonObject
+    suspend fun startGame(
+        @Path("roomId") roomId: String,
+        @Body request: StartGameRequest,
+    ): JsonObject
 }

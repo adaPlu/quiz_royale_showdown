@@ -29,5 +29,15 @@ else
   echo "Use /health/ready and the deployment logs to diagnose database readiness."
 fi
 
+SEED_TIMEOUT_SECONDS="${SEED_TIMEOUT_SECONDS:-60}"
+echo "Ensuring the production question bank is ready..."
+if timeout "$SEED_TIMEOUT_SECONDS" node dist/scripts/seed.js; then
+  echo "Question bank is ready."
+else
+  seed_status=$?
+  echo "WARNING: Database seed check failed with exit code ${seed_status}."
+  echo "The server will start, but game starts may fail until active questions exist."
+fi
+
 echo "Starting server..."
 exec node dist/index.js

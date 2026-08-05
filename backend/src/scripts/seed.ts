@@ -214,7 +214,7 @@ const QUESTIONS: Array<{
 // ─── Auto-seed (called on startup) ───────────────────────────────────────────
 
 export async function autoSeedIfEmpty(): Promise<void> {
-  const count = await prisma.questionBank.count();
+  const count = await prisma.questionBank.count({ where: { isActive: true } });
   if (count > 0) return;
   console.log("Question bank is empty — running seed…");
   await main();
@@ -260,6 +260,11 @@ async function main() {
     if (!existing) {
       await prisma.questionBank.create({
         data: { id: ulid(), ...q, isActive: true }
+      });
+    } else if (!existing.isActive) {
+      await prisma.questionBank.update({
+        where: { id: existing.id },
+        data: { isActive: true }
       });
     }
   }

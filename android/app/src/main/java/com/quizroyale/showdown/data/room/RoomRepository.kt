@@ -64,8 +64,8 @@ class RoomRepository @Inject constructor(
         return snapshot
     }
 
-    suspend fun startGame(roomId: String) {
-        roomApi.startGame(roomId)
+    suspend fun startGame(roomId: String, allowSolo: Boolean = false) {
+        roomApi.startGame(roomId, StartGameRequest(allowSolo = allowSolo))
     }
 
     suspend fun refreshRoom(roomReference: String): RoomSnapshot {

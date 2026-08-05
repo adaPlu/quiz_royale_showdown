@@ -93,6 +93,15 @@ async function maybeAutoStartRoom(
       message
     });
 
+    const recoveredRoom = await roomService.getRoomById(roomId).catch(() => null);
+    if (recoveredRoom) {
+      io.to(roomId).emit("message", {
+        type: "room:state_sync",
+        version: "v1",
+        payload: { room: recoveredRoom.room }
+      } satisfies ServerEvents);
+    }
+
     io.to(roomId).emit("message", {
       type: "error",
       version: "v1",

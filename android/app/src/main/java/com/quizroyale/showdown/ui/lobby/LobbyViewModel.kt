@@ -3,6 +3,7 @@ package com.quizroyale.showdown.ui.lobby
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.quizroyale.showdown.data.auth.AuthRepository
 import com.quizroyale.showdown.data.room.CachedRoomSummary
 import com.quizroyale.showdown.data.room.RoomRepository
 import com.quizroyale.showdown.data.room.RoomSnapshot
@@ -19,6 +20,7 @@ const val ROOM_REFERENCE_ARGUMENT = "roomReference"
 
 data class LobbyUiState(
     val roomReference: String? = null,
+    val currentUserId: String? = null,
     val room: RoomSnapshot? = null,
     val cachedRoom: CachedRoomSummary? = null,
     val isLoading: Boolean = true,
@@ -31,6 +33,7 @@ data class LobbyUiState(
 class LobbyViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val roomRepository: RoomRepository,
+    private val authRepository: AuthRepository,
     private val webSocketManager: WebSocketManager,
 ) : ViewModel() {
     private val requestedRoomReference = savedStateHandle.get<String>(ROOM_REFERENCE_ARGUMENT)
@@ -39,7 +42,10 @@ class LobbyViewModel @Inject constructor(
         ?.takeIf { it.isNotBlank() }
 
     private val _uiState = MutableStateFlow(
-        LobbyUiState(roomReference = requestedRoomReference)
+        LobbyUiState(
+            roomReference = requestedRoomReference,
+            currentUserId = authRepository.currentUserId(),
+        )
     )
     val uiState: StateFlow<LobbyUiState> = _uiState.asStateFlow()
 
@@ -66,11 +72,11 @@ class LobbyViewModel @Inject constructor(
         }
     }
 
-    fun startGame() {
+    fun startGame(allowSolo: Boolean) {
         val roomId = _uiState.value.room?.roomId ?: return
         viewModelScope.launch {
             _uiState.update { it.copy(isStartingGame = true, errorMessage = null) }
-            runCatching { roomRepository.startGame(roomId) }
+            runCatching { roomRepository.startGame(roomId, allowSolo = allowSolo) }
                 .onSuccess {
                     _uiState.update { it.copy(isStartingGame = false, gameStarted = true) }
                 }

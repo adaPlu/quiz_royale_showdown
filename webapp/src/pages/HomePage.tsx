@@ -125,8 +125,11 @@ export default function HomePage() {
     }
   };
 
-  const createRoom = async (isPrivate: boolean) => {
-    setLoading(isPrivate ? 'private' : 'create');
+  const createRoom = async (
+    isPrivate: boolean,
+    action = isPrivate ? 'private' : 'create',
+  ) => {
+    setLoading(action);
     setError(null);
     setLaunchNotice(null);
 
@@ -223,6 +226,17 @@ export default function HomePage() {
         >
           {loading === 'quick' ? 'Finding game...' : 'Quick Play'}
         </button>
+
+        <button
+          onClick={() => createRoom(true, 'solo')}
+          disabled={!!loading}
+          className="w-full py-4 rounded-2xl bg-brand-gold text-black font-black text-lg shadow-royale hover:opacity-90 disabled:opacity-60"
+        >
+          {loading === 'solo' ? 'Creating solo game...' : 'Single Player'}
+        </button>
+        <p className="-mt-2 text-center text-xs text-game-muted">
+          Create a private lobby, then tap Play Solo.
+        </p>
 
         <button
           onClick={() => createRoom(true)}
