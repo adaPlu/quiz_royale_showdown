@@ -4,6 +4,11 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { prisma } from "../models/prismaClient";
+import {
+  GAME_DIFFICULTIES,
+  getRoomGameDifficulty,
+  setRoomGameDifficulty,
+} from "../services/GameDifficultyService";
 import { gameOrchestrator } from "../services/GameOrchestrator";
 import {
   LeaveRoomResult,
@@ -11,15 +16,22 @@ import {
   roomService,
 } from "../services/RoomService";
 import { getIo } from "../socket";
-import { ForbiddenError, UnauthorizedError } from "../utils/errors";
+import {
+  ConflictError,
+  ForbiddenError,
+  UnauthorizedError,
+} from "../utils/errors";
 import { isAutomatedTestUser } from "../utils/testUsers";
 import { isValidId } from "../utils/ulid";
 
 export const roomsRouter = Router();
 
+const gameDifficultySchema = z.enum(GAME_DIFFICULTIES);
+
 const createRoomSchema = z.object({
   isPrivate: z.boolean().optional().default(true),
   maxPlayers: z.number().int().min(2).max(100).optional().default(8),
+  difficulty: gameDifficultySchema.optional().default("medium"),
 });
 
 const ROOM_CODE_LENGTH = 6;
@@ -54,6 +66,10 @@ const roomIdParamsSchema = z.object({
 
 const startRoomSchema = z.object({
   allowSolo: z.boolean().optional().default(false),
+});
+
+const updateDifficultySchema = z.object({
+  difficulty: gameDifficultySchema,
 });
 
 function getAuthenticatedUserId(jwtSub?: string): string {
@@ -110,26 +126,64 @@ async function assertTestRoomBoundary(
   }
 }
 
-function formatRoomResponse(payload: RoomLifecycleState, wsToken?: string) {
+async function assertRoomParticipant(roomId: string, requesterId: string) {
+  const room = await roomService.getRoomById(roomId);
+  const isParticipant =
+    room.hostUserId === requesterId ||
+    room.room.players.some((player) => player.id === requesterId);
+
+  if (!isParticipant) {
+    throw new ForbiddenError("Only room participants can view game settings");
+  }
+
+  return room;
+}
+
+async function assertHostCanConfigureRoom(roomId: string, requesterId: string) {
+  const room = await roomService.getRoomById(roomId);
+
+  if (room.hostUserId !== requesterId) {
+    throw new ForbiddenError("Only the host can change game difficulty");
+  }
+
+  if (room.room.phase !== "WAITING") {
+    throw new ConflictError("Game difficulty cannot be changed after the game starts");
+  }
+
+  return room;
+}
+
+function formatRoomResponse(
+  payload: RoomLifecycleState,
+  difficulty: (typeof GAME_DIFFICULTIES)[number],
+  wsToken?: string
+) {
   return {
     roomId: payload.room.roomId,
     roomCode: payload.room.code,
     room: payload.room,
     hostUserId: payload.hostUserId,
-    config: payload.config,
+    config: {
+      ...payload.config,
+      difficulty,
+    },
     createdAt: payload.createdAt,
     startedAt: payload.startedAt,
     ...(wsToken ? { wsToken } : {}),
   };
 }
 
-function formatRoomLookupResponse(payload: RoomLifecycleState, requesterId: string) {
+function formatRoomLookupResponse(
+  payload: RoomLifecycleState,
+  requesterId: string,
+  difficulty: (typeof GAME_DIFFICULTIES)[number]
+) {
   const isRoomParticipant =
     payload.hostUserId === requesterId ||
     payload.room.players.some((player) => player.id === requesterId);
 
   if (isRoomParticipant) {
-    return formatRoomResponse(payload);
+    return formatRoomResponse(payload, difficulty);
   }
 
   return {
@@ -168,8 +222,9 @@ roomsRouter.post(
       const hostUserId = getAuthenticatedUserId(req.jwtClaims?.sub);
       const input = req.body as z.infer<typeof createRoomSchema>;
       const room = await roomService.createRoom(hostUserId, input);
+      await setRoomGameDifficulty(room.room.roomId, input.difficulty);
 
-      res.status(201).json(formatRoomResponse(room));
+      res.status(201).json(formatRoomResponse(room, input.difficulty));
     } catch (error) {
       next(error);
     }
@@ -189,8 +244,45 @@ roomsRouter.post(
 
       const { room, wsToken } = await roomService.joinRoom(userId, roomCode);
       const lifecycleState = await roomService.getRoomById(room.id);
+      const difficulty = await getRoomGameDifficulty(room.id);
 
-      res.json(formatRoomResponse(lifecycleState, wsToken));
+      res.json(formatRoomResponse(lifecycleState, difficulty, wsToken));
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+roomsRouter.get(
+  "/by-id/:roomId/difficulty",
+  requireAuth,
+  validate({ params: roomIdParamsSchema }),
+  async (req, res, next) => {
+    try {
+      const requesterId = getAuthenticatedUserId(req.jwtClaims?.sub);
+      const { roomId } = req.params as z.infer<typeof roomIdParamsSchema>;
+      await assertRoomParticipant(roomId, requesterId);
+
+      res.json({ difficulty: await getRoomGameDifficulty(roomId) });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+roomsRouter.patch(
+  "/by-id/:roomId/difficulty",
+  requireAuth,
+  validate({ params: roomIdParamsSchema, body: updateDifficultySchema }),
+  async (req, res, next) => {
+    try {
+      const requesterId = getAuthenticatedUserId(req.jwtClaims?.sub);
+      const { roomId } = req.params as z.infer<typeof roomIdParamsSchema>;
+      const { difficulty } = req.body as z.infer<typeof updateDifficultySchema>;
+      await assertHostCanConfigureRoom(roomId, requesterId);
+      await setRoomGameDifficulty(roomId, difficulty);
+
+      res.json({ difficulty });
     } catch (error) {
       next(error);
     }
@@ -206,8 +298,9 @@ roomsRouter.get(
       const requesterId = getAuthenticatedUserId(req.jwtClaims?.sub);
       const { roomCode } = req.params as z.infer<typeof roomCodeParamsSchema>;
       const room = await roomService.getRoomByCode(roomCode);
+      const difficulty = await getRoomGameDifficulty(room.room.roomId);
 
-      res.json(formatRoomLookupResponse(room, requesterId));
+      res.json(formatRoomLookupResponse(room, requesterId, difficulty));
     } catch (error) {
       next(error);
     }
@@ -230,9 +323,10 @@ roomsRouter.post(
       );
 
       const room = await roomService.startGame(roomId, requesterId, { allowSolo });
+      const difficulty = await getRoomGameDifficulty(roomId);
 
       try {
-        await gameOrchestrator.assertQuestionBankReady();
+        await gameOrchestrator.assertQuestionBankReady(difficulty);
       } catch (error) {
         await roomService.resetStartFailure(
           roomId,
@@ -241,8 +335,6 @@ roomsRouter.post(
         throw error;
       }
 
-      // Fetch player IDs and fire the game loop asynchronously.
-      // Do NOT await — the FSM drives itself over socket events.
       const playerRows = await prisma.roomPlayer.findMany({
         where: { roomId },
         select: { userId: true },
@@ -251,11 +343,10 @@ roomsRouter.post(
 
       void gameOrchestrator.startGame(roomId, playerIds, getIo()).catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
-        // Logger is imported transitively via RoomService; use console as fallback here.
         console.error("[rooms] GameOrchestrator.startGame failed", { roomId, message });
       });
 
-      res.json(formatRoomResponse(room));
+      res.json(formatRoomResponse(room, difficulty));
     } catch (error) {
       next(error);
     }
