@@ -1,18 +1,28 @@
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import {
   copyFileSync,
   cpSync,
   existsSync,
   mkdirSync,
+  readFileSync,
   rmSync,
 } from "node:fs";
 import path from "node:path";
 
 import { PrismaClient } from "@prisma/client";
 
+const LEGACY_DUPLICATE_MIGRATIONS = [
+  "20260419165003_init",
+  "20260422211153_init",
+] as const;
 const CANONICAL_BASELINE = "20260425000000_init";
 const REFRESH_TOKEN_MIGRATION = "20260621000000_unique_refresh_token_hash";
 const ECONOMY_MIGRATION = "20260805130000_game_settlement_powerup_wagers";
+const KNOWN_BASELINE_MIGRATIONS = [
+  ...LEGACY_DUPLICATE_MIGRATIONS,
+  CANONICAL_BASELINE,
+] as const;
 
 function run(command: string, args: string[]): void {
   const result = spawnSync(command, args, {
@@ -29,6 +39,13 @@ function run(command: string, args: string[]): void {
 
 function runPrisma(schemaPath: string): void {
   run("npx", ["prisma", "migrate", "deploy", "--schema", schemaPath]);
+}
+
+function migrationChecksum(prismaDir: string, migrationName: string): string {
+  const sql = readFileSync(
+    path.join(prismaDir, "migrations", migrationName, "migration.sql"),
+  );
+  return createHash("sha256").update(sql).digest("hex");
 }
 
 async function seedRepresentativeExistingData(prisma: PrismaClient): Promise<void> {
@@ -102,6 +119,81 @@ async function seedRepresentativeExistingData(prisma: PrismaClient): Promise<voi
       '{"source":"migration-rehearsal"}'::jsonb
     )
   `);
+}
+
+async function simulateFailedLegacyHistory(
+  prisma: PrismaClient,
+  prismaDir: string,
+): Promise<void> {
+  await prisma.$executeRawUnsafe(`
+    DELETE FROM "_prisma_migrations"
+    WHERE migration_name IN (
+      '20260419165003_init',
+      '20260422211153_init',
+      '20260425000000_init'
+    )
+  `);
+
+  const firstLegacyChecksum = migrationChecksum(
+    prismaDir,
+    LEGACY_DUPLICATE_MIGRATIONS[0],
+  );
+  const canonicalChecksum = migrationChecksum(prismaDir, CANONICAL_BASELINE);
+
+  // Simulate the state left by the former best-effort Railway startup: a
+  // complete, populated schema with failed baseline records and one missing
+  // duplicate record. Reconciliation must repair only this known-safe shape.
+  await prisma.$executeRawUnsafe(`
+    INSERT INTO "_prisma_migrations" (
+      id, checksum, started_at, migration_name, logs,
+      rolled_back_at, finished_at, applied_steps_count
+    )
+    VALUES
+      (
+        'simulated-failed-legacy-init',
+        '${firstLegacyChecksum}',
+        CURRENT_TIMESTAMP,
+        '${LEGACY_DUPLICATE_MIGRATIONS[0]}',
+        'Simulated legacy Railway migration failure',
+        NULL,
+        NULL,
+        0
+      ),
+      (
+        'simulated-failed-current-baseline',
+        '${canonicalChecksum}',
+        CURRENT_TIMESTAMP,
+        '${CANONICAL_BASELINE}',
+        'Simulated canonical baseline history failure',
+        NULL,
+        NULL,
+        0
+      )
+  `);
+}
+
+async function verifyKnownBaselineHistory(prisma: PrismaClient): Promise<void> {
+  const rows = await prisma.$queryRawUnsafe<Array<{ migration_name: string }>>(`
+    SELECT DISTINCT migration_name
+    FROM "_prisma_migrations"
+    WHERE migration_name IN (
+      '20260419165003_init',
+      '20260422211153_init',
+      '20260425000000_init'
+    )
+      AND finished_at IS NOT NULL
+      AND rolled_back_at IS NULL
+  `);
+
+  const applied = new Set(rows.map((row) => row.migration_name));
+  const missing = KNOWN_BASELINE_MIGRATIONS.filter(
+    (migrationName) => !applied.has(migrationName),
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `Legacy reconciliation did not finish baseline migrations: ${missing.join(", ")}`,
+    );
+  }
 }
 
 async function verifyUpgrade(prisma: PrismaClient): Promise<void> {
@@ -245,6 +337,34 @@ async function main(): Promise<void> {
     // A second deploy must be a safe no-op.
     runPrisma(rehearsalSchema);
 
+    console.log("Rehearsing recovery of a populated legacy Railway database...");
+    prisma = new PrismaClient();
+    await resetPublicSchema(prisma);
+    await prisma.$disconnect();
+
+    rmSync(path.join(rehearsalMigrations, ECONOMY_MIGRATION), {
+      recursive: true,
+      force: true,
+    });
+    runPrisma(rehearsalSchema);
+
+    prisma = new PrismaClient();
+    await seedRepresentativeExistingData(prisma);
+    await simulateFailedLegacyHistory(prisma, prismaDir);
+    await prisma.$disconnect();
+
+    run("npx", ["tsx", "src/scripts/reconcileLegacyMigrations.ts"]);
+    run("npx", ["prisma", "migrate", "deploy"]);
+
+    prisma = new PrismaClient();
+    await verifyKnownBaselineHistory(prisma);
+    await verifyUpgrade(prisma);
+    await prisma.$disconnect();
+
+    // Recovery and the economy migration must also be idempotent.
+    run("npx", ["tsx", "src/scripts/reconcileLegacyMigrations.ts"]);
+    run("npx", ["prisma", "migrate", "deploy"]);
+
     console.log("Rehearsing a completely fresh production database bootstrap...");
     prisma = new PrismaClient();
     await resetPublicSchema(prisma);
@@ -257,7 +377,9 @@ async function main(): Promise<void> {
     await verifyFreshDatabase(prisma);
     await prisma.$disconnect();
 
-    console.log("Migration upgrade and fresh-bootstrap rehearsals passed.");
+    console.log(
+      "Migration upgrade, legacy recovery, and fresh-bootstrap rehearsals passed.",
+    );
   } finally {
     await prisma.$disconnect().catch(() => undefined);
     if (existsSync(rehearsalDir)) {
