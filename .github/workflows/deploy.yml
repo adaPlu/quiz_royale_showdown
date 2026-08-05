@@ -1,28 +1,38 @@
 name: Deploy
 
 on:
-  push:
-    branches:
-      - main
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
 
 permissions:
   contents: read
+  actions: read
   packages: write
 
 jobs:
   backend-image:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
+    env:
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
 
       - name: Validate backend image
-        run: docker build -t "quiz-royale-backend:${{ github.sha }}" ./backend
+        run: docker build -t "quiz-royale-backend:${DEPLOY_SHA}" ./backend
 
-      - name: Validate production startup and health
+      - name: Validate production startup and readiness
         shell: bash
         run: |
           set -euo pipefail
-          IMAGE="quiz-royale-backend:${{ github.sha }}"
+          IMAGE="quiz-royale-backend:${DEPLOY_SHA}"
           NETWORK="quiz-runtime-${{ github.run_id }}"
 
           cleanup() {
@@ -61,31 +71,34 @@ jobs:
             "$IMAGE"
 
           for attempt in {1..75}; do
-            if curl --fail --silent --show-error http://127.0.0.1:4000/health; then
+            if curl --fail --silent --show-error http://127.0.0.1:4000/health/ready; then
               echo
-              echo "Backend production healthcheck passed."
+              echo "Backend production readiness check passed."
               exit 0
             fi
             if ! docker inspect -f '{{.State.Running}}' quiz-backend | grep -q true; then
-              echo "Backend container exited before becoming healthy."
+              echo "Backend container exited before becoming ready."
               exit 1
             fi
             sleep 2
           done
 
-          echo "Backend did not become healthy within 150 seconds."
+          echo "Backend did not become ready within 150 seconds."
           exit 1
 
   deploy:
     needs: backend-image
     runs-on: ubuntu-latest
     env:
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
       HAS_RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN != '' }}
       HAS_VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN != '' }}
       HAS_VERCEL_CONFIG: ${{ secrets.VERCEL_TOKEN != '' && secrets.VERCEL_ORG_ID != '' && secrets.VERCEL_PROJECT_ID != '' }}
       PUBLISH_GHCR_IMAGE: ${{ vars.PUBLISH_GHCR_IMAGE == 'true' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
 
       - uses: actions/setup-node@v4
         with:
@@ -97,7 +110,7 @@ jobs:
 
       - name: Build backend image for publishing
         if: env.PUBLISH_GHCR_IMAGE == 'true'
-        run: docker build -t "${IMAGE_NAME}:${{ github.sha }}" ./backend
+        run: docker build -t "${IMAGE_NAME}:${DEPLOY_SHA}" ./backend
 
       - name: Login to GHCR
         if: env.PUBLISH_GHCR_IMAGE == 'true'
@@ -110,8 +123,8 @@ jobs:
       - name: Push backend image
         if: env.PUBLISH_GHCR_IMAGE == 'true'
         run: |
-          docker push "${IMAGE_NAME}:${{ github.sha }}"
-          docker tag "${IMAGE_NAME}:${{ github.sha }}" "${IMAGE_NAME}:latest"
+          docker push "${IMAGE_NAME}:${DEPLOY_SHA}"
+          docker tag "${IMAGE_NAME}:${DEPLOY_SHA}" "${IMAGE_NAME}:latest"
           docker push "${IMAGE_NAME}:latest"
 
       - name: Verify Vercel deploy secrets
