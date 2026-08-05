@@ -65,6 +65,11 @@ export type ServerEvents =
         roundId: string;
         correctAnswerIndex: number;
         rankings: Array<{ playerId: string; scoreDelta: number; totalScore: number }>;
+        wagerPool: {
+          poolSize: number;
+          winnerIds: string[];
+          payouts: Array<{ userId: string; powerUpId: string; quantity: number }>;
+        };
       }
     >
   | EventEnvelope<
@@ -77,6 +82,14 @@ export type ServerEvents =
       {
         roomId: string;
         winnerId: string;
+        winnerIds: string[];
+        winnerPowerUpRewards: Array<{
+          playerId: string;
+          powerUpId: string;
+          code: string;
+          name: string;
+          quantity: number;
+        }>;
         finalStandings: Array<{
           playerId: string;
           displayName: string;
@@ -111,7 +124,13 @@ export type ClientEvents =
   | EventEnvelope<"room:join", { roomCode: string }>
   | EventEnvelope<
       "round:submit_answer",
-      { roomId: string; questionId: string; answerIndex: number; clientSentAt: string }
+      {
+        roomId: string;
+        questionId: string;
+        answerIndex: number;
+        clientSentAt: string;
+        wagerPowerUpId?: string;
+      }
     >
   | EventEnvelope<
       "powerup:activate",
