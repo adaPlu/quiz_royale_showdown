@@ -4,6 +4,7 @@ import { useNavigate, useParams } from '../navigation';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { useGameSocket } from '@/hooks/useGameSocket';
 import { useMountedRef } from '@/hooks/useMountedRef';
+import type { ServerEventPayload } from '@/lib/contracts';
 import { ApiError, api } from '@/services/apiClient';
 import { socketService } from '@/services/socketService';
 import { useAuthStore } from '@/stores/authStore';
@@ -21,6 +22,11 @@ const phaseCopy: Record<string, string> = {
 };
 
 type GameDifficulty = 'easy' | 'medium' | 'hard';
+type RoomSnapshot = ServerEventPayload<'room:state_sync'>['room'];
+type RoomStateResponse = {
+  room: RoomSnapshot;
+  config: { difficulty: GameDifficulty };
+};
 
 const difficultyOptions: Array<{
   value: GameDifficulty;
@@ -59,6 +65,8 @@ export const LobbyPage = () => {
   const players = useGameStore(selectLeaderboard);
   const totalRounds = useGameStore((state) => state.totalRounds);
   const roundNumber = useGameStore((state) => state.roundNumber);
+  const applyRoomState = useGameStore((state) => state.applyRoomState);
+  const resetRoom = useGameStore((state) => state.resetRoom);
 
   useEffect(() => {
     if (!roomId) {
@@ -91,7 +99,6 @@ export const LobbyPage = () => {
   const isHost = Boolean(userId && hostUserId === userId);
   const hostPlayer = players.find((player) => player.id === hostUserId);
   const hostName = hostPlayer?.displayName ?? 'the room host';
-  const resetRoom = useGameStore((state) => state.resetRoom);
   const selectedDifficulty = difficultyOptions.find((option) => option.value === difficulty)!;
 
   useEffect(() => {
@@ -102,20 +109,31 @@ export const LobbyPage = () => {
     let cancelled = false;
 
     void api
-      .get<{ difficulty: GameDifficulty }>(`/rooms/by-id/${roomId}/difficulty`)
+      .get<RoomStateResponse>(`/rooms/by-id/${roomId}`)
       .then((response) => {
         if (!cancelled && mountedRef.current) {
-          setDifficulty(response.data.difficulty);
+          applyRoomState({ room: response.data.room });
+          setDifficulty(response.data.config.difficulty);
+          socketService.updateRoomSnapshot(
+            response.data.room.roomId,
+            response.data.room.code,
+          );
         }
       })
-      .catch(() => {
-        // Medium is the server default. A later host selection will retry through PATCH.
+      .catch((error: unknown) => {
+        if (!cancelled && mountedRef.current) {
+          setStartError(
+            error instanceof Error && error.message
+              ? error.message
+              : 'Unable to load the current lobby state',
+          );
+        }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [mountedRef, roomId]);
+  }, [applyRoomState, mountedRef, roomId]);
 
   useEffect(() => {
     return socketService.on('error', (payload) => {
@@ -132,7 +150,7 @@ export const LobbyPage = () => {
 
   const buildInviteUrl = () => {
     const origin = window.location.origin;
-    return `${origin}/home?roomCode=${encodeURIComponent(displayCode)}`;
+    return `${origin}/login?roomCode=${encodeURIComponent(displayCode)}`;
   };
 
   const buildInviteMessage = () =>
@@ -278,12 +296,6 @@ export const LobbyPage = () => {
           </div>
         </section>
 
-        {!canRecoverSession && (
-          <section className="rounded-[28px] border border-amber-400/30 bg-amber-500/10 p-6 text-sm text-amber-100">
-            This lobby needs a room code from the create/join flow. Reload recovery by room id alone still depends on backend exposing room lookup by id or returning room code on every room entry response.
-          </section>
-        )}
-
         <section className="rounded-[32px] border border-white/10 bg-brand-panel/80 p-8">
           <div className="flex items-center justify-between">
             <div>
@@ -404,7 +416,7 @@ export const LobbyPage = () => {
                 Invite Players
               </p>
               <p className="mt-3 text-sm text-white/70">
-                Share code <span className="font-mono font-bold text-white">{displayCode}</span> or send a link that loads this room code.
+                Share code <span className="font-mono font-bold text-white">{displayCode}</span> or send a guest-ready link.
               </p>
 
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
