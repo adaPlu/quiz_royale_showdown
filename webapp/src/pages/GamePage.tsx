@@ -14,6 +14,7 @@ import {
   selectLeaderboard,
   useGameStore,
 } from '@/stores/gameStore';
+import { resolvePlayerName } from '@/utils/playerNames';
 
 // ---------------------------------------------------------------------------
 // Answer button colour helpers
@@ -296,14 +297,19 @@ export const GamePage = () => {
 
             {/* Mini leaderboard delta */}
             <div className="mt-4 space-y-2">
-              {result.rankings.slice(0, 5).map((r) => (
-                <div key={r.playerId} className="flex justify-between text-sm">
-                  <span className="text-white/70 truncate">{players.find((p) => p.id === r.playerId)?.displayName ?? r.playerId}</span>
-                  <span className={r.scoreDelta > 0 ? 'text-answer-correct font-bold' : 'text-answer-wrong'}>
-                    {r.scoreDelta > 0 ? `+${r.scoreDelta}` : r.scoreDelta}
-                  </span>
-                </div>
-              ))}
+              {result.rankings.slice(0, 5).map((ranking) => {
+                const player = players.find((candidate) => candidate.id === ranking.playerId);
+                const playerName = resolvePlayerName(player?.displayName, ranking.playerId);
+
+                return (
+                  <div key={ranking.playerId} className="flex justify-between text-sm">
+                    <span className="text-white/70 truncate">{playerName}</span>
+                    <span className={ranking.scoreDelta > 0 ? 'text-answer-correct font-bold' : 'text-answer-wrong'}>
+                      {ranking.scoreDelta > 0 ? `+${ranking.scoreDelta}` : ranking.scoreDelta}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </motion.div>
         )}
