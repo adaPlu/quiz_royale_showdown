@@ -1,0 +1,1 @@
+Railway runtime startup fix: web push is optional when VAPID keys are not configured.
