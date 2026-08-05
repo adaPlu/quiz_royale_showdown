@@ -10,7 +10,16 @@ permissions:
   packages: write
 
 jobs:
+  backend-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate backend image
+        run: docker build -t "quiz-royale-backend:${{ github.sha }}" ./backend
+
   deploy:
+    needs: backend-image
     runs-on: ubuntu-latest
     env:
       HAS_RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN != '' }}
@@ -28,7 +37,7 @@ jobs:
         if: env.PUBLISH_GHCR_IMAGE == 'true'
         run: echo "IMAGE_NAME=$(echo ghcr.io/${GITHUB_REPOSITORY}/quiz-royale-backend | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
 
-      - name: Build backend image
+      - name: Build backend image for publishing
         if: env.PUBLISH_GHCR_IMAGE == 'true'
         run: docker build -t "${IMAGE_NAME}:${{ github.sha }}" ./backend
 
