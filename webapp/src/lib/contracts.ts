@@ -67,6 +67,17 @@ export const roundAnswerLockedPayloadSchema = z.object({
   roundId: z.string(),
   lockedAt: z.string()
 });
+export const wagerPoolSchema = z.object({
+  poolSize: z.number(),
+  winnerIds: z.array(z.string()),
+  payouts: z.array(
+    z.object({
+      userId: z.string(),
+      powerUpId: z.string(),
+      quantity: z.number(),
+    }),
+  ),
+});
 export const roundResultPayloadSchema = z.object({
   roomId: z.string(),
   roundId: z.string(),
@@ -77,7 +88,8 @@ export const roundResultPayloadSchema = z.object({
       scoreDelta: z.number(),
       totalScore: z.number()
     })
-  )
+  ),
+  wagerPool: wagerPoolSchema,
 });
 export const roundEliminationPayloadSchema = z.object({
   roomId: z.string(),
@@ -88,9 +100,18 @@ export const roundFinaleStartedPayloadSchema = z.object({
   roomId: z.string(),
   finalistIds: z.array(z.string())
 });
+export const winnerPowerUpRewardSchema = z.object({
+  playerId: z.string(),
+  powerUpId: z.string(),
+  code: z.string(),
+  name: z.string(),
+  quantity: z.number(),
+});
 export const gameOverPayloadSchema = z.object({
   roomId: z.string(),
   winnerId: z.string(),
+  winnerIds: z.array(z.string()),
+  winnerPowerUpRewards: z.array(winnerPowerUpRewardSchema),
   finalStandings: z.array(
     z.object({
       playerId: z.string(),
@@ -151,7 +172,13 @@ export type ClientEvent =
   | {
       type: "round:submit_answer";
       version: "v1";
-      payload: { roomId: string; questionId: string; answerIndex: number; clientSentAt: string };
+      payload: {
+        roomId: string;
+        questionId: string;
+        answerIndex: number;
+        clientSentAt: string;
+        wagerPowerUpId?: string;
+      };
     }
   | { type: "powerup:activate"; version: "v1"; payload: PowerupActivatePayload }
   | { type: "client:heartbeat"; version: "v1"; payload: { roomId: string; sentAt: string } };
