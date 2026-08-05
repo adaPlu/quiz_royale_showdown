@@ -1,26 +1,24 @@
 # Railway builds this service with backend/ as the source context.
 
-# Stage 1: production-only dependencies
-FROM node:20-alpine AS deps
+# Stage 1: production-only dependencies from the committed lockfile.
+FROM node:24-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-# The committed backend lockfile is currently missing a transitive package.
-# npm install repairs the lock/tree in the image instead of npm ci rejecting it.
-RUN npm install --omit=dev --no-audit --no-fund
+RUN npm ci --omit=dev --no-audit --no-fund
 
-# Stage 2: full dependencies, Prisma client, and TypeScript build
-FROM node:20-alpine AS build
+# Stage 2: full dependencies, Prisma client, and TypeScript build.
+FROM node:24-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm install --no-audit --no-fund
+RUN npm ci --no-audit --no-fund
 COPY tsconfig.json ./
 COPY prisma ./prisma
 COPY src ./src
 RUN npx prisma generate
 RUN npm run build
 
-# Stage 3: lean runtime image
-FROM node:20-alpine AS runner
+# Stage 3: lean runtime image.
+FROM node:24-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app/dist ./dist
