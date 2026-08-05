@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from '../navigation';
 
 import { PlayerAvatar } from '@/components/PlayerAvatar';
@@ -19,8 +19,6 @@ const phaseCopy: Record<string, string> = {
   FINALE: 'Finale',
   GAME_OVER: 'Game over',
 };
-
-const SOLO_AUTO_START_SECONDS = 30;
 
 export const LobbyPage = () => {
   const navigate = useNavigate();
@@ -61,19 +59,21 @@ export const LobbyPage = () => {
   const [inviteNotice, setInviteNotice] = useState<string | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [email, setEmail] = useState('');
-  const [soloAutoStartRemaining, setSoloAutoStartRemaining] = useState(SOLO_AUTO_START_SECONDS);
-  const soloAutoStartFiredRef = useRef(false);
-  const hasMinimumPlayers = players.length >= 2;
+  const hasMultiplePlayers = players.length >= 2;
   const resetRoom = useGameStore((state) => state.resetRoom);
 
   useEffect(() => {
     return socketService.on('error', (payload) => {
       if (payload.code === 'GAME_START_FAILED') {
         setIsStarting(false);
+        setStartNotice(null);
         setStartError(payload.message);
       }
     });
   }, []);
+
+  const displayCode = code ?? socketService.getActiveRoom()?.roomCode ?? '----';
+  const canRecoverSession = !!displayCode && displayCode !== '----';
 
   const buildInviteUrl = () => {
     const origin = window.location.origin;
@@ -119,20 +119,22 @@ export const LobbyPage = () => {
     setInviteNotice('Email invite opened.');
   };
 
-  const handleStartGame = useCallback(async (allowSolo = false) => {
+  const handleStartGame = useCallback(async () => {
     if (!roomId) return;
-
-    if (!allowSolo && !hasMinimumPlayers) {
-      setStartError('At least 2 players are required to start.');
-      return;
-    }
 
     setIsStarting(true);
     setStartError(null);
-    setStartNotice(allowSolo ? 'Starting a solo game...' : 'Starting multiplayer game...');
+    setStartNotice(
+      hasMultiplePlayers
+        ? 'Starting the game...'
+        : 'Starting with the current player count...',
+    );
+
     try {
-      await api.post(`/rooms/${roomId}/start`, allowSolo ? { allowSolo: true } : {});
-      // Navigation happens automatically via the round:countdown_started socket event
+      // allowSolo makes this a true manual override: the host may start with
+      // one player, two players, or any larger room size.
+      await api.post(`/rooms/${roomId}/start`, { allowSolo: true });
+      // Navigation happens automatically via the round:countdown_started socket event.
     } catch (err: unknown) {
       if (!mountedRef.current) return;
       const message =
@@ -146,36 +148,7 @@ export const LobbyPage = () => {
     } finally {
       if (mountedRef.current) setIsStarting(false);
     }
-  }, [hasMinimumPlayers, mountedRef, roomId]);
-
-  useEffect(() => {
-    if (phase !== 'WAITING' || hasMinimumPlayers) {
-      soloAutoStartFiredRef.current = false;
-      setSoloAutoStartRemaining(SOLO_AUTO_START_SECONDS);
-      return;
-    }
-
-    if (!roomId || isStarting || soloAutoStartFiredRef.current) {
-      return;
-    }
-
-    const startedAt = Date.now();
-    setSoloAutoStartRemaining(SOLO_AUTO_START_SECONDS);
-
-    const timer = window.setInterval(() => {
-      const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
-      const remainingSeconds = Math.max(0, SOLO_AUTO_START_SECONDS - elapsedSeconds);
-      setSoloAutoStartRemaining(remainingSeconds);
-
-      if (remainingSeconds === 0 && !soloAutoStartFiredRef.current) {
-        soloAutoStartFiredRef.current = true;
-        window.clearInterval(timer);
-        void handleStartGame(true);
-      }
-    }, 1000);
-
-    return () => window.clearInterval(timer);
-  }, [handleStartGame, hasMinimumPlayers, isStarting, phase, roomId]);
+  }, [hasMultiplePlayers, mountedRef, roomId]);
 
   const handleLeaveLobby = async () => {
     if (isLeaving) return;
@@ -197,9 +170,6 @@ export const LobbyPage = () => {
       }
     }
   };
-
-  const displayCode = code ?? socketService.getActiveRoom()?.roomCode ?? '----';
-  const canRecoverSession = !!displayCode && displayCode !== '----';
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(108,62,245,0.35),_transparent_45%),linear-gradient(180deg,_#111122,_#090910)] px-6 py-12 text-white">
@@ -259,38 +229,26 @@ export const LobbyPage = () => {
             <div className="mt-6 grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
               <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
                 <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/60">
-                  Start Options
+                  Start Game
                 </p>
                 <p className="mt-3 text-sm text-white/70">
-                  {hasMinimumPlayers
-                    ? 'Enough players are here. Start multiplayer when everyone is ready.'
-                    : 'You are the only player here. Start solo now, or invite others and wait for multiplayer.'}
+                  {hasMultiplePlayers
+                    ? 'Two or more players are connected. The game starts automatically, or the room host can start it immediately.'
+                    : 'The room host can start immediately with the current player count, or invite another player for automatic start.'}
                 </p>
 
-                <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                  <button
-                    type="button"
-                    disabled={isStarting}
-                    onClick={() => void handleStartGame(true)}
-                    className="rounded-2xl bg-brand-gold px-4 py-4 text-sm font-black uppercase tracking-widest text-black shadow-royale transition hover:opacity-90 disabled:opacity-40"
-                  >
-                    {isStarting ? 'Starting...' : 'Start Solo'}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isStarting || !hasMinimumPlayers}
-                    onClick={() => void handleStartGame(false)}
-                    className="rounded-2xl bg-brand px-4 py-4 text-sm font-black uppercase tracking-widest text-white shadow-royale transition hover:opacity-90 disabled:opacity-40"
-                  >
-                    Start Multiplayer
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  disabled={isStarting}
+                  onClick={() => void handleStartGame()}
+                  className="mt-5 w-full rounded-2xl bg-brand-gold px-4 py-4 text-sm font-black uppercase tracking-widest text-black shadow-royale transition hover:opacity-90 disabled:opacity-40"
+                >
+                  {isStarting ? 'Starting...' : 'Start Game'}
+                </button>
 
-                {!hasMinimumPlayers && (
-                  <p className="mt-3 text-xs text-white/45">
-                    Multiplayer starts after at least one more player joins. Solo starts automatically in {soloAutoStartRemaining}s.
-                  </p>
-                )}
+                <p className="mt-3 text-xs text-white/45">
+                  Manual start works with any player count. Only the room host can start the game.
+                </p>
                 {startNotice && <p className="mt-3 text-sm text-brand-gold">{startNotice}</p>}
                 {startError && <p className="mt-3 text-sm text-answer-wrong">{startError}</p>}
               </div>

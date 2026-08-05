@@ -1,5 +1,6 @@
 import type { Server } from "socket.io";
 import { prisma } from "../models/prismaClient";
+import { gameOrchestrator } from "../services/GameOrchestrator";
 import { redisService } from "../services/RedisService";
 import { roomService } from "../services/RoomService";
 import type { ClientEvents, ServerEvents, SocketErrorEvent } from "../types/contracts";
@@ -9,6 +10,8 @@ import { buildRoomSnapshot } from "./handlers/playerReady";
 import { syncRoomState } from "./handlers/reconnect";
 import { registerSubmitAnswerHandler } from "./handlers/submitAnswer";
 import { registerUsePowerupHandler } from "./handlers/usePowerup";
+
+const autoStartingRooms = new Set<string>();
 
 const emitEnvelope = (socket: AuthenticatedSocket, envelope: ServerEvents): void => {
   socket.emit("message", envelope);
@@ -28,6 +31,80 @@ const emitError = (
 
   emitEnvelope(socket, envelope);
 };
+
+async function maybeAutoStartRoom(
+  io: Server,
+  roomId: string,
+  hostUserId: string
+): Promise<void> {
+  if (autoStartingRooms.has(roomId) || gameOrchestrator.hasActiveGame(roomId)) {
+    return;
+  }
+
+  const connectedSockets = await io.in(roomId).fetchSockets();
+  const connectedUserIds = new Set(
+    connectedSockets
+      .map((connectedSocket) => connectedSocket.data.userId as string | undefined)
+      .filter((userId): userId is string => Boolean(userId))
+  );
+
+  if (connectedUserIds.size < 2) {
+    return;
+  }
+
+  autoStartingRooms.add(roomId);
+
+  try {
+    await roomService.recoverStaleCountdown(
+      roomId,
+      gameOrchestrator.hasActiveGame(roomId)
+    );
+
+    if (gameOrchestrator.hasActiveGame(roomId)) {
+      return;
+    }
+
+    const snapshot = await buildRoomSnapshot(roomId);
+    if (!snapshot || snapshot.phase !== "WAITING" || snapshot.players.length < 2) {
+      return;
+    }
+
+    await gameOrchestrator.assertQuestionBankReady();
+    await roomService.startGame(roomId, hostUserId);
+
+    const playerRows = await prisma.roomPlayer.findMany({
+      where: { roomId },
+      select: { userId: true }
+    });
+    const playerIds = playerRows.map((row) => row.userId);
+
+    void gameOrchestrator.startGame(roomId, playerIds, io).catch((error: unknown) => {
+      logger.error("Automatic game start failed", {
+        roomId,
+        message: error instanceof Error ? error.message : String(error)
+      });
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    logger.error("Unable to automatically start ready room", {
+      roomId,
+      hostUserId,
+      message
+    });
+
+    io.to(roomId).emit("message", {
+      type: "error",
+      version: "v1",
+      payload: {
+        code: "GAME_START_FAILED",
+        message
+      }
+    } satisfies ServerEvents);
+  } finally {
+    autoStartingRooms.delete(roomId);
+  }
+}
 
 async function handleRoomJoin(io: Server, socket: AuthenticatedSocket, roomCode: string): Promise<void> {
   const normalizedRoomCode = roomCode.trim().toUpperCase();
@@ -70,10 +147,19 @@ async function handleRoomJoin(io: Server, socket: AuthenticatedSocket, roomCode:
 
   await syncRoomState(socket, existingRoom.id);
 
-  if (!wasMember) {
-    const room = await buildRoomSnapshot(existingRoom.id);
+  const room = await buildRoomSnapshot(existingRoom.id);
+  if (room) {
+    // The REST join endpoint normally creates membership before the socket joins.
+    // Broadcast an authoritative snapshot even when `wasMember` is true so the
+    // host immediately sees the newly connected player.
+    const syncEvent: ServerEvents = {
+      type: "room:state_sync",
+      version: "v1",
+      payload: { room }
+    };
+    socket.to(existingRoom.id).emit("message", syncEvent);
 
-    if (room) {
+    if (!wasMember) {
       const joinedPlayer = room.players.find((player) => player.id === userId);
 
       if (joinedPlayer) {
@@ -88,6 +174,10 @@ async function handleRoomJoin(io: Server, socket: AuthenticatedSocket, roomCode:
 
         socket.to(existingRoom.id).emit("message", joinedEvent);
       }
+    }
+
+    if (room.phase === "WAITING" && room.players.length >= 2) {
+      await maybeAutoStartRoom(io, existingRoom.id, existingRoom.hostUserId);
     }
   }
 }
