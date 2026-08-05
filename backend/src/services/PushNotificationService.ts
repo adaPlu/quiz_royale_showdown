@@ -9,6 +9,8 @@ const isWebPushConfigured = VAPID_PUBLIC_KEY.length > 0 && VAPID_PRIVATE_KEY.len
 
 if (isWebPushConfigured) {
   webpush.setVapidDetails(env.vapidSubject, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+} else if (env.isProduction) {
+  throw new Error("VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are required in production");
 } else {
   logger.warn("Web push disabled: VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are not configured");
 }
