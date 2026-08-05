@@ -23,8 +23,6 @@ const PRODUCTION_REQUIRED_KEYS = [
   "DATABASE_URL",
   "REDIS_URL",
   "ADMIN_SECRET",
-  "VAPID_PUBLIC_KEY",
-  "VAPID_PRIVATE_KEY",
 ] as const;
 
 const PRODUCTION_PLACEHOLDER_VALUES: Partial<Record<(typeof PRODUCTION_REQUIRED_KEYS)[number], string>> = {
@@ -68,7 +66,7 @@ const envSchema = z.object({
     .enum(["trace", "debug", "info", "warn", "error", "fatal"])
     .default("info"),
 
-  // Web Push (VAPID)
+  // Web Push (optional; disabled when keys are absent)
   VAPID_PUBLIC_KEY: z.string().default(""),
   VAPID_PRIVATE_KEY: z.string().default(""),
   VAPID_SUBJECT: z.string().default("mailto:adapluguez@gmail.com"),
