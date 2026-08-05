@@ -49,8 +49,26 @@ class AuthRepository @Inject constructor(
     return response
   }
 
+  suspend fun guest(roomCode: String, displayName: String?): GuestAuthResponse {
+    clearSession()
+    val response = authApi.guest(
+      GuestRequest(
+        roomCode = roomCode.trim().uppercase(),
+        displayName = displayName?.trim()?.takeIf { it.isNotEmpty() },
+      )
+    )
+    prefs.edit()
+      .putString(KEY_ACCESS_TOKEN, response.accessToken)
+      .putString(KEY_USER_ID, response.user.id)
+      .putBoolean(KEY_IS_GUEST, true)
+      .remove(KEY_REFRESH_TOKEN)
+      .apply()
+    return response
+  }
+
   suspend fun refreshIfPossible(): AuthTokens? {
     return refreshMutex.withLock {
+      if (isGuest()) return@withLock null
       val refreshToken = prefs.getString(KEY_REFRESH_TOKEN, null) ?: return@withLock null
       val response = runCatching {
         authApi.refresh(RefreshRequest(refreshToken))
@@ -69,12 +87,17 @@ class AuthRepository @Inject constructor(
 
   fun currentUserId(): String? = prefs.getString(KEY_USER_ID, null)
 
+  fun isGuest(): Boolean = prefs.getBoolean(KEY_IS_GUEST, false)
+
   fun clearSession() {
     prefs.edit().clear().apply()
   }
 
   private fun persistSession(response: AuthResponse) {
     persistTokens(response.toTokens())
+    prefs.edit()
+      .putBoolean(KEY_IS_GUEST, false)
+      .apply()
     response.user?.id?.let { prefs.edit().putString(KEY_USER_ID, it).apply() }
   }
 
@@ -94,5 +117,6 @@ class AuthRepository @Inject constructor(
     private const val KEY_ACCESS_TOKEN = "access_token"
     private const val KEY_REFRESH_TOKEN = "refresh_token"
     private const val KEY_USER_ID = "user_id"
+    private const val KEY_IS_GUEST = "is_guest"
   }
 }
