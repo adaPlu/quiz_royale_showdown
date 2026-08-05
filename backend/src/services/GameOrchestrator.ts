@@ -182,6 +182,15 @@ export class GameOrchestrator {
         ).catch(() => undefined);
       }
 
+      const recoveredRoom = await roomService.getRoomById(roomId).catch(() => null);
+      if (recoveredRoom) {
+        emitRoomEnvelope(io, roomId, {
+          type: "room:state_sync",
+          version: "v1",
+          payload: { room: recoveredRoom.room }
+        });
+      }
+
       emitRoomEnvelope(io, roomId, {
         type: "error",
         version: "v1",

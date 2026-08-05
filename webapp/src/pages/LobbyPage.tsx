@@ -25,10 +25,12 @@ export const LobbyPage = () => {
   const mountedRef = useMountedRef();
   const { roomId } = useParams<{ roomId: string }>();
   const accessToken = useAuthStore((state) => state.accessToken);
+  const userId = useAuthStore((state) => state.user?.id ?? null);
 
   useGameSocket(roomId);
 
   const code = useGameStore((state) => state.code);
+  const hostUserId = useGameStore((state) => state.hostUserId);
   const phase = useGameStore((state) => state.phase);
   const players = useGameStore(selectLeaderboard);
   const totalRounds = useGameStore((state) => state.totalRounds);
@@ -60,6 +62,9 @@ export const LobbyPage = () => {
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const hasMultiplePlayers = players.length >= 2;
+  const isHost = Boolean(userId && hostUserId === userId);
+  const hostPlayer = players.find((player) => player.id === hostUserId);
+  const hostName = hostPlayer?.displayName ?? 'the room host';
   const resetRoom = useGameStore((state) => state.resetRoom);
 
   useEffect(() => {
@@ -120,7 +125,7 @@ export const LobbyPage = () => {
   };
 
   const handleStartGame = useCallback(async () => {
-    if (!roomId) return;
+    if (!roomId || !isHost) return;
 
     setIsStarting(true);
     setStartError(null);
@@ -131,9 +136,7 @@ export const LobbyPage = () => {
     );
 
     try {
-      // allowSolo makes this a true manual override: the host may start with
-      // one player, two players, or any larger room size.
-      await api.post(`/rooms/${roomId}/start`, { allowSolo: true });
+      await api.post(`/rooms/${roomId}/start`, { allowSolo: !hasMultiplePlayers });
       // Navigation happens automatically via the round:countdown_started socket event.
     } catch (err: unknown) {
       if (!mountedRef.current) return;
@@ -148,7 +151,7 @@ export const LobbyPage = () => {
     } finally {
       if (mountedRef.current) setIsStarting(false);
     }
-  }, [hasMultiplePlayers, mountedRef, roomId]);
+  }, [hasMultiplePlayers, isHost, mountedRef, roomId]);
 
   const handleLeaveLobby = async () => {
     if (isLeaving) return;
@@ -216,7 +219,14 @@ export const LobbyPage = () => {
 
           <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {players.map((player) => (
-              <PlayerAvatar key={player.id} player={player} />
+              <div key={player.id} className="relative">
+                {player.id === hostUserId && (
+                  <span className="absolute right-3 top-3 z-10 rounded-full bg-brand-gold px-3 py-1 text-[10px] font-black uppercase tracking-widest text-black">
+                    Host
+                  </span>
+                )}
+                <PlayerAvatar player={player} />
+              </div>
             ))}
             {players.length === 0 && (
               <div className="rounded-3xl border border-dashed border-white/10 p-6 text-white/50">
@@ -225,84 +235,108 @@ export const LobbyPage = () => {
             )}
           </div>
 
-          {phase === 'WAITING' && (
-            <div className="mt-6 grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-              <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
+          <div className="mt-6 grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+            <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
+              <div className="flex items-center justify-between gap-3">
                 <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/60">
-                  Start Game
+                  Game Controls
                 </p>
-                <p className="mt-3 text-sm text-white/70">
-                  {hasMultiplePlayers
-                    ? 'Two or more players are connected. The game starts automatically, or the room host can start it immediately.'
-                    : 'The room host can start immediately with the current player count, or invite another player for automatic start.'}
-                </p>
+                <span className="rounded-full border border-brand-gold/40 bg-brand-gold/10 px-3 py-1 text-xs font-bold text-brand-gold">
+                  {isHost ? 'You are Host' : `${hostName} is Host`}
+                </span>
+              </div>
 
+              {isHost ? (
+                phase === 'WAITING' ? (
+                  <>
+                    <p className="mt-4 text-lg font-bold text-white">
+                      {hasMultiplePlayers ? 'Multiplayer Mode' : 'Single Player Mode'}
+                    </p>
+                    <p className="mt-2 text-sm text-white/70">
+                      {hasMultiplePlayers
+                        ? `${players.length} players are connected. Start now without waiting for automatic launch.`
+                        : 'Play all ten trivia rounds by yourself. You can also invite friends before starting.'}
+                    </p>
+                    <button
+                      type="button"
+                      disabled={isStarting}
+                      onClick={() => void handleStartGame()}
+                      className="mt-5 w-full rounded-2xl bg-brand-gold px-4 py-4 text-sm font-black uppercase tracking-widest text-black shadow-royale transition hover:opacity-90 disabled:opacity-40"
+                    >
+                      {isStarting
+                        ? 'Starting...'
+                        : hasMultiplePlayers
+                          ? 'Start Multiplayer'
+                          : 'Play Solo'}
+                    </button>
+                  </>
+                ) : (
+                  <p className="mt-4 text-sm text-white/70">
+                    {phaseCopy[phase] ?? phase}. Game controls will return if startup fails.
+                  </p>
+                )
+              ) : (
+                <>
+                  <p className="mt-4 text-lg font-bold text-white">Waiting for the host</p>
+                  <p className="mt-2 text-sm text-white/70">
+                    {hostName} can start the game. Host-only controls are hidden from other players.
+                  </p>
+                </>
+              )}
+
+              {startNotice && <p className="mt-3 text-sm text-brand-gold">{startNotice}</p>}
+              {startError && <p className="mt-3 text-sm text-answer-wrong">{startError}</p>}
+            </div>
+
+            <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
+              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/60">
+                Invite Players
+              </p>
+              <p className="mt-3 text-sm text-white/70">
+                Share code <span className="font-mono font-bold text-white">{displayCode}</span> or send a link that loads this room code.
+              </p>
+
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
                 <button
                   type="button"
-                  disabled={isStarting}
-                  onClick={() => void handleStartGame()}
-                  className="mt-5 w-full rounded-2xl bg-brand-gold px-4 py-4 text-sm font-black uppercase tracking-widest text-black shadow-royale transition hover:opacity-90 disabled:opacity-40"
+                  disabled={!canRecoverSession}
+                  onClick={() => void copyInvite()}
+                  className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-white transition hover:border-white/30 disabled:opacity-40"
                 >
-                  {isStarting ? 'Starting...' : 'Start Game'}
+                  Copy Invite
                 </button>
-
-                <p className="mt-3 text-xs text-white/45">
-                  Manual start works with any player count. Only the room host can start the game.
-                </p>
-                {startNotice && <p className="mt-3 text-sm text-brand-gold">{startNotice}</p>}
-                {startError && <p className="mt-3 text-sm text-answer-wrong">{startError}</p>}
+                <button
+                  type="button"
+                  disabled={!canRecoverSession}
+                  onClick={() => void copyInvite('Friends invite')}
+                  className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-white transition hover:border-white/30 disabled:opacity-40"
+                >
+                  Copy for Friends
+                </button>
               </div>
 
-              <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
-                <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/60">
-                  Invite Players
-                </p>
-                <p className="mt-3 text-sm text-white/70">
-                  Share code <span className="font-mono font-bold text-white">{displayCode}</span> or send a link that loads this room code.
-                </p>
-
-                <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                  <button
-                    type="button"
-                    disabled={!canRecoverSession}
-                    onClick={() => void copyInvite()}
-                    className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-white transition hover:border-white/30 disabled:opacity-40"
-                  >
-                    Copy Invite
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!canRecoverSession}
-                    onClick={() => void copyInvite('Friends invite')}
-                    className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-white transition hover:border-white/30 disabled:opacity-40"
-                  >
-                    Copy for Friends
-                  </button>
-                </div>
-
-                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                  <input
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    type="email"
-                    placeholder="friend@email.com"
-                    className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-white placeholder-white/35 outline-none transition focus:border-brand"
-                  />
-                  <button
-                    type="button"
-                    disabled={!canRecoverSession}
-                    onClick={emailInvite}
-                    className="rounded-2xl bg-white px-4 py-3 text-sm font-bold text-black transition hover:opacity-90 disabled:opacity-40"
-                  >
-                    Email Invite
-                  </button>
-                </div>
-
-                {inviteNotice && <p className="mt-3 text-sm text-brand-gold">{inviteNotice}</p>}
-                {inviteError && <p className="mt-3 text-sm text-answer-wrong">{inviteError}</p>}
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                <input
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  type="email"
+                  placeholder="friend@email.com"
+                  className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-white placeholder-white/35 outline-none transition focus:border-brand"
+                />
+                <button
+                  type="button"
+                  disabled={!canRecoverSession}
+                  onClick={emailInvite}
+                  className="rounded-2xl bg-white px-4 py-3 text-sm font-bold text-black transition hover:opacity-90 disabled:opacity-40"
+                >
+                  Email Invite
+                </button>
               </div>
+
+              {inviteNotice && <p className="mt-3 text-sm text-brand-gold">{inviteNotice}</p>}
+              {inviteError && <p className="mt-3 text-sm text-answer-wrong">{inviteError}</p>}
             </div>
-          )}
+          </div>
         </section>
       </div>
     </main>

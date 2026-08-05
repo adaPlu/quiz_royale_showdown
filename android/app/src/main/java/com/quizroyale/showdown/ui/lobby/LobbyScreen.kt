@@ -38,6 +38,11 @@ fun LobbyScreen(
     val liveRoom = uiState.room
     val cachedRoom = uiState.cachedRoom
     val roomReference = liveRoom?.roomReference ?: cachedRoom?.roomReference
+    val isHost = liveRoom?.hostUserId != null && liveRoom.hostUserId == uiState.currentUserId
+    val hostName = liveRoom?.players
+        ?.firstOrNull { it.id == liveRoom.hostUserId }
+        ?.displayName
+        ?: "the room host"
 
     LaunchedEffect(uiState.gameStarted) {
         if (uiState.gameStarted) {
@@ -129,6 +134,9 @@ fun LobbyScreen(
                                     append(" - ")
                                     append(player.score)
                                     append(" pts")
+                                    if (player.id == liveRoom.hostUserId) {
+                                        append(" - Host")
+                                    }
                                     if (player.isEliminated) {
                                         append(" - Eliminated")
                                     }
@@ -159,27 +167,44 @@ fun LobbyScreen(
             }
         }
 
-        if (liveRoom?.phase == "WAITING") {
+        liveRoom?.let { room ->
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier.padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Text("Ready to play?", style = MaterialTheme.typography.titleMedium)
-                    Button(
-                        onClick = viewModel::startGame,
-                        enabled = !uiState.isStartingGame && liveRoom.totalPlayers >= 2,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        if (uiState.isStartingGame) {
-                            CircularProgressIndicator(strokeWidth = 2.dp, color = Color.White)
-                        } else {
-                            Text("Start Game")
-                        }
-                    }
-                    if (liveRoom.totalPlayers < 2) {
+                    Text("Game Controls", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        text = if (isHost) "You are the host" else "$hostName is the host",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+
+                    if (room.phase == "WAITING" && isHost) {
+                        val isSolo = room.totalPlayers == 1
                         Text(
-                            text = "Need at least 2 players to start",
+                            text = if (isSolo) "Single Player Mode" else "Multiplayer Mode",
+                            style = MaterialTheme.typography.titleLarge,
+                        )
+                        Button(
+                            onClick = { viewModel.startGame(allowSolo = isSolo) },
+                            enabled = !uiState.isStartingGame,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            if (uiState.isStartingGame) {
+                                CircularProgressIndicator(strokeWidth = 2.dp, color = Color.White)
+                            } else {
+                                Text(if (isSolo) "Play Solo" else "Start Multiplayer")
+                            }
+                        }
+                    } else if (!isHost) {
+                        Text(
+                            text = "Waiting for $hostName to start the game.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray,
+                        )
+                    } else {
+                        Text(
+                            text = "Phase ${room.phase}. The game is starting or already in progress.",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.Gray,
                         )

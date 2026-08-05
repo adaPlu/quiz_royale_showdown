@@ -25,6 +25,7 @@ export const playerSummarySchema = z.object({
 export const roomSnapshotSchema = z.object({
   roomId: z.string(),
   code: z.string(),
+  hostUserId: z.string(),
   phase: gamePhaseSchema,
   roundNumber: z.number(),
   totalRounds: z.number(),

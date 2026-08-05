@@ -54,6 +54,7 @@ export interface ActivePowerupEffect {
 interface GameState {
   roomId: string | null;
   code: string | null;
+  hostUserId: string | null;
   phase: GamePhase;
   roundNumber: number;
   totalRounds: number;
@@ -126,6 +127,7 @@ type LegacyServerEvent = {
 const initialState: GameState = {
   roomId: null,
   code: null,
+  hostUserId: null,
   phase: 'WAITING',
   roundNumber: 1,
   totalRounds: 10,
@@ -167,6 +169,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
     set({
       roomId: payload.room.roomId,
       code: payload.room.code,
+      hostUserId: payload.room.hostUserId,
       phase: payload.room.phase,
       roundNumber: payload.room.roundNumber,
       totalRounds: payload.room.totalRounds,

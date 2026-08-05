@@ -13,6 +13,11 @@ data class JoinRoomRequest(
     val roomCode: String? = null,
 )
 
+@Serializable
+data class StartGameRequest(
+    val allowSolo: Boolean = false,
+)
+
 data class RoomPlayerSummary(
     val id: String,
     val displayName: String,
