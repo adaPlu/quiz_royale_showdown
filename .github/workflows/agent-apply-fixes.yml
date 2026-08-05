@@ -5,6 +5,10 @@ on:
     branches:
       - agent/guest-results-and-host-controls
 
+concurrency:
+  group: agent-guest-results-and-host-controls
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
