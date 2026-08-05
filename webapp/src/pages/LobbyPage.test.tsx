@@ -1,14 +1,9 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { MemoryRouter } from '../navigation';
-import { LobbyPage } from './LobbyPage';
-import { useAuthStore } from '@/stores/authStore';
-import { useGameStore } from '@/stores/gameStore';
-
-function renderLobby(playerIds: string[] = ['host-user']) {
-  useAuthStore.setState({
+const mockedState = vi.hoisted(() => ({
+  auth: {
     user: {
       id: 'host-user',
       username: 'Host',
@@ -19,22 +14,51 @@ function renderLobby(playerIds: string[] = ['host-user']) {
       coins: 0,
     },
     accessToken: 'test-token',
-  });
-  useGameStore.setState({
+  },
+  game: {
     roomId: 'room-1',
     code: 'ABCD23',
     hostUserId: 'host-user',
     phase: 'WAITING',
     roundNumber: 0,
     totalRounds: 10,
-    players: playerIds.map((id, index) => ({
-      id,
-      displayName: index === 0 ? 'Host' : `Player ${index + 1}`,
-      score: 0,
-      streak: 0,
-      isEliminated: false,
-    })),
-  });
+    players: [] as Array<{
+      id: string;
+      displayName: string;
+      score: number;
+      streak: number;
+      isEliminated: boolean;
+    }>,
+    resetRoom: vi.fn(),
+  },
+}));
+
+vi.mock('@/hooks/useGameSocket', () => ({
+  useGameSocket: vi.fn(),
+}));
+
+vi.mock('@/stores/authStore', () => ({
+  useAuthStore: (selector: (state: typeof mockedState.auth) => unknown) =>
+    selector(mockedState.auth),
+}));
+
+vi.mock('@/stores/gameStore', () => ({
+  selectLeaderboard: (state: typeof mockedState.game) => state.players,
+  useGameStore: (selector: (state: typeof mockedState.game) => unknown) =>
+    selector(mockedState.game),
+}));
+
+import { MemoryRouter } from '../navigation';
+import { LobbyPage } from './LobbyPage';
+
+function renderLobby(playerIds: string[] = ['host-user']) {
+  mockedState.game.players = playerIds.map((id, index) => ({
+    id,
+    displayName: index === 0 ? 'Host' : `Player ${index + 1}`,
+    score: 0,
+    streak: 0,
+    isEliminated: false,
+  }));
 
   return renderToStaticMarkup(
     <MemoryRouter initialEntries={['/lobby/room-1']}>
@@ -44,11 +68,6 @@ function renderLobby(playerIds: string[] = ['host-user']) {
 }
 
 describe('LobbyPage', () => {
-  beforeEach(() => {
-    useGameStore.getState().resetRoom();
-    useAuthStore.setState({ user: null, accessToken: null });
-  });
-
   it('labels the host and exposes an explicit solo mode when alone', () => {
     const html = renderLobby();
 
