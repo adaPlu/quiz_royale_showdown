@@ -15,7 +15,8 @@ data class AuthTokens(
 data class AuthUser(
   val id: String,
   val email: String,
-  val displayName: String
+  val displayName: String,
+  val isGuest: Boolean = false,
 )
 
 @Serializable
@@ -33,6 +34,12 @@ data class LoginRequest(
 )
 
 @Serializable
+data class GuestRequest(
+  val roomCode: String,
+  val displayName: String? = null,
+)
+
+@Serializable
 data class RefreshRequest(
   val refreshToken: String
 )
@@ -44,6 +51,13 @@ data class AuthResponse(
   val refreshToken: String
 )
 
+@Serializable
+data class GuestAuthResponse(
+  val user: AuthUser,
+  val accessToken: String,
+  val roomCode: String,
+)
+
 interface AuthApi {
   @Headers("x-refresh-token-response: body")
   @POST("auth/register")
@@ -52,6 +66,9 @@ interface AuthApi {
   @Headers("x-refresh-token-response: body")
   @POST("auth/login")
   suspend fun login(@Body request: LoginRequest): AuthResponse
+
+  @POST("auth/guest")
+  suspend fun guest(@Body request: GuestRequest): GuestAuthResponse
 
   @Headers("x-refresh-token-response: body")
   @POST("auth/refresh")
