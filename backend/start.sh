@@ -2,21 +2,19 @@
 set -eu
 
 MIGRATION_TIMEOUT_SECONDS="${MIGRATION_TIMEOUT_SECONDS:-120}"
-echo "Running database migrations with a ${MIGRATION_TIMEOUT_SECONDS}s startup limit..."
+echo "Reconciling legacy migration history with a ${MIGRATION_TIMEOUT_SECONDS}s startup limit..."
 
-# Baseline reconciliation remains explicitly opt-in. Unknown databases must not
-# silently bypass migration history checks.
-if [ "${PRISMA_RESOLVE_LEGACY_BASELINES:-0}" = "1" ]; then
-  timeout "$MIGRATION_TIMEOUT_SECONDS" npx prisma migrate resolve --applied 20260419165003_init 2>/dev/null || true
-  timeout "$MIGRATION_TIMEOUT_SECONDS" npx prisma migrate resolve --applied 20260422211153_init 2>/dev/null || true
-fi
-
-if [ "${PRISMA_BASELINE_CURRENT_INIT:-0}" = "1" ]; then
-  timeout "$MIGRATION_TIMEOUT_SECONDS" npx prisma migrate resolve --applied 20260425000000_init 2>/dev/null || true
-fi
+# The repository contains two identical historical init migrations before the
+# canonical current baseline. The reconciliation script only auto-baselines
+# those duplicates on a provably empty database. Non-empty unknown databases
+# remain fail-closed unless an operator explicitly opts in with the documented
+# PRISMA_RESOLVE_LEGACY_BASELINES / PRISMA_BASELINE_CURRENT_INIT flags.
+timeout "$MIGRATION_TIMEOUT_SECONDS" node dist/scripts/reconcileLegacyMigrations.js
+echo "Migration history reconciliation completed."
 
 # Production startup is fail-closed: the application must never serve traffic
 # against a schema that did not complete its required migrations.
+echo "Running database migrations..."
 timeout "$MIGRATION_TIMEOUT_SECONDS" npx prisma migrate deploy
 echo "Database migrations completed."
 
