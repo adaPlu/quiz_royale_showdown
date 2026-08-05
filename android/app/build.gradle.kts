@@ -112,7 +112,7 @@ dependencies {
   implementation("androidx.room:room-ktx:2.7.1")
   ksp("androidx.room:room-compiler:2.7.1")
 
-  implementation("androidx.security:security-crypto:1.1.0-alpha06")
+  implementation("androidx.security:security-crypto:1.1.0")
   implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
   implementation("com.android.billingclient:billing-ktx:7.1.1")
   implementation("com.google.firebase:firebase-messaging-ktx:24.1.1")
