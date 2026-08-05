@@ -9,10 +9,10 @@ const isWebPushConfigured = VAPID_PUBLIC_KEY.length > 0 && VAPID_PRIVATE_KEY.len
 
 if (isWebPushConfigured) {
   webpush.setVapidDetails(env.vapidSubject, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
-} else if (env.isProduction) {
-  throw new Error("VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are required in production");
 } else {
-  logger.warn("Web push disabled: VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are not configured");
+  logger.warn("Web push disabled: VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are not configured", {
+    environment: env.isProduction ? "production" : "non-production",
+  });
 }
 
 const pushSubKey = (userId: string) => `push:subs:${userId}`;
@@ -35,13 +35,13 @@ class PushNotificationService {
   }
 
   async saveWebPushSubscription(userId: string, subscription: PushSubscription): Promise<void> {
-    if (!redisService) return;
+    if (!redisService || !isWebPushConfigured) return;
     const serialized = JSON.stringify(subscription);
     await redisService.sadd(pushSubKey(userId), serialized);
   }
 
   async removeWebPushSubscription(userId: string, subscription: PushSubscription): Promise<void> {
-    if (!redisService) return;
+    if (!redisService || !isWebPushConfigured) return;
     const serialized = JSON.stringify(subscription);
     await redisService.srem(pushSubKey(userId), serialized);
   }

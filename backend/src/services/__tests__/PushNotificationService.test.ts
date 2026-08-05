@@ -52,6 +52,7 @@ describe("PushNotificationService VAPID configuration", () => {
     expect(webPushMock.setVapidDetails).not.toHaveBeenCalled();
     expect(loggerMock.warn).toHaveBeenCalledWith(
       "Web push disabled: VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are not configured",
+      { environment: "non-production" },
     );
   });
 
@@ -70,11 +71,15 @@ describe("PushNotificationService VAPID configuration", () => {
     );
   });
 
-  it("fails closed when production loads without VAPID keys", async () => {
-    await expect(importPushService({ isProduction: true })).rejects.toThrow(
-      "VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are required in production",
-    );
+  it("keeps production startup live when optional VAPID keys are absent", async () => {
+    const { pushService } = await importPushService({ isProduction: true });
 
+    expect(pushService.vapidPublicKey).toBeNull();
+    expect(pushService.isWebPushConfigured).toBe(false);
     expect(webPushMock.setVapidDetails).not.toHaveBeenCalled();
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      "Web push disabled: VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are not configured",
+      { environment: "production" },
+    );
   });
 });
