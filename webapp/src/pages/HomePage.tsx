@@ -60,6 +60,12 @@ const normalizeRoomSession = (data: unknown, fallbackRoomCode?: string): RoomSes
 const getErrorMessage = (error: unknown, fallback: string) =>
   error instanceof Error && error.message ? error.message : fallback;
 
+const ROOM_CODE_LENGTH = 6;
+const LEGACY_ROOM_CODE_LENGTH = 8;
+const MAX_ROOM_CODE_LENGTH = LEGACY_ROOM_CODE_LENGTH;
+const isSupportedRoomCode = (value: string) =>
+  value.length === ROOM_CODE_LENGTH || value.length === LEGACY_ROOM_CODE_LENGTH;
+
 export default function HomePage() {
   const navigate = useNavigate();
   const mountedRef = useMountedRef();
@@ -80,7 +86,7 @@ export default function HomePage() {
       return;
     }
 
-    setCode(invitedRoomCode.slice(0, 8));
+    setCode(invitedRoomCode.slice(0, MAX_ROOM_CODE_LENGTH));
     setLaunchNotice('Invite code loaded. Tap Join to enter the room.');
     window.history.replaceState(null, '', '/home');
   }, []);
@@ -138,7 +144,7 @@ export default function HomePage() {
 
   const joinByCode = async () => {
     const normalizedCode = code.trim().toUpperCase();
-    if (normalizedCode.length < 8) {
+    if (!isSupportedRoomCode(normalizedCode)) {
       return;
     }
 
@@ -230,13 +236,20 @@ export default function HomePage() {
           <div className="flex gap-2">
             <input
               value={code}
-              onChange={(event) => setCode(event.target.value.toUpperCase().slice(0, 8))}
-              placeholder="Room Code"
+              onChange={(event) =>
+                setCode(
+                  event.target.value
+                    .toUpperCase()
+                    .replace(/[^A-Z0-9]/g, '')
+                    .slice(0, MAX_ROOM_CODE_LENGTH),
+                )
+              }
+              placeholder="6-character Room Code"
               className="flex-1 bg-game-card border border-game-border rounded-xl px-4 py-3 text-white placeholder-game-muted focus:outline-none focus:border-brand uppercase tracking-widest font-mono"
             />
             <button
               onClick={joinByCode}
-              disabled={code.trim().length < 8 || !!loading}
+              disabled={!isSupportedRoomCode(code.trim()) || !!loading}
               className="px-4 py-3 rounded-xl bg-brand/20 border border-brand/40 text-brand font-semibold hover:bg-brand/30 disabled:opacity-40"
             >
               Join

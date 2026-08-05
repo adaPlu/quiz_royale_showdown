@@ -21,26 +21,30 @@ const createRoomSchema = z.object({
   maxPlayers: z.number().int().min(2).max(100).optional().default(8),
 });
 
+const ROOM_CODE_LENGTH = 6;
+const LEGACY_ROOM_CODE_LENGTH = 8;
+const roomCodeLengthMessage =
+  "roomCode must be 6 characters (8-character legacy codes are also accepted)";
+
+const supportedRoomCodeSchema = z
+  .string()
+  .trim()
+  .refine(
+    (value) =>
+      value.length === ROOM_CODE_LENGTH || value.length === LEGACY_ROOM_CODE_LENGTH,
+    roomCodeLengthMessage
+  )
+  .transform((value) => value.toUpperCase());
+
 const joinRoomSchema = z.object({
-  roomCode: z
-    .string()
-    .trim()
-    .min(8)
-    .max(8)
+  roomCode: supportedRoomCodeSchema
     .nullable()
     .optional()
-    .transform((value) => {
-      const normalized = value?.trim().toUpperCase();
-      return normalized ? normalized : undefined;
-    }),
+    .transform((value) => value || undefined),
 });
 
 const roomCodeParamsSchema = z.object({
-  roomCode: z
-    .string()
-    .trim()
-    .length(8, "roomCode must be exactly 8 characters")
-    .transform((value) => value.toUpperCase()),
+  roomCode: supportedRoomCodeSchema,
 });
 
 const roomIdParamsSchema = z.object({

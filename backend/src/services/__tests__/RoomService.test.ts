@@ -155,7 +155,7 @@ describe("RoomService", () => {
     expect(prismaMock.roomPlayer.create).not.toHaveBeenCalled();
   });
 
-  it("generates 8-character URL-safe room invite codes", async () => {
+  it("generates 6-character URL-safe room invite codes", async () => {
     const { RoomService } = await import("../RoomService");
     const service = new RoomService();
     const createdAt = new Date("2026-04-25T12:00:00.000Z");
@@ -190,7 +190,7 @@ describe("RoomService", () => {
     const result = await service.createRoom("host-user");
     const generatedCode = prismaMock.room.create.mock.calls[0][0].data.code;
 
-    expect(generatedCode).toMatch(/^[A-HJ-NP-Z2-9]{8}$/);
+    expect(generatedCode).toMatch(/^[A-HJ-NP-Z2-9]{6}$/);
     expect(result.room.code).toBe(generatedCode);
   });
 
