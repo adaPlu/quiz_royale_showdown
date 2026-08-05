@@ -30,6 +30,7 @@ jobs:
           python scripts/apply_agent_fixes.py
           python scripts/apply_agent_followup.py
           python scripts/apply_agent_followup2.py
+          python scripts/apply_agent_followup3.py
 
       - name: Pin patched transitive dependencies
         shell: bash
