@@ -5,8 +5,8 @@
  *  1. Validate environment (env.ts exits on bad config)
  *  2. Create Express app
  *  3. Attach Socket.IO server
- *  4. Connect Redis (fail-open in development, fail-closed in production)
- *  5. Listen
+ *  4. Listen on Railway's injected port
+ *  5. Connect Redis without blocking HTTP liveness
  *  6. Register graceful shutdown handlers
  */
 
@@ -39,23 +39,10 @@ async function bootstrap(): Promise<void> {
 
   initSocketServer(io);
 
-  // 3. Redis
+  // 3. Create the Redis client before routes begin handling requests. The actual
+  // connection is attempted after HTTP starts so Railway can observe liveness
+  // even while a dependency is starting or temporarily unavailable.
   const redis = initRedis(env.redisUrl);
-  try {
-    await redis.connect();
-    logger.info("Redis connected", { url: env.redisUrl });
-  } catch (error) {
-    if (env.isProduction) {
-      logger.fatal("Redis connection failed — aborting", {
-        message: error instanceof Error ? error.message : String(error)
-      });
-      process.exit(1);
-    } else {
-      logger.warn("Redis unavailable — continuing without cache (dev only)", {
-        message: error instanceof Error ? error.message : String(error)
-      });
-    }
-  }
 
   // 4. HTTP server. Railway routes traffic to the injected PORT on 0.0.0.0.
   await new Promise<void>((resolve) => {
@@ -68,6 +55,20 @@ async function bootstrap(): Promise<void> {
     env: env.nodeEnv,
     wsPath: "/ws"
   });
+
+  // 5. Redis readiness is reported by /health/ready. Do not terminate the HTTP
+  // process on the first connection failure; Railway services have no depends_on
+  // ordering guarantee and Redis may become ready shortly after this container.
+  void redis
+    .connect()
+    .then(() => {
+      logger.info("Redis connected", { url: env.redisUrl });
+    })
+    .catch((error: unknown) => {
+      logger.error("Redis connection failed — service remains live but not ready", {
+        message: error instanceof Error ? error.message : String(error)
+      });
+    });
 
   // ─── Graceful shutdown ────────────────────────────────────────────────────
 
