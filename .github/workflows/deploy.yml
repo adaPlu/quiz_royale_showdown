@@ -101,7 +101,7 @@ jobs:
 
       - name: Login to GHCR
         if: env.PUBLISH_GHCR_IMAGE == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
