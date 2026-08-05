@@ -11,9 +11,16 @@ import { type AuthResponse, useAuthStore } from '@stores/authStore';
 const schema = z.object({
   username: z
     .string()
-    .min(3, 'Username must be at least 3 characters')
+    .trim()
     .max(20, 'Username must be at most 20 characters')
-    .regex(/^[a-zA-Z0-9_]+$/, 'Letters, numbers, underscores only'),
+    .refine(
+      (value) => value.length === 0 || value.length >= 3,
+      'Username must be at least 3 characters',
+    )
+    .refine(
+      (value) => value.length === 0 || /^[a-zA-Z0-9_]+$/.test(value),
+      'Letters, numbers, underscores only',
+    ),
   email: z.string().email('Enter a valid email'),
   password: z.string().min(8, 'Password must be at least 8 characters'),
   confirmPassword: z.string(),
@@ -36,14 +43,19 @@ export default function RegisterPage() {
     setError,
   } = useForm<FormData>({
     resolver: zodResolver(schema),
+    defaultValues: { username: '' },
   });
 
   const onSubmit = async (data: FormData) => {
     try {
       const normalizedUsername = data.username.trim();
       const response = await api.post<AuthResponse>('/auth/register', {
-        username: normalizedUsername,
-        displayName: normalizedUsername,
+        ...(normalizedUsername
+          ? {
+              username: normalizedUsername,
+              displayName: normalizedUsername,
+            }
+          : {}),
         email: data.email.trim().toLowerCase(),
         password: data.password,
       });
@@ -73,16 +85,19 @@ export default function RegisterPage() {
           <h2 className="text-white text-xl font-bold text-center">Create Account</h2>
 
           <div>
-            <label htmlFor="register-username" className="block text-xs text-game-muted mb-1">Username</label>
+            <label htmlFor="register-username" className="block text-xs text-game-muted mb-1">Username (optional)</label>
             <input
               {...register('username')}
               id="register-username"
               type="text"
               autoComplete="username"
               className="w-full bg-game-card border border-game-border rounded-xl px-4 py-3 text-white placeholder-game-muted focus:outline-none focus:border-brand transition-colors"
-              placeholder="CoolPlayer99"
+              placeholder="Leave blank for userID###"
             />
             {errors.username && <p className="text-answer-wrong text-xs mt-1">{errors.username.message}</p>}
+            {!errors.username && (
+              <p className="text-game-muted text-xs mt-1">A userID number is assigned when left blank.</p>
+            )}
           </div>
 
           <div>
