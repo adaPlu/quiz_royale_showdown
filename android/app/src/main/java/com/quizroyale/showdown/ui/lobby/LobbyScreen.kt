@@ -14,6 +14,7 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -27,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.quizroyale.showdown.data.room.GameDifficulty
 
 @Composable
 fun LobbyScreen(
@@ -72,7 +74,7 @@ fun LobbyScreen(
             AssistChip(
                 onClick = {},
                 label = {
-                    Text(if (liveRoom != null) "Live" else "Cached")
+                    Text(if (isHost) "HOST" else if (liveRoom != null) "Live" else "Cached")
                 },
             )
         }
@@ -97,6 +99,12 @@ fun LobbyScreen(
                     text = "Players $totalPlayers",
                     style = MaterialTheme.typography.bodyMedium,
                 )
+                liveRoom?.let { room ->
+                    Text(
+                        text = "Difficulty ${room.difficulty.name.lowercase().replaceFirstChar { it.uppercase() }}",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
                 if (liveRoom?.maxPlayers != null) {
                     Text(
                         text = "Capacity ${liveRoom.maxPlayers}",
@@ -135,7 +143,7 @@ fun LobbyScreen(
                                     append(player.score)
                                     append(" pts")
                                     if (player.id == liveRoom.hostUserId) {
-                                        append(" - Host")
+                                        append(" - HOST")
                                     }
                                     if (player.isEliminated) {
                                         append(" - Eliminated")
@@ -175,11 +183,40 @@ fun LobbyScreen(
                 ) {
                     Text("Game Controls", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        text = if (isHost) "You are the host" else "$hostName is the host",
+                        text = if (isHost) "You are the host and control this room." else "$hostName is the host",
                         style = MaterialTheme.typography.bodyMedium,
                     )
 
                     if (room.phase == "WAITING" && isHost) {
+                        Text("Question Difficulty", style = MaterialTheme.typography.titleMedium)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            GameDifficulty.entries.forEach { difficulty ->
+                                FilterChip(
+                                    selected = room.difficulty == difficulty,
+                                    onClick = { viewModel.setDifficulty(difficulty) },
+                                    enabled = !uiState.isSavingDifficulty && !uiState.isStartingGame,
+                                    label = {
+                                        Text(
+                                            difficulty.name.lowercase().replaceFirstChar { it.uppercase() }
+                                        )
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+                        Text(
+                            text = when (room.difficulty) {
+                                GameDifficulty.EASY -> "Easy questions only"
+                                GameDifficulty.MEDIUM -> "A mix of easy and medium questions"
+                                GameDifficulty.HARD -> "A mix of medium and hard questions"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray,
+                        )
+
                         val isSolo = room.totalPlayers == 1
                         Text(
                             text = if (isSolo) "Single Player Mode" else "Multiplayer Mode",
@@ -187,7 +224,7 @@ fun LobbyScreen(
                         )
                         Button(
                             onClick = { viewModel.startGame(allowSolo = isSolo) },
-                            enabled = !uiState.isStartingGame,
+                            enabled = !uiState.isStartingGame && !uiState.isSavingDifficulty,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             if (uiState.isStartingGame) {
@@ -198,7 +235,7 @@ fun LobbyScreen(
                         }
                     } else if (!isHost) {
                         Text(
-                            text = "Waiting for $hostName to start the game.",
+                            text = "Waiting for $hostName to choose difficulty and start the game.",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.Gray,
                         )
