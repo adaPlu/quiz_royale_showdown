@@ -76,6 +76,10 @@ export async function syncRoomState(socket: AuthenticatedSocket, roomId: string)
       scoreDelta: 0,
       totalScore: score
     }));
+    const settledBets = await prisma.powerUpBet.findMany({
+      where: { roundId: questionContext.roundId, status: { in: ["WON", "LOST"] } },
+      select: { userId: true, quantity: true, status: true },
+    });
 
     emitEnvelope(socket, {
       type: "round:result",
@@ -84,7 +88,16 @@ export async function syncRoomState(socket: AuthenticatedSocket, roomId: string)
         roomId,
         roundId: questionContext.roundId,
         correctAnswerIndex: questionContext.correctAnswerIndex,
-        rankings
+        rankings,
+        wagerPool: {
+          poolSize: settledBets.reduce((sum, bet) => sum + bet.quantity, 0),
+          winnerIds: [...new Set(
+            settledBets.filter((bet) => bet.status === "WON").map((bet) => bet.userId),
+          )].sort(),
+          // Detailed payout inventory changes are delivered during the live
+          // round result. Reconnect still restores pool size and winners.
+          payouts: [],
+        },
       }
     });
   }
