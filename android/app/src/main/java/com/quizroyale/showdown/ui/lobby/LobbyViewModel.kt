@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.quizroyale.showdown.data.auth.AuthRepository
 import com.quizroyale.showdown.data.room.CachedRoomSummary
+import com.quizroyale.showdown.data.room.GameDifficulty
 import com.quizroyale.showdown.data.room.RoomRepository
 import com.quizroyale.showdown.data.room.RoomSnapshot
 import com.quizroyale.showdown.data.socket.WebSocketManager
@@ -26,6 +27,7 @@ data class LobbyUiState(
     val isLoading: Boolean = true,
     val errorMessage: String? = null,
     val isStartingGame: Boolean = false,
+    val isSavingDifficulty: Boolean = false,
     val gameStarted: Boolean = false,
 )
 
@@ -67,8 +69,36 @@ class LobbyViewModel @Inject constructor(
             it.copy(
                 room = null,
                 isStartingGame = false,
+                isSavingDifficulty = false,
                 gameStarted = false,
             )
+        }
+    }
+
+    fun setDifficulty(difficulty: GameDifficulty) {
+        val room = _uiState.value.room ?: return
+        if (room.hostUserId != _uiState.value.currentUserId || room.phase != "WAITING") return
+        if (room.difficulty == difficulty) return
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSavingDifficulty = true, errorMessage = null) }
+            runCatching { roomRepository.setDifficulty(room.roomId, difficulty) }
+                .onSuccess { savedDifficulty ->
+                    _uiState.update { state ->
+                        state.copy(
+                            room = state.room?.copy(difficulty = savedDifficulty),
+                            isSavingDifficulty = false,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            isSavingDifficulty = false,
+                            errorMessage = error.message ?: "Failed to update difficulty",
+                        )
+                    }
+                }
         }
     }
 
@@ -99,6 +129,7 @@ class LobbyViewModel @Inject constructor(
 
             _uiState.update {
                 it.copy(
+                    currentUserId = authRepository.currentUserId(),
                     roomReference = requestedRoomReference ?: cachedRoom?.roomReference,
                     cachedRoom = cachedRoom,
                     isLoading = true,
@@ -122,6 +153,7 @@ class LobbyViewModel @Inject constructor(
             }.onSuccess { room ->
                 _uiState.update {
                     it.copy(
+                        currentUserId = authRepository.currentUserId(),
                         roomReference = room.roomReference,
                         room = room,
                         cachedRoom = room.toCachedRoomSummary(),
