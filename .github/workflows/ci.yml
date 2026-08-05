@@ -20,13 +20,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Audit workspace dependencies
-        run: npm audit --audit-level=high
-
-      - name: Audit backend image dependencies
-        run: npm audit --audit-level=high --workspaces=false
-        working-directory: backend
-
       - name: Generate Prisma client
         run: npm run prisma:generate -w backend
 
@@ -48,6 +41,15 @@ jobs:
       - name: Web tests
         run: npm run test -w webapp
 
+      # Keep audits blocking, but run them after functional checks so an
+      # advisory does not hide type, build, or test failures in the PR.
+      - name: Audit workspace dependencies
+        run: npm audit --audit-level=high
+
+      - name: Audit backend image dependencies
+        run: npm audit --audit-level=high --workspaces=false
+        working-directory: backend
+
   android:
     runs-on: ubuntu-latest
     steps:
@@ -60,6 +62,10 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+        working-directory: android
 
       - name: Android unit tests
         run: ./gradlew testDebugUnitTest
