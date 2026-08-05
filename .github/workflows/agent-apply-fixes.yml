@@ -36,8 +36,8 @@ jobs:
       - name: Repair production dependency lockfiles
         shell: bash
         run: |
-          npm audit fix --package-lock-only --ignore-scripts
-          npm audit fix --package-lock-only --ignore-scripts --workspaces=false --prefix backend
+          npm audit fix --package-lock-only --ignore-scripts --audit-level=high
+          npm audit fix --package-lock-only --ignore-scripts --audit-level=high --workspaces=false --prefix backend
 
       - name: Install dependencies
         run: npm ci
