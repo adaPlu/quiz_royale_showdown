@@ -254,6 +254,24 @@ roomsRouter.post(
 );
 
 roomsRouter.get(
+  "/by-id/:roomId",
+  requireAuth,
+  validate({ params: roomIdParamsSchema }),
+  async (req, res, next) => {
+    try {
+      const requesterId = getAuthenticatedUserId(req.jwtClaims?.sub);
+      const { roomId } = req.params as z.infer<typeof roomIdParamsSchema>;
+      const room = await assertRoomParticipant(roomId, requesterId);
+      const difficulty = await getRoomGameDifficulty(roomId);
+
+      res.json(formatRoomResponse(room, difficulty));
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+roomsRouter.get(
   "/by-id/:roomId/difficulty",
   requireAuth,
   validate({ params: roomIdParamsSchema }),
