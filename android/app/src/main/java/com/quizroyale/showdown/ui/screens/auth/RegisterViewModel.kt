@@ -49,9 +49,10 @@ class RegisterViewModel @Inject constructor(
 
     fun onRegisterSubmit() {
         val state = _uiState.value
+        val normalizedUsername = state.username.trim()
         var hasError = false
 
-        if (!usernameRegex.matches(state.username)) {
+        if (normalizedUsername.isNotEmpty() && !usernameRegex.matches(normalizedUsername)) {
             _uiState.update {
                 it.copy(usernameError = "Username must be 3-20 chars: letters, numbers, underscore")
             }
@@ -76,7 +77,7 @@ class RegisterViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, generalError = null) }
             try {
-                authRepository.register(state.username, state.email, state.password)
+                authRepository.register(normalizedUsername, state.email, state.password)
                 _uiState.update { it.copy(isRegistered = true, isLoading = false) }
             } catch (e: Exception) {
                 _uiState.update {
