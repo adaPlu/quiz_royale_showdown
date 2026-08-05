@@ -28,6 +28,7 @@ export interface QuestionState {
 export interface RoundResult {
   correctAnswerIndex: number;
   rankings: Array<{ playerId: string; scoreDelta: number; totalScore: number }>;
+  wagerPool: ServerEventPayload<'round:result'>['wagerPool'];
 }
 
 export interface FinalStanding {
@@ -36,6 +37,14 @@ export interface FinalStanding {
   rank: number;
   score: number;
   xpAwarded: number;
+}
+
+export interface WinnerPowerUpReward {
+  playerId: string;
+  powerUpId: string;
+  code: string;
+  name: string;
+  quantity: number;
 }
 
 export interface LevelUpEntry {
@@ -65,6 +74,8 @@ interface GameState {
   myAnswerIndex: number | null;
   countdownEndsAt: number | null;
   winnerId: string | null;
+  winnerIds: string[];
+  winnerPowerUpRewards: WinnerPowerUpReward[];
   finalScores: FinalStanding[];
   levelUpQueue: LevelUpEntry[];
   fiftyFiftyEliminated: number[];
@@ -138,6 +149,8 @@ const initialState: GameState = {
   myAnswerIndex: null,
   countdownEndsAt: null,
   winnerId: null,
+  winnerIds: [],
+  winnerPowerUpRewards: [],
   finalScores: [],
   levelUpQueue: [],
   fiftyFiftyEliminated: [],
@@ -227,6 +240,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       result: {
         correctAnswerIndex: payload.correctAnswerIndex,
         rankings: payload.rankings,
+        wagerPool: payload.wagerPool,
       },
       players: get().players.map((player) => {
         const ranking = payload.rankings.find((entry) => entry.playerId === player.id);
@@ -299,6 +313,8 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
     set({
       phase: 'GAME_OVER',
       winnerId: payload.winnerId,
+      winnerIds: payload.winnerIds,
+      winnerPowerUpRewards: payload.winnerPowerUpRewards,
       finalScores: payload.finalStandings,
     });
   },
