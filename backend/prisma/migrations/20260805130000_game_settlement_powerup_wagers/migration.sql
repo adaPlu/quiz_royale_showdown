@@ -38,16 +38,16 @@ CREATE TABLE "GameWinnerReward" (
     CONSTRAINT "GameWinnerReward_pkey" PRIMARY KEY ("id")
 );
 
--- Existing-table integrity/performance indexes
+-- Existing-table performance indexes. Historical data constraints are not
+-- added here unless they can be validated before production migration.
 CREATE INDEX "RefreshToken_userId_expiresAt_idx" ON "RefreshToken"("userId", "expiresAt");
 CREATE INDEX "Room_status_createdAt_idx" ON "Room"("status", "createdAt");
 CREATE INDEX "Room_hostUserId_idx" ON "Room"("hostUserId");
-CREATE UNIQUE INDEX "RoomPlayer_roomId_seatIndex_key" ON "RoomPlayer"("roomId", "seatIndex");
 CREATE INDEX "QuestionBank_isActive_difficulty_lastUsedAt_idx" ON "QuestionBank"("isActive", "difficulty", "lastUsedAt");
 CREATE INDEX "XpEvent_userId_createdAt_idx" ON "XpEvent"("userId", "createdAt");
 CREATE INDEX "Season_startsAt_endsAt_idx" ON "Season"("startsAt", "endsAt");
 
--- New-model indexes
+-- New-model integrity and lookup indexes
 CREATE UNIQUE INDEX "PowerUpBet_roundId_userId_key" ON "PowerUpBet"("roundId", "userId");
 CREATE INDEX "PowerUpBet_roomId_status_idx" ON "PowerUpBet"("roomId", "status");
 CREATE UNIQUE INDEX "GameSettlement_roomId_key" ON "GameSettlement"("roomId");
