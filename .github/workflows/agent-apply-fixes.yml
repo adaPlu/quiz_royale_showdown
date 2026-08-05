@@ -22,7 +22,9 @@ jobs:
           cache: npm
 
       - name: Apply code fixes
-        run: python scripts/apply_agent_fixes.py
+        run: |
+          python scripts/apply_agent_fixes.py
+          python scripts/apply_agent_followup.py
 
       - name: Pin patched transitive dependencies
         shell: bash
