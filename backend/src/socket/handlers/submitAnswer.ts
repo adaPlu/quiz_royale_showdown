@@ -1,7 +1,9 @@
 import type { Server } from "socket.io";
 import { z } from "zod";
+import { powerUpWagerService } from "../../services/PowerUpWagerService";
 import { redisService } from "../../services/RedisService";
 import type { SocketErrorEvent } from "../../types/contracts";
+import { AppError } from "../../utils/errors";
 import { logger } from "../../utils/logger";
 import type { AuthenticatedSocket } from "../middleware";
 
@@ -9,7 +11,8 @@ const submitAnswerSchema = z.object({
   roomId: z.string().min(1),
   questionId: z.string().min(1),
   answerIndex: z.number().int().min(0).max(3),
-  clientSentAt: z.string().datetime()
+  clientSentAt: z.string().datetime(),
+  wagerPowerUpId: z.string().min(1).optional(),
 });
 
 const ANSWER_LOCK_TTL_SECONDS = 3600;
@@ -65,8 +68,11 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
       return;
     }
 
-    const { roomId, questionId, answerIndex, clientSentAt } = parsed.data;
+    const { roomId, questionId, answerIndex, clientSentAt, wagerPowerUpId } = parsed.data;
     const userId = socket.data.userId;
+    let lockKey: string | null = null;
+    let activeRoundId: string | null = null;
+    let wagerPlaced = false;
 
     try {
       if (!redisService) {
@@ -91,6 +97,7 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
         emitError(socket, "QUESTION_NOT_ACTIVE", "Question is no longer active for this room");
         return;
       }
+      activeRoundId = questionContext.roundId;
 
       const receivedAtMs = Date.now();
       const deadline = questionContext.startTs + questionContext.timeLimitMs + ANSWER_GRACE_MS;
@@ -100,11 +107,21 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
         return;
       }
 
-      const lockKey = `answer_lock:${roomId}:${questionContext.roundId}:${userId}`;
+      lockKey = `answer_lock:${roomId}:${questionContext.roundId}:${userId}`;
       const locked = await redisService.setnx(lockKey, "1", ANSWER_LOCK_TTL_SECONDS);
       if (!locked) {
         emitError(socket, "ALREADY_ANSWERED", "You have already submitted an answer for this round");
         return;
+      }
+
+      if (wagerPowerUpId) {
+        await powerUpWagerService.placeWager({
+          roomId,
+          roundId: questionContext.roundId,
+          userId,
+          powerUpId: wagerPowerUpId,
+        });
+        wagerPlaced = true;
       }
 
       const isCorrect = answerIndex === questionContext.correctAnswerIndex;
@@ -122,6 +139,7 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
           clientSentAt,
           isCorrect,
           scoreDelta,
+          wagerPowerUpId,
           submittedAt: new Date(receivedAtMs).toISOString()
         })
       );
@@ -131,16 +149,28 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
         roundId: questionContext.roundId,
         userId,
         isCorrect,
-        scoreDelta
+        scoreDelta,
+        wagerPowerUpId,
       });
     } catch (error) {
+      if (redisService && lockKey) {
+        await redisService.del(lockKey).catch(() => undefined);
+      }
+      if (wagerPlaced && activeRoundId) {
+        await powerUpWagerService.refundWager(activeRoundId, userId).catch(() => undefined);
+      }
+
       logger.error("Error in submitAnswer handler", {
         userId,
         roomId,
         questionId,
         message: error instanceof Error ? error.message : String(error)
       });
-      emitError(socket, "INTERNAL_ERROR", "Failed to submit answer");
+      emitError(
+        socket,
+        error instanceof AppError ? error.code : "INTERNAL_ERROR",
+        error instanceof AppError ? error.message : "Failed to submit answer",
+      );
     }
   });
 }
