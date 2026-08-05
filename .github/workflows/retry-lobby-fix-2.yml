@@ -1,0 +1,43 @@
+name: Repair store migration segment
+
+on:
+  push:
+    branches:
+      - agent/fix-host-start-solo
+    paths:
+      - .github/workflows/retry-lobby-fix-2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-host-start-solo
+          fetch-depth: 0
+      - name: Repair and retrigger
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/apply-lobby-fix.yml')
+          text = path.read_text()
+          start = text.index('          # Web contract/store host identity.')
+          end = text.index('          # Web lobby:', start)
+          segment = text[start:end]
+          segment = segment.replace('roomId: room.roomId', 'roomId: payload.room.roomId')
+          segment = segment.replace('code: room.code', 'code: payload.room.code')
+          segment = segment.replace('hostUserId: room.hostUserId', 'hostUserId: payload.room.hostUserId')
+          if 'payload.room.hostUserId' not in segment:
+              raise RuntimeError('store migration segment was not repaired')
+          path.write_text(text[:start] + segment + text[end:])
+          PY
+          git rm .github/workflows/retry-lobby-fix.yml .github/workflows/retry-lobby-fix-2.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: repair game store migration"
+          git push origin HEAD:agent/fix-host-start-solo
