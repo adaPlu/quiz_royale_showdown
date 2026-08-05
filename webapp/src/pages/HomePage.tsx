@@ -3,7 +3,7 @@ import { useNavigate } from '../navigation';
 
 import { PlayerAvatar } from '@components/PlayerAvatar';
 import { useMountedRef } from '@hooks/useMountedRef';
-import { roomSnapshotSchema, type ServerEventPayload } from '@lib/contracts';
+import { roomSnapshotSchema, type ServerEventPayload } from '@/lib/contracts';
 import { api } from '@services/apiClient';
 import { socketService } from '@services/socketService';
 import { useAuthStore } from '@stores/authStore';
