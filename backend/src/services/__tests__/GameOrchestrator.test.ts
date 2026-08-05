@@ -7,6 +7,7 @@ const redisMock = {
   zadd: vi.fn(),
   sadd: vi.fn(),
   set: vi.fn(),
+  get: vi.fn(),
   setJson: vi.fn(),
   getJson: vi.fn(),
   hgetall: vi.fn()
@@ -15,7 +16,7 @@ const redisMock = {
 const prismaMock = {
   questionBank: {
     count: vi.fn(),
-    findFirst: vi.fn(),
+    findMany: vi.fn(),
     update: vi.fn()
   },
   round: {
@@ -72,6 +73,7 @@ describe("GameOrchestrator hardening", () => {
     redisMock.zadd.mockResolvedValue(1);
     redisMock.sadd.mockResolvedValue(1);
     redisMock.set.mockResolvedValue("OK");
+    redisMock.get.mockResolvedValue("medium");
     redisMock.setJson.mockResolvedValue("OK");
     redisMock.getJson.mockResolvedValue({
       roundId: "round-1",
@@ -87,16 +89,18 @@ describe("GameOrchestrator hardening", () => {
     prismaMock.room.findUnique.mockResolvedValue({ seasonId: null });
     prismaMock.room.update.mockResolvedValue({});
     prismaMock.questionBank.count.mockResolvedValue(10);
-    prismaMock.questionBank.findFirst.mockResolvedValue({
-      id: "question-1",
-      prompt: "Question?",
-      optionA: "A",
-      optionB: "B",
-      optionC: "C",
-      optionD: "D",
-      correctIndex: 0,
-      difficulty: "easy"
-    });
+    prismaMock.questionBank.findMany.mockResolvedValue([
+      {
+        id: "question-1",
+        prompt: "Question?",
+        optionA: "A",
+        optionB: "B",
+        optionC: "C",
+        optionD: "D",
+        correctIndex: 0,
+        difficulty: "EASY"
+      }
+    ]);
     prismaMock.questionBank.update.mockResolvedValue({});
     prismaMock.round.findFirst.mockResolvedValue({ roundNumber: 0 });
     prismaMock.round.create.mockResolvedValue({});
@@ -250,7 +254,7 @@ describe("GameOrchestrator hardening", () => {
     });
   });
 
-  it("runs solo games through question rounds instead of failing on finale transition", async () => {
+  it("runs solo games through randomized question rounds", async () => {
     vi.useFakeTimers();
     const { GameOrchestrator } = await import("../GameOrchestrator");
     const orchestrator = new GameOrchestrator();
@@ -263,6 +267,7 @@ describe("GameOrchestrator hardening", () => {
     await startPromise;
     vi.useRealTimers();
 
+    expect(prismaMock.questionBank.findMany).toHaveBeenCalled();
     expect(emit).toHaveBeenCalledWith(
       "message",
       expect.objectContaining({ type: "round:question_started" })
