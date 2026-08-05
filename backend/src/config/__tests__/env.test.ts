@@ -62,6 +62,8 @@ describe("env", () => {
       DATABASE_URL: undefined,
       REDIS_URL: undefined,
       ADMIN_SECRET: undefined,
+      VAPID_PUBLIC_KEY: undefined,
+      VAPID_PRIVATE_KEY: undefined,
     });
     const exit = vi.spyOn(process, "exit").mockImplementation((() => {
       throw new Error("process.exit 1");
@@ -76,8 +78,8 @@ describe("env", () => {
     expect(error).toHaveBeenCalledWith("  DATABASE_URL is required in production");
     expect(error).toHaveBeenCalledWith("  REDIS_URL is required in production");
     expect(error).toHaveBeenCalledWith("  ADMIN_SECRET is required in production");
-    expect(error).toHaveBeenCalledWith("  VAPID_PUBLIC_KEY is required in production");
-    expect(error).toHaveBeenCalledWith("  VAPID_PRIVATE_KEY is required in production");
+    expect(error).not.toHaveBeenCalledWith("  VAPID_PUBLIC_KEY is required in production");
+    expect(error).not.toHaveBeenCalledWith("  VAPID_PRIVATE_KEY is required in production");
   });
 
   it("fails fast in production when audited secrets use development placeholders", async () => {
@@ -118,5 +120,19 @@ describe("env", () => {
     expect(env.isProduction).toBe(true);
     expect(env.jwtAccessSecret).toBe(PROD_ENV.JWT_ACCESS_SECRET);
     expect(env.redisUrl).toBe(PROD_ENV.REDIS_URL);
+  });
+
+  it("accepts production configuration without optional VAPID keys", async () => {
+    setEnv({
+      ...PROD_ENV,
+      VAPID_PUBLIC_KEY: undefined,
+      VAPID_PRIVATE_KEY: undefined,
+    });
+
+    const { env } = await import("../env");
+
+    expect(env.isProduction).toBe(true);
+    expect(env.vapidPublicKey).toBe("");
+    expect(env.vapidPrivateKey).toBe("");
   });
 });
