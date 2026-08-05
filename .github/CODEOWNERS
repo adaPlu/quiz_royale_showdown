@@ -1,0 +1,12 @@
+# Release and security-critical areas
+/.github/workflows/ @adaPlu
+/backend/Dockerfile @adaPlu
+/backend/start.sh @adaPlu
+/backend/prisma/ @adaPlu
+/backend/src/routes/auth.ts @adaPlu
+/backend/src/routes/challenges.ts @adaPlu
+/backend/src/services/GameSettlementService.ts @adaPlu
+/backend/src/services/PowerUpWagerService.ts @adaPlu
+/backend/src/services/SingleInstanceGuard.ts @adaPlu
+/android/app/src/main/java/com/quizroyale/showdown/data/auth/ @adaPlu
+/webapp/src/services/apiClient.ts @adaPlu
