@@ -11,7 +11,8 @@ import {
   roomService,
 } from "../services/RoomService";
 import { getIo } from "../socket";
-import { UnauthorizedError } from "../utils/errors";
+import { ForbiddenError, UnauthorizedError } from "../utils/errors";
+import { isAutomatedTestUser } from "../utils/testUsers";
 import { isValidId } from "../utils/ulid";
 
 export const roomsRouter = Router();
@@ -61,6 +62,52 @@ function getAuthenticatedUserId(jwtSub?: string): string {
   }
 
   return jwtSub;
+}
+
+async function assertTestRoomBoundary(
+  userId: string,
+  roomCode?: string
+): Promise<void> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true, displayName: true },
+  });
+
+  if (!user) {
+    throw new UnauthorizedError("User not found");
+  }
+
+  const requesterIsAutomatedTestUser = isAutomatedTestUser(user);
+
+  if (!roomCode) {
+    if (requesterIsAutomatedTestUser) {
+      throw new ForbiddenError(
+        "Automated test accounts cannot join public matchmaking"
+      );
+    }
+
+    return;
+  }
+
+  const targetRoom = await prisma.room.findUnique({
+    where: { code: roomCode },
+    select: {
+      host: {
+        select: { email: true, displayName: true },
+      },
+    },
+  });
+
+  if (!targetRoom) {
+    return;
+  }
+
+  const roomIsAutomatedTestRoom = isAutomatedTestUser(targetRoom.host);
+  if (requesterIsAutomatedTestUser !== roomIsAutomatedTestRoom) {
+    throw new ForbiddenError(
+      "Automated test accounts and regular players cannot join the same room"
+    );
+  }
 }
 
 function formatRoomResponse(payload: RoomLifecycleState, wsToken?: string) {
@@ -137,6 +184,9 @@ roomsRouter.post(
     try {
       const userId = getAuthenticatedUserId(req.jwtClaims?.sub);
       const { roomCode } = req.body as z.infer<typeof joinRoomSchema>;
+
+      await assertTestRoomBoundary(userId, roomCode);
+
       const { room, wsToken } = await roomService.joinRoom(userId, roomCode);
       const lifecycleState = await roomService.getRoomById(room.id);
 
