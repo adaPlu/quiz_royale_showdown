@@ -47,6 +47,11 @@ fun QuizRoyaleNavHost() {
         onLoginSuccess = {
           navController.navigateAndClearBackStack(QuizRoyaleRoute.Home.route)
         },
+        onGuestJoined = { roomReference ->
+          navController.navigateAndClearBackStack(
+            QuizRoyaleRoute.Lobby.createRoute(roomReference)
+          )
+        },
         onNavigateToRegister = {
           navController.navigate(QuizRoyaleRoute.Register.route)
         }
@@ -150,7 +155,6 @@ fun QuizRoyaleNavHost() {
         ?.getString(QuizRoyaleRoute.Results.ROOM_CODE_ARG)
         .orEmpty()
 
-      // Reuse the GameViewModel from the Game back-stack entry so we keep the player list.
       val gameEntry = runCatching {
         navController.getBackStackEntry(QuizRoyaleRoute.Game.createRoute(roomCode))
       }.getOrNull()
