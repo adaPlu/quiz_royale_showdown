@@ -1,11 +1,9 @@
-# Railway uses the repository root as the Docker build context.
-# Keep all source paths rooted under backend/ so this Dockerfile works
-# with the custom config file at /backend/railway.json.
+# Railway builds this service with backend/ as the source context.
 
 # Stage 1: production-only dependencies
 FROM node:20-alpine AS deps
 WORKDIR /app
-COPY backend/package.json backend/package-lock.json ./
+COPY package.json package-lock.json ./
 # The committed backend lockfile is currently missing a transitive package.
 # npm install repairs the lock/tree in the image instead of npm ci rejecting it.
 RUN npm install --omit=dev --no-audit --no-fund
@@ -13,11 +11,11 @@ RUN npm install --omit=dev --no-audit --no-fund
 # Stage 2: full dependencies, Prisma client, and TypeScript build
 FROM node:20-alpine AS build
 WORKDIR /app
-COPY backend/package.json backend/package-lock.json ./
+COPY package.json package-lock.json ./
 RUN npm install --no-audit --no-fund
-COPY backend/tsconfig.json ./
-COPY backend/prisma ./prisma
-COPY backend/src ./src
+COPY tsconfig.json ./
+COPY prisma ./prisma
+COPY src ./src
 RUN npx prisma generate
 RUN npm run build
 
@@ -28,9 +26,9 @@ ENV NODE_ENV=production
 COPY --from=build /app/dist ./dist
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
-COPY backend/prisma ./prisma
-COPY backend/package.json backend/package-lock.json ./
-COPY backend/start.sh ./
+COPY prisma ./prisma
+COPY package.json package-lock.json ./
+COPY start.sh ./
 RUN chmod +x start.sh
 EXPOSE 4000
 USER node
