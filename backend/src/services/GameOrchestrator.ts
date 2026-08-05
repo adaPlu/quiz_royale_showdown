@@ -28,6 +28,8 @@ import {
   getRoomGameDifficulty,
   type GameDifficulty
 } from "./GameDifficultyService";
+import { gameSettlementService } from "./GameSettlementService";
+import { powerUpWagerService } from "./PowerUpWagerService";
 import { redisService } from "./RedisService";
 import { questionGeneratorService } from "./QuestionGeneratorService";
 import { roomService } from "./RoomService";
@@ -55,6 +57,7 @@ type StoredAnswerRecord = {
   clientSentAt: string;
   isCorrect: boolean;
   scoreDelta: number;
+  wagerPowerUpId?: string;
   submittedAt: string;
 };
 
@@ -215,7 +218,7 @@ export class GameOrchestrator {
       const winnerIds = await this.computeWinners(roomId, finalistIds);
       state = transitionGameState(state, { type: "COMPLETE_GAME", winnerIds });
       await this.persistState(roomId, state);
-      await this.runGameOver(roomId, io, winnerIds, finalistIds);
+      await this.runGameOver(roomId, io, winnerIds, playerIds);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await roomService.resetStartFailure(roomId, message);
@@ -406,8 +409,20 @@ export class GameOrchestrator {
       scoreDelta: answerRecords[member]?.scoreDelta ?? 0,
       totalScore: score
     }));
+    const correctPlayerIds = Object.entries(answerRecords)
+      .filter(([, answer]) => answer.isCorrect)
+      .map(([playerId]) => playerId);
+    const wagerPool = await powerUpWagerService.settleRoundWagers(
+      questionContext.roundId,
+      correctPlayerIds,
+    );
 
-    logger.info("Round ended", { roomId, roundId: questionContext.roundId });
+    logger.info("Round ended", {
+      roomId,
+      roundId: questionContext.roundId,
+      wagerPoolSize: wagerPool.poolSize,
+      wagerWinnerIds: wagerPool.winnerIds,
+    });
 
     emitRoomEnvelope(io, roomId, {
       type: "round:result",
@@ -416,7 +431,8 @@ export class GameOrchestrator {
         roomId,
         roundId: questionContext.roundId,
         correctAnswerIndex: questionContext.correctAnswerIndex,
-        rankings
+        rankings,
+        wagerPool,
       }
     });
 
@@ -525,11 +541,11 @@ export class GameOrchestrator {
     roomId: string,
     io: Server,
     winnerIds: string[],
-    finalistIds: string[]
+    allPlayerIds: string[]
   ): Promise<void> {
     logger.info("Game over", { roomId, winnerIds });
 
-    const finalScores = await this.loadScores(roomId, finalistIds);
+    const finalScores = await this.loadScores(roomId, allPlayerIds);
     const userRows = await prisma.user.findMany({
       where: { id: { in: finalScores.map((standing) => standing.playerId) } },
       select: { id: true, email: true, displayName: true }
@@ -555,26 +571,14 @@ export class GameOrchestrator {
         };
       });
     const persistentStandings = finalStandings.filter((standing) => !guestIds.has(standing.playerId));
-
-    await this.updateSeasonScores(roomId, persistentStandings, winnerIds);
-
-    await Promise.all(
-      persistentStandings.map((standing) =>
-        prisma.xpEvent.create({
-          data: {
-            id: generateId(),
-            userId: standing.playerId,
-            reason: "GAME_FINISH",
-            amount: standing.xpAwarded,
-            metadata: { roomId, rank: standing.rank }
-          }
-        })
-      )
-    );
-
-    await prisma.room.update({
-      where: { id: roomId },
-      data: { status: "GAME_OVER", finishedAt: new Date() }
+    const settlement = await gameSettlementService.settleGame({
+      roomId,
+      winnerIds,
+      persistentStandings: persistentStandings.map((standing) => ({
+        playerId: standing.playerId,
+        rank: standing.rank,
+        xpAwarded: standing.xpAwarded,
+      })),
     });
 
     emitRoomEnvelope(io, roomId, {
@@ -583,6 +587,8 @@ export class GameOrchestrator {
       payload: {
         roomId,
         winnerId: winnerIds[0] ?? finalStandings[0]?.playerId ?? "",
+        winnerIds,
+        winnerPowerUpRewards: settlement.winnerPowerUpRewards,
         finalStandings
       }
     });
@@ -595,56 +601,6 @@ export class GameOrchestrator {
         `room:${roomId}:scores`
       );
     }
-  }
-
-  private async updateSeasonScores(
-    roomId: string,
-    finalStandings: FinalStanding[],
-    winnerIds: string[]
-  ): Promise<void> {
-    if (finalStandings.length === 0) {
-      return;
-    }
-
-    const room = await prisma.room.findUnique({
-      where: { id: roomId },
-      select: { seasonId: true }
-    });
-
-    if (!room?.seasonId) {
-      return;
-    }
-
-    const winnerIdSet = new Set(winnerIds);
-
-    await Promise.all(
-      finalStandings.map((standing) => {
-        const isWinner = winnerIdSet.has(standing.playerId);
-        const mmrDelta = isWinner ? 25 : Math.max(-10, 10 - standing.rank * 5);
-
-        return prisma.seasonScore.upsert({
-          where: {
-            seasonId_userId: {
-              seasonId: room.seasonId as string,
-              userId: standing.playerId
-            }
-          },
-          create: {
-            id: generateId(),
-            seasonId: room.seasonId as string,
-            userId: standing.playerId,
-            mmr: 1000 + mmrDelta,
-            wins: isWinner ? 1 : 0,
-            gamesPlayed: 1
-          },
-          update: {
-            mmr: { increment: mmrDelta },
-            wins: { increment: isWinner ? 1 : 0 },
-            gamesPlayed: { increment: 1 }
-          }
-        });
-      })
-    );
   }
 
   private async selectQuestion(
