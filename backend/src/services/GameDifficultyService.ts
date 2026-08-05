@@ -11,6 +11,7 @@ export const DEFAULT_GAME_DIFFICULTY: GameDifficulty = "medium";
 
 const ROOM_DIFFICULTY_TTL_SECONDS = 60 * 60 * 2;
 const difficultyKey = (roomId: string) => `room:${roomId}:difficulty`;
+const secureRandomIndex = (maxExclusive: number) => randomInt(maxExclusive);
 
 const DIFFICULTY_POOLS: Readonly<Record<GameDifficulty, readonly Difficulty[]>> = {
   easy: [Difficulty.EASY],
@@ -27,7 +28,7 @@ export function getAllowedQuestionDifficulties(
 export function buildQuestionDifficultyPlan(
   gameDifficulty: GameDifficulty,
   questionCount: number,
-  chooseIndex: (maxExclusive: number) => number = randomInt,
+  chooseIndex: (maxExclusive: number) => number = secureRandomIndex,
 ): Difficulty[] {
   if (!Number.isInteger(questionCount) || questionCount <= 0) {
     throw new Error("questionCount must be a positive integer");
