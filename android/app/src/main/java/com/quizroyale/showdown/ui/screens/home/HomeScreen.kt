@@ -15,6 +15,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -67,7 +68,7 @@ fun HomeScreen(
             }
         }
         Text(
-            text = "Create a room, join by code, or jump back into your latest lobby.",
+            text = "Create a room, start a solo game, or join by code.",
             style = MaterialTheme.typography.bodyLarge,
         )
 
@@ -101,7 +102,30 @@ fun HomeScreen(
                 modifier = Modifier.padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("Create a Room", style = MaterialTheme.typography.titleMedium)
+                Text("Single Player", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Create a private room, select Easy, Medium, or Hard, then tap Play Solo.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Button(
+                    onClick = viewModel::createSinglePlayerRoom,
+                    enabled = uiState.activeAction == null,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    ActionLabel(
+                        isLoading = uiState.activeAction == HomeAction.CREATE_SOLO,
+                        label = "Single Player",
+                    )
+                }
+            }
+        }
+
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text("Create a Multiplayer Room", style = MaterialTheme.typography.titleMedium)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -144,7 +168,7 @@ fun HomeScreen(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                 )
-                Button(
+                OutlinedButton(
                     onClick = viewModel::joinByCode,
                     enabled = uiState.activeAction == null,
                     modifier = Modifier.fillMaxWidth(),
