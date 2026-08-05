@@ -4,6 +4,7 @@ import { gameOrchestrator } from "../../services/GameOrchestrator";
 import { redisService } from "../../services/RedisService";
 import { roomService } from "../../services/RoomService";
 import type { RoomSnapshot } from "../../types/contracts";
+import { resolvePublicDisplayName } from "../../utils/publicDisplayName";
 
 export async function buildRoomSnapshot(roomId: string): Promise<RoomSnapshot | null> {
   await roomService.recoverStaleCountdown(
@@ -49,7 +50,7 @@ export async function buildRoomSnapshot(roomId: string): Promise<RoomSnapshot | 
     totalRounds: room.totalRounds,
     players: room.players.map((player) => ({
       id: player.userId,
-      displayName: player.user.displayName,
+      displayName: resolvePublicDisplayName(player.user.displayName, player.userId),
       avatarUrl: player.user.avatarUrl ?? undefined,
       score: scores[player.userId] ?? player.score,
       streak: player.streak,
