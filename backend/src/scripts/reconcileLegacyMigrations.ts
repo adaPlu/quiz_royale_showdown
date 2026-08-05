@@ -11,13 +11,64 @@ const LEGACY_DUPLICATE_MIGRATIONS = [
 
 const CURRENT_BASELINE_MIGRATION = "20260425000000_init";
 
+/**
+ * A non-empty database may only be auto-reconciled when it already contains
+ * the complete canonical baseline shape. This prevents migration history from
+ * being marked applied on an unknown or partially-created schema.
+ */
+const CANONICAL_SCHEMA_COLUMNS = [
+  ["User", "id"],
+  ["User", "email"],
+  ["User", "displayName"],
+  ["User", "passwordHash"],
+  ["RefreshToken", "id"],
+  ["RefreshToken", "userId"],
+  ["RefreshToken", "tokenHash"],
+  ["Room", "id"],
+  ["Room", "code"],
+  ["Room", "hostUserId"],
+  ["Room", "status"],
+  ["Room", "currentRound"],
+  ["Room", "totalRounds"],
+  ["RoomPlayer", "id"],
+  ["RoomPlayer", "roomId"],
+  ["RoomPlayer", "userId"],
+  ["RoomPlayer", "seatIndex"],
+  ["Round", "id"],
+  ["Round", "roomId"],
+  ["Round", "questionId"],
+  ["Round", "difficulty"],
+  ["Answer", "id"],
+  ["Answer", "roundId"],
+  ["Answer", "userId"],
+  ["Answer", "isCorrect"],
+  ["QuestionBank", "id"],
+  ["QuestionBank", "prompt"],
+  ["QuestionBank", "correctIndex"],
+  ["QuestionBank", "difficulty"],
+  ["QuestionBank", "isActive"],
+  ["PowerUp", "id"],
+  ["PowerUp", "code"],
+  ["PowerUp", "isActive"],
+  ["PlayerPowerUp", "userId"],
+  ["PlayerPowerUp", "powerUpId"],
+  ["PlayerPowerUp", "quantity"],
+  ["XpEvent", "userId"],
+  ["XpEvent", "reason"],
+  ["XpEvent", "amount"],
+] as const;
+
 type CountRow = { count: bigint | number };
 type MigrationRow = { migration_name: string };
+type ColumnRow = { table_name: string; column_name: string };
 
-async function loadBootstrapState(): Promise<{
+interface BootstrapState {
   appTableCount: number;
   appliedMigrations: Set<string>;
-}> {
+  canonicalSchemaPresent: boolean;
+}
+
+async function loadBootstrapState(): Promise<BootstrapState> {
   const tableRows = await prisma.$queryRawUnsafe<CountRow[]>(`
     SELECT COUNT(*)::bigint AS count
     FROM information_schema.tables
@@ -43,9 +94,23 @@ async function loadBootstrapState(): Promise<{
       `)
     : [];
 
+  const columnRows = await prisma.$queryRawUnsafe<ColumnRow[]>(`
+    SELECT table_name, column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+  `);
+  const availableColumns = new Set(
+    columnRows.map((row) => `${row.table_name}.${row.column_name}`),
+  );
+  const canonicalSchemaPresent = CANONICAL_SCHEMA_COLUMNS.every(
+    ([tableName, columnName]) =>
+      availableColumns.has(`${tableName}.${columnName}`),
+  );
+
   return {
     appTableCount: Number(tableRows[0]?.count ?? 0),
     appliedMigrations: new Set(migrationRows.map((row) => row.migration_name)),
+    canonicalSchemaPresent,
   };
 }
 
@@ -75,10 +140,15 @@ async function main(): Promise<void> {
   const migrationsToResolve = new Set<string>();
 
   // The first two migration directories are identical historical snapshots.
-  // On a provably empty database, marking them applied is safe because the next
-  // migration creates the complete baseline schema. Non-empty unknown databases
-  // remain fail-closed unless the operator explicitly opts into reconciliation.
-  if (databaseIsEmpty || allowLegacyBaseline) {
+  // On a provably empty database, marking only those duplicates applied is safe;
+  // the canonical baseline must still run to create the tables.
+  //
+  // Older production instances may already have the complete canonical schema
+  // while their migration table contains missing or failed records from the
+  // former best-effort startup script. In that known-safe case, all three
+  // historical baseline records can be reconciled. Unknown or partial non-empty
+  // databases remain fail-closed.
+  if (databaseIsEmpty || state.canonicalSchemaPresent || allowLegacyBaseline) {
     for (const migrationName of LEGACY_DUPLICATE_MIGRATIONS) {
       if (!state.appliedMigrations.has(migrationName)) {
         migrationsToResolve.add(migrationName);
@@ -86,7 +156,10 @@ async function main(): Promise<void> {
     }
   }
 
-  if (allowCurrentBaseline && !state.appliedMigrations.has(CURRENT_BASELINE_MIGRATION)) {
+  if (
+    (state.canonicalSchemaPresent || allowCurrentBaseline) &&
+    !state.appliedMigrations.has(CURRENT_BASELINE_MIGRATION)
+  ) {
     migrationsToResolve.add(CURRENT_BASELINE_MIGRATION);
   }
 
