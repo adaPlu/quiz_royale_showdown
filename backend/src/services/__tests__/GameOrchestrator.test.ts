@@ -34,6 +34,9 @@ const prismaMock = {
   room: {
     findUnique: vi.fn(),
     update: vi.fn()
+  },
+  user: {
+    findMany: vi.fn()
   }
 };
 
@@ -47,7 +50,8 @@ vi.mock("../RedisService", () => ({
 
 vi.mock("../RoomService", () => ({
   roomService: {
-    resetStartFailure: vi.fn()
+    resetStartFailure: vi.fn(),
+    getRoomById: vi.fn().mockResolvedValue(null)
   }
 }));
 
@@ -88,6 +92,13 @@ describe("GameOrchestrator hardening", () => {
     redisMock.hgetall.mockResolvedValue({});
     prismaMock.room.findUnique.mockResolvedValue({ seasonId: null });
     prismaMock.room.update.mockResolvedValue({});
+    prismaMock.user.findMany.mockImplementation(async ({ where }: { where: { id: { in: string[] } } }) =>
+      where.id.in.map((id) => ({
+        id,
+        email: `${id}@example.com`,
+        displayName: id === "finalist-b" ? "Finalist B" : id === "finalist-a" ? "Finalist A" : "Solo Player",
+      })),
+    );
     prismaMock.questionBank.count.mockResolvedValue(10);
     prismaMock.questionBank.findMany.mockResolvedValue([
       {
@@ -176,8 +187,20 @@ describe("GameOrchestrator hardening", () => {
         roomId: "room-1",
         winnerId: "finalist-b",
         finalStandings: [
-          { playerId: "finalist-b", rank: 1, score: 400, xpAwarded: 40 },
-          { playerId: "finalist-a", rank: 2, score: 300, xpAwarded: 30 }
+          {
+            playerId: "finalist-b",
+            displayName: "Finalist B",
+            rank: 1,
+            score: 400,
+            xpAwarded: 40,
+          },
+          {
+            playerId: "finalist-a",
+            displayName: "Finalist A",
+            rank: 2,
+            score: 300,
+            xpAwarded: 30,
+          }
         ]
       }
     });

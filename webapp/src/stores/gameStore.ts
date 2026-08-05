@@ -32,6 +32,7 @@ export interface RoundResult {
 
 export interface FinalStanding {
   playerId: string;
+  displayName: string;
   rank: number;
   score: number;
   xpAwarded: number;

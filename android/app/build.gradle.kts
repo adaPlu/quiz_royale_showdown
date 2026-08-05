@@ -20,12 +20,12 @@ android {
     .orElse(providers.environmentVariable("RELEASE_API_BASE_URL"))
     .orElse(providers.gradleProperty("API_BASE_URL"))
     .orElse(providers.environmentVariable("API_BASE_URL"))
-    .getOrElse("https://api.quizroyale.gg/api/v1/")
+    .getOrElse("https://quizroyaleshowdown-production.up.railway.app/api/v1/")
   val releaseWsBaseUrl = providers.gradleProperty("RELEASE_WS_BASE_URL")
     .orElse(providers.environmentVariable("RELEASE_WS_BASE_URL"))
     .orElse(providers.gradleProperty("WS_BASE_URL"))
     .orElse(providers.environmentVariable("WS_BASE_URL"))
-    .getOrElse("wss://api.quizroyale.gg/ws")
+    .getOrElse("https://quizroyaleshowdown-production.up.railway.app")
 
   defaultConfig {
     applicationId = "com.quizroyale.showdown"

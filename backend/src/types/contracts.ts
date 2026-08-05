@@ -77,7 +77,13 @@ export type ServerEvents =
       {
         roomId: string;
         winnerId: string;
-        finalStandings: Array<{ playerId: string; rank: number; score: number; xpAwarded: number }>;
+        finalStandings: Array<{
+          playerId: string;
+          displayName: string;
+          rank: number;
+          score: number;
+          xpAwarded: number;
+        }>;
       }
     >
   | EventEnvelope<

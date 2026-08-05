@@ -12,6 +12,7 @@ export interface User {
   xp: number;
   coins: number;
   avatarUrl?: string;
+  isGuest?: boolean;
 }
 
 type AuthApiUser = {
@@ -23,6 +24,7 @@ type AuthApiUser = {
   xp?: number | null;
   coins?: number | null;
   avatarUrl?: string | null;
+  isGuest?: boolean | null;
 };
 
 export interface AuthResponse {
@@ -98,6 +100,10 @@ function normalizeAuthUser(user: AuthApiUser, fallback?: User | null): User | nu
     xp: user.xp ?? fallback?.xp ?? 0,
     coins: user.coins ?? fallback?.coins ?? 0,
     avatarUrl: user.avatarUrl ?? fallback?.avatarUrl ?? undefined,
+    isGuest:
+      user.isGuest ??
+      fallback?.isGuest ??
+      email.toLowerCase().endsWith('@guest.quizroyale.invalid'),
   };
 }
 

@@ -21,6 +21,7 @@ data class ScoreRanking(
 
 data class FinalStanding(
   val playerId: String,
+  val displayName: String,
   val rank: Int,
   val score: Int,
   val xpAwarded: Int

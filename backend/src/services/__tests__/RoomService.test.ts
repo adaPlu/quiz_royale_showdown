@@ -260,12 +260,16 @@ describe("RoomService", () => {
     };
 
     prismaMock.room.findUnique.mockResolvedValueOnce(waitingRoom).mockResolvedValueOnce(startedRoom);
-    prismaMock.room.update.mockResolvedValue(undefined);
+    prismaMock.room.updateMany.mockResolvedValue({ count: 1 });
 
     const result = await service.startGame("room-1", "host-user", { allowSolo: true });
 
-    expect(prismaMock.room.update).toHaveBeenCalledWith({
-      where: { id: "room-1" },
+    expect(prismaMock.room.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "room-1",
+        hostUserId: "host-user",
+        status: "WAITING",
+      },
       data: {
         status: "COUNTDOWN",
         startedAt: expect.any(Date),

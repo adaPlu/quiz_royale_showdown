@@ -22,6 +22,7 @@ import {
   UnauthorizedError,
 } from "../utils/errors";
 import { isAutomatedTestUser } from "../utils/testUsers";
+import { isGuestEmail } from "../utils/guestUsers";
 import { isValidId } from "../utils/ulid";
 
 export const roomsRouter = Router();
@@ -32,6 +33,7 @@ const createRoomSchema = z.object({
   isPrivate: z.boolean().optional().default(true),
   maxPlayers: z.number().int().min(2).max(100).optional().default(8),
   difficulty: gameDifficultySchema.optional().default("medium"),
+  autoStartSolo: z.boolean().optional().default(false),
 });
 
 const ROOM_CODE_LENGTH = 6;
@@ -78,6 +80,17 @@ function getAuthenticatedUserId(jwtSub?: string): string {
   }
 
   return jwtSub;
+}
+
+async function assertRegisteredAccount(userId: string, action: string): Promise<void> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true }
+  });
+  if (!user) throw new UnauthorizedError("User not found");
+  if (isGuestEmail(user.email)) {
+    throw new ForbiddenError(`Guest players cannot ${action}`);
+  }
 }
 
 async function assertTestRoomBoundary(
@@ -221,6 +234,7 @@ roomsRouter.post(
     try {
       const hostUserId = getAuthenticatedUserId(req.jwtClaims?.sub);
       const input = req.body as z.infer<typeof createRoomSchema>;
+      await assertRegisteredAccount(hostUserId, "create rooms");
       const room = await roomService.createRoom(hostUserId, input);
       await setRoomGameDifficulty(room.room.roomId, input.difficulty);
 
@@ -240,6 +254,7 @@ roomsRouter.post(
       const userId = getAuthenticatedUserId(req.jwtClaims?.sub);
       const { roomCode } = req.body as z.infer<typeof joinRoomSchema>;
 
+      if (!roomCode) await assertRegisteredAccount(userId, "use public matchmaking");
       await assertTestRoomBoundary(userId, roomCode);
 
       const { room, wsToken } = await roomService.joinRoom(userId, roomCode);
@@ -247,6 +262,24 @@ roomsRouter.post(
       const difficulty = await getRoomGameDifficulty(room.id);
 
       res.json(formatRoomResponse(lifecycleState, difficulty, wsToken));
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+roomsRouter.get(
+  "/by-id/:roomId",
+  requireAuth,
+  validate({ params: roomIdParamsSchema }),
+  async (req, res, next) => {
+    try {
+      const requesterId = getAuthenticatedUserId(req.jwtClaims?.sub);
+      const { roomId } = req.params as z.infer<typeof roomIdParamsSchema>;
+      const room = await assertRoomParticipant(roomId, requesterId);
+      const difficulty = await getRoomGameDifficulty(roomId);
+
+      res.json(formatRoomResponse(room, difficulty));
     } catch (error) {
       next(error);
     }
@@ -324,13 +357,15 @@ roomsRouter.post(
 
       const room = await roomService.startGame(roomId, requesterId, { allowSolo });
       const difficulty = await getRoomGameDifficulty(roomId);
-
       try {
-        await gameOrchestrator.assertQuestionBankReady(difficulty);
+        await gameOrchestrator.assertQuestionBankReady(
+          difficulty,
+          room.room.totalRounds,
+        );
       } catch (error) {
         await roomService.resetStartFailure(
           roomId,
-          error instanceof Error ? error.message : String(error)
+          error instanceof Error ? error.message : String(error),
         );
         throw error;
       }
@@ -340,10 +375,25 @@ roomsRouter.post(
         select: { userId: true },
       });
       const playerIds = playerRows.map((row) => row.userId);
+      const io = getIo();
 
-      void gameOrchestrator.startGame(roomId, playerIds, getIo()).catch((err: unknown) => {
+      void gameOrchestrator.startGame(roomId, playerIds, io).catch(async (err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
         console.error("[rooms] GameOrchestrator.startGame failed", { roomId, message });
+        await roomService.resetStartFailure(roomId, message).catch(() => undefined);
+        const recovered = await roomService.getRoomById(roomId).catch(() => null);
+        if (recovered) {
+          io.to(roomId).emit("message", {
+            type: "room:state_sync",
+            version: "v1",
+            payload: { room: recovered.room },
+          });
+        }
+        io.to(roomId).emit("message", {
+          type: "error",
+          version: "v1",
+          payload: { code: "GAME_START_FAILED", message },
+        });
       });
 
       res.json(formatRoomResponse(room, difficulty));
