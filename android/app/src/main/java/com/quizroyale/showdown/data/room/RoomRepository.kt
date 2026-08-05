@@ -38,11 +38,15 @@ class RoomRepository @Inject constructor(
     suspend fun createRoom(
         isPrivate: Boolean,
         maxPlayers: Int = DEFAULT_MAX_PLAYERS,
+        difficulty: GameDifficulty = GameDifficulty.MEDIUM,
+        autoStartSolo: Boolean = false,
     ): RoomSnapshot {
         val snapshot = roomApi.createRoom(
             CreateRoomRequest(
                 isPrivate = isPrivate,
                 maxPlayers = maxPlayers,
+                difficulty = difficulty,
+                autoStartSolo = autoStartSolo,
             )
         ).toRoomSnapshot()
         cache(snapshot)
@@ -68,10 +72,19 @@ class RoomRepository @Inject constructor(
         roomApi.startGame(roomId, StartGameRequest(allowSolo = allowSolo))
     }
 
+    suspend fun setDifficulty(roomId: String, difficulty: GameDifficulty): GameDifficulty {
+        val response = roomApi.setDifficulty(roomId, UpdateDifficultyRequest(difficulty))
+        return response.difficulty("difficulty") ?: difficulty
+    }
+
     suspend fun refreshRoom(roomReference: String): RoomSnapshot {
         val normalizedReference = roomReference.trim().uppercase()
-        val snapshot = roomApi.getRoom(normalizedReference)
-            .toRoomSnapshot(defaultReference = normalizedReference)
+        val response = if (normalizedReference.length == 26) {
+            roomApi.getRoomById(normalizedReference)
+        } else {
+            roomApi.getRoom(normalizedReference)
+        }
+        val snapshot = response.toRoomSnapshot(defaultReference = normalizedReference)
         cache(snapshot)
         return snapshot
     }
@@ -101,6 +114,7 @@ class RoomRepository @Inject constructor(
 
     private fun JsonObject.toRoomSnapshot(defaultReference: String? = null): RoomSnapshot {
         val rootRoom = this["room"].asJsonObjectOrNull() ?: this
+        val config = this["config"].asJsonObjectOrNull()
         val roomId = rootRoom.string("roomId")
             ?: rootRoom.string("id")
             ?: string("roomId")
@@ -123,9 +137,15 @@ class RoomRepository @Inject constructor(
             roundNumber = rootRoom.int("roundNumber") ?: rootRoom.int("currentRound") ?: 0,
             totalRounds = rootRoom.int("totalRounds") ?: DEFAULT_TOTAL_ROUNDS,
             totalPlayers = totalPlayers,
-            maxPlayers = rootRoom.int("maxPlayers") ?: int("maxPlayers"),
+            maxPlayers = config?.int("maxPlayers")
+                ?: rootRoom.int("maxPlayers")
+                ?: int("maxPlayers"),
             players = players,
             hostUserId = rootRoom.string("hostUserId") ?: string("hostUserId"),
+            difficulty = config?.difficulty("difficulty")
+                ?: rootRoom.difficulty("difficulty")
+                ?: difficulty("difficulty")
+                ?: GameDifficulty.MEDIUM,
             wsToken = string("wsToken"),
         )
     }
@@ -149,6 +169,11 @@ class RoomRepository @Inject constructor(
 
     private fun JsonObject.boolean(key: String): Boolean? =
         get(key)?.jsonPrimitive?.booleanOrNull
+
+    private fun JsonObject.difficulty(key: String): GameDifficulty? =
+        string(key)?.uppercase()?.let { value ->
+            runCatching { GameDifficulty.valueOf(value) }.getOrNull()
+        }
 
     private fun JsonElement?.asJsonObjectOrNull(): JsonObject? = this as? JsonObject
 
