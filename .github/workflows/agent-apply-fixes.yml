@@ -33,22 +33,11 @@ jobs:
           python scripts/apply_agent_followup3.py
           python scripts/apply_agent_followup4.py
 
-      - name: Pin patched transitive dependencies
+      - name: Repair production dependency lockfiles
         shell: bash
         run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          for name in ("package.json", "backend/package.json"):
-              path = Path(name)
-              data = json.loads(path.read_text())
-              overrides = data.setdefault("overrides", {})
-              overrides["socket.io-parser"] = "4.2.7"
-              overrides["ip-address"] = "10.4.0"
-              path.write_text(json.dumps(data, indent=2) + "\n")
-          PY
-          npm install --package-lock-only --ignore-scripts
-          npm install --package-lock-only --ignore-scripts --workspaces=false --prefix backend
+          npm audit fix --package-lock-only --ignore-scripts
+          npm audit fix --package-lock-only --ignore-scripts --workspaces=false --prefix backend
 
       - name: Install dependencies
         run: npm ci
