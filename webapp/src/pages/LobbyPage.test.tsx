@@ -68,12 +68,16 @@ function renderLobby(playerIds: string[] = ['host-user']) {
 }
 
 describe('LobbyPage', () => {
-  it('labels the host and exposes an explicit solo mode when alone', () => {
+  it('labels the host and exposes solo and difficulty controls when alone', () => {
     const html = renderLobby();
 
     expect(html).toContain('You are Host');
     expect(html).toContain('Single Player Mode');
     expect(html).toContain('Play Solo');
+    expect(html).toContain('Question Difficulty');
+    expect(html).toContain('Easy');
+    expect(html).toContain('Medium');
+    expect(html).toContain('Hard');
     expect(html).toContain('Copy Invite');
   });
 

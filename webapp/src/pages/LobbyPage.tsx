@@ -20,6 +20,30 @@ const phaseCopy: Record<string, string> = {
   GAME_OVER: 'Game over',
 };
 
+type GameDifficulty = 'easy' | 'medium' | 'hard';
+
+const difficultyOptions: Array<{
+  value: GameDifficulty;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: 'easy',
+    label: 'Easy',
+    description: 'Easy questions only.',
+  },
+  {
+    value: 'medium',
+    label: 'Medium',
+    description: 'A shuffled mix of easy and medium questions.',
+  },
+  {
+    value: 'hard',
+    label: 'Hard',
+    description: 'A shuffled mix of medium and hard questions.',
+  },
+];
+
 export const LobbyPage = () => {
   const navigate = useNavigate();
   const mountedRef = useMountedRef();
@@ -56,6 +80,8 @@ export const LobbyPage = () => {
 
   const [isStarting, setIsStarting] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
+  const [isSavingDifficulty, setIsSavingDifficulty] = useState(false);
+  const [difficulty, setDifficulty] = useState<GameDifficulty>('medium');
   const [startError, setStartError] = useState<string | null>(null);
   const [startNotice, setStartNotice] = useState<string | null>(null);
   const [inviteNotice, setInviteNotice] = useState<string | null>(null);
@@ -66,6 +92,30 @@ export const LobbyPage = () => {
   const hostPlayer = players.find((player) => player.id === hostUserId);
   const hostName = hostPlayer?.displayName ?? 'the room host';
   const resetRoom = useGameStore((state) => state.resetRoom);
+  const selectedDifficulty = difficultyOptions.find((option) => option.value === difficulty)!;
+
+  useEffect(() => {
+    if (!roomId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void api
+      .get<{ difficulty: GameDifficulty }>(`/rooms/by-id/${roomId}/difficulty`)
+      .then((response) => {
+        if (!cancelled && mountedRef.current) {
+          setDifficulty(response.data.difficulty);
+        }
+      })
+      .catch(() => {
+        // Medium is the server default. A later host selection will retry through PATCH.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mountedRef, roomId]);
 
   useEffect(() => {
     return socketService.on('error', (payload) => {
@@ -124,6 +174,36 @@ export const LobbyPage = () => {
     setInviteNotice('Email invite opened.');
   };
 
+  const handleDifficultyChange = async (nextDifficulty: GameDifficulty) => {
+    if (!roomId || !isHost || phase !== 'WAITING' || nextDifficulty === difficulty) {
+      return;
+    }
+
+    setIsSavingDifficulty(true);
+    setStartError(null);
+
+    try {
+      const response = await api.patch<{ difficulty: GameDifficulty }>(
+        `/rooms/by-id/${roomId}/difficulty`,
+        { difficulty: nextDifficulty },
+      );
+      if (mountedRef.current) {
+        setDifficulty(response.data.difficulty);
+      }
+    } catch (error: unknown) {
+      if (!mountedRef.current) return;
+      setStartError(
+        error instanceof Error && error.message
+          ? error.message
+          : 'Failed to update game difficulty',
+      );
+    } finally {
+      if (mountedRef.current) {
+        setIsSavingDifficulty(false);
+      }
+    }
+  };
+
   const handleStartGame = useCallback(async () => {
     if (!roomId || !isHost) return;
 
@@ -131,13 +211,12 @@ export const LobbyPage = () => {
     setStartError(null);
     setStartNotice(
       hasMultiplePlayers
-        ? 'Starting the game...'
-        : 'Starting with the current player count...',
+        ? `Starting a ${difficulty} multiplayer game...`
+        : `Starting a ${difficulty} solo game...`,
     );
 
     try {
       await api.post(`/rooms/${roomId}/start`, { allowSolo: !hasMultiplePlayers });
-      // Navigation happens automatically via the round:countdown_started socket event.
     } catch (err: unknown) {
       if (!mountedRef.current) return;
       const message =
@@ -151,7 +230,7 @@ export const LobbyPage = () => {
     } finally {
       if (mountedRef.current) setIsStarting(false);
     }
-  }, [hasMultiplePlayers, isHost, mountedRef, roomId]);
+  }, [difficulty, hasMultiplePlayers, isHost, mountedRef, roomId]);
 
   const handleLeaveLobby = async () => {
     if (isLeaving) return;
@@ -246,6 +325,38 @@ export const LobbyPage = () => {
                 </span>
               </div>
 
+              {phase === 'WAITING' && (
+                <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-bold text-white">Question Difficulty</p>
+                    {isSavingDifficulty && (
+                      <span className="text-xs text-brand-gold">Saving...</span>
+                    )}
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    {difficultyOptions.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        disabled={!isHost || isSavingDifficulty || isStarting}
+                        onClick={() => void handleDifficultyChange(option.value)}
+                        className={`rounded-xl border px-3 py-3 text-sm font-bold transition ${
+                          difficulty === option.value
+                            ? 'border-brand-gold bg-brand-gold text-black'
+                            : 'border-white/10 bg-black/20 text-white hover:border-white/30'
+                        } disabled:cursor-not-allowed disabled:opacity-60`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-3 text-xs text-white/65">
+                    {selectedDifficulty.description}
+                    {!isHost ? ` ${hostName} controls this setting.` : ''}
+                  </p>
+                </div>
+              )}
+
               {isHost ? (
                 phase === 'WAITING' ? (
                   <>
@@ -254,12 +365,12 @@ export const LobbyPage = () => {
                     </p>
                     <p className="mt-2 text-sm text-white/70">
                       {hasMultiplePlayers
-                        ? `${players.length} players are connected. Start now without waiting for automatic launch.`
-                        : 'Play all ten trivia rounds by yourself. You can also invite friends before starting.'}
+                        ? `${players.length} players are connected. Start a ${difficulty} game when ready.`
+                        : `Play all ten trivia rounds by yourself on ${difficulty} difficulty.`}
                     </p>
                     <button
                       type="button"
-                      disabled={isStarting}
+                      disabled={isStarting || isSavingDifficulty}
                       onClick={() => void handleStartGame()}
                       className="mt-5 w-full rounded-2xl bg-brand-gold px-4 py-4 text-sm font-black uppercase tracking-widest text-black shadow-royale transition hover:opacity-90 disabled:opacity-40"
                     >

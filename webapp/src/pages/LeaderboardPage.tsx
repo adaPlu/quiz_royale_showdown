@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { PlayerAvatar } from '@components/PlayerAvatar';
 import { useAuthStore } from '@stores/authStore';
 import { selectLeaderboard, useGameStore } from '@stores/gameStore';
+import { resolvePlayerName } from '@/utils/playerNames';
 
 interface GlobalLeaderboardEntry {
   userId?: string;
@@ -18,18 +19,13 @@ export default function LeaderboardPage() {
   const user = useAuthStore((s) => s.user);
   const [tab, setTab] = useState<'global' | 'in-game'>('in-game');
 
-  // In-game leaderboard: players sorted by score from the active game session
   const inGamePlayers = useGameStore(selectLeaderboard);
-
-  // Global leaderboard stays local-only until the mounted backend route is wired into this view and staging-smoked.
-
   const globalUnavailable = tab === 'global' && !GLOBAL_LEADERBOARD_ENABLED;
 
   return (
     <div className="min-h-screen bg-game-bg p-4 max-w-lg mx-auto">
       <h1 className="text-white text-2xl font-black mb-4">🏆 Leaderboard</h1>
 
-      {/* Tab switcher */}
       <div className="flex gap-2 mb-4">
         {(['global', 'in-game'] as const).map((t) => (
           <button
@@ -46,7 +42,6 @@ export default function LeaderboardPage() {
         ))}
       </div>
 
-      {/* In-game tab: real-time standings from gameStore */}
       {tab === 'in-game' && (
         <div className="space-y-2">
           {inGamePlayers.length === 0 && (
@@ -54,35 +49,38 @@ export default function LeaderboardPage() {
               No active game session. Join a room to see the in-game leaderboard.
             </p>
           )}
-          {inGamePlayers.map((player, i) => (
-            <div
-              key={player.id}
-              className={`flex items-center gap-3 p-3 rounded-xl border ${
-                player.id === user?.id
-                  ? 'bg-brand/10 border-brand/30'
-                  : player.isEliminated
-                  ? 'bg-game-surface border-game-border opacity-40'
-                  : 'bg-game-surface border-game-border'
-              }`}
-            >
-              <span className="w-8 text-center font-bold text-game-muted">
-                {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}`}
-              </span>
-              <PlayerAvatar player={player} />
-              <span className="flex-1 text-white text-sm font-medium truncate">
-                {player.displayName}
-                {player.id === user?.id ? ' (you)' : ''}
-                {player.isEliminated ? ' 💀' : ''}
-              </span>
-              <span className="text-white font-bold tabular-nums">
-                {player.score.toLocaleString()}
-              </span>
-            </div>
-          ))}
+          {inGamePlayers.map((player, i) => {
+            const playerName = resolvePlayerName(player.displayName, player.id);
+
+            return (
+              <div
+                key={player.id}
+                className={`flex items-center gap-3 p-3 rounded-xl border ${
+                  player.id === user?.id
+                    ? 'bg-brand/10 border-brand/30'
+                    : player.isEliminated
+                      ? 'bg-game-surface border-game-border opacity-40'
+                      : 'bg-game-surface border-game-border'
+                }`}
+              >
+                <span className="w-8 text-center font-bold text-game-muted">
+                  {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}`}
+                </span>
+                <PlayerAvatar player={{ ...player, displayName: playerName }} />
+                <span className="flex-1 text-white text-sm font-medium truncate">
+                  {playerName}
+                  {player.id === user?.id ? ' (you)' : ''}
+                  {player.isEliminated ? ' 💀' : ''}
+                </span>
+                <span className="text-white font-bold tabular-nums">
+                  {player.score.toLocaleString()}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
 
-      {/* Global tab: fetched from REST API */}
       {tab === 'global' && (
         <div className="space-y-2">
           {(globalUnavailable || globalEntries.length === 0) && (

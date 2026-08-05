@@ -2,6 +2,7 @@ import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
 import { prisma } from "../models/prismaClient";
 import { levelFromTotalXp } from "../services/XpService";
+import { resolvePublicDisplayName } from "../utils/publicDisplayName";
 
 const router = Router();
 
@@ -31,7 +32,7 @@ router.get("/", async (req, res, next) => {
           standings.map((row, index) => ({
             rank: index + 1,
             userId: row.userId,
-            displayName: row.user.displayName,
+            displayName: resolvePublicDisplayName(row.user.displayName, row.userId),
             avatarUrl: row.user.avatarUrl,
             mmr: row.mmr,
             wins: row.wins,
@@ -63,7 +64,7 @@ router.get("/", async (req, res, next) => {
         return {
           rank: index + 1,
           userId: row.userId,
-          displayName: user?.displayName ?? row.userId,
+          displayName: resolvePublicDisplayName(user?.displayName, row.userId),
           avatarUrl: user?.avatarUrl ?? null,
           totalXp,
           level: levelFromTotalXp(totalXp),

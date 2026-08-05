@@ -3,22 +3,32 @@
  * contract-aligned socket envelopes on the `message` event.
  */
 
-import type { QuestionBank } from "@prisma/client";
+import { randomInt } from "node:crypto";
+
+import { Difficulty, type QuestionBank } from "@prisma/client";
 import type { Server } from "socket.io";
-import { prisma } from "../models/prismaClient";
+import { eliminateBottomN } from "../game/EliminationEngine";
 import {
   createInitialGameState,
   transitionGameState,
   type GameStateSnapshot
 } from "../game/GameStateMachine";
-import { eliminateBottomN } from "../game/EliminationEngine";
 import type { PlayerStanding } from "../game/types";
-import { redisService } from "./RedisService";
-import { roomService } from "./RoomService";
-import { generateId } from "../utils/ulid";
+import { prisma } from "../models/prismaClient";
+import type { PlayerSummary, ServerEvents } from "../types/contracts";
 import { BadRequestError } from "../utils/errors";
 import { logger } from "../utils/logger";
-import type { PlayerSummary, ServerEvents } from "../types/contracts";
+import { resolvePublicDisplayName } from "../utils/publicDisplayName";
+import { generateId } from "../utils/ulid";
+import {
+  DEFAULT_GAME_DIFFICULTY,
+  buildQuestionDifficultyPlan,
+  getAllowedQuestionDifficulties,
+  getRoomGameDifficulty,
+  type GameDifficulty
+} from "./GameDifficultyService";
+import { redisService } from "./RedisService";
+import { roomService } from "./RoomService";
 
 const COUNTDOWN_MS = 5_000;
 const ROUND_RESULT_DISPLAY_MS = 4_000;
@@ -78,22 +88,35 @@ export class GameOrchestrator {
     return this.activeRooms.has(roomId);
   }
 
-  async assertQuestionBankReady(): Promise<void> {
+  async assertQuestionBankReady(
+    gameDifficulty: GameDifficulty = DEFAULT_GAME_DIFFICULTY
+  ): Promise<void> {
     const activeQuestionCount = await prisma.questionBank.count({
-      where: { isActive: true }
+      where: {
+        isActive: true,
+        difficulty: { in: [...getAllowedQuestionDifficulties(gameDifficulty)] }
+      }
     });
 
     if (activeQuestionCount === 0) {
-      throw new BadRequestError("No active questions are available. Add questions before starting a game.");
+      throw new BadRequestError(
+        `No active ${gameDifficulty} questions are available. Add questions before starting a game.`
+      );
     }
   }
 
   async startGame(roomId: string, playerIds: string[], io: Server): Promise<void> {
-    logger.info("GameOrchestrator starting", { roomId, playerCount: playerIds.length });
+    const gameDifficulty = await getRoomGameDifficulty(roomId);
+
+    logger.info("GameOrchestrator starting", {
+      roomId,
+      playerCount: playerIds.length,
+      gameDifficulty
+    });
     this.activeRooms.add(roomId);
 
     try {
-      await this.assertQuestionBankReady();
+      await this.assertQuestionBankReady(gameDifficulty);
 
       let state = transitionGameState(
         { ...createInitialGameState(), playerCount: playerIds.length },
@@ -111,17 +134,25 @@ export class GameOrchestrator {
       await this.runCountdown(roomId, io);
 
       const totalRounds = 10;
+      const difficultyPlan = buildQuestionDifficultyPlan(gameDifficulty, totalRounds + 1);
       const usedQuestionIds: string[] = [];
       const activePlayerIds = new Set(playerIds);
       const isSoloGame = playerIds.length === 1;
       let round = 0;
+      let questionIndex = 0;
 
       while (round < totalRounds && (isSoloGame || state.playerCount > 1)) {
         round++;
 
         state = transitionGameState(state, { type: "BEGIN_QUESTION" });
         await this.persistState(roomId, state);
-        await this.runQuestion(roomId, io, usedQuestionIds);
+        await this.runQuestion(
+          roomId,
+          io,
+          usedQuestionIds,
+          difficultyPlan[questionIndex++] ?? Difficulty.MEDIUM,
+          gameDifficulty
+        );
 
         state = transitionGameState(state, { type: "LOCK_ANSWERS" });
         await this.persistState(roomId, state);
@@ -162,7 +193,14 @@ export class GameOrchestrator {
           finalistIds
         });
         await this.persistState(roomId, state);
-        await this.runFinale(roomId, io, state, usedQuestionIds);
+        await this.runFinale(
+          roomId,
+          io,
+          state,
+          usedQuestionIds,
+          difficultyPlan[questionIndex] ?? Difficulty.MEDIUM,
+          gameDifficulty
+        );
       }
 
       const winnerIds = await this.computeWinners(roomId, finalistIds);
@@ -224,14 +262,26 @@ export class GameOrchestrator {
     await timedDelay(roomId, "countdown", COUNTDOWN_MS);
   }
 
-  private async runQuestion(roomId: string, io: Server, usedQuestionIds: string[]): Promise<void> {
+  private async runQuestion(
+    roomId: string,
+    io: Server,
+    usedQuestionIds: string[],
+    targetDifficulty: Difficulty,
+    gameDifficulty: GameDifficulty
+  ): Promise<void> {
     let question: QuestionBank;
 
     try {
-      question = await this.selectQuestion(usedQuestionIds);
+      question = await this.selectQuestion(
+        usedQuestionIds,
+        targetDifficulty,
+        gameDifficulty
+      );
     } catch (error) {
       logger.error("No questions available", {
         roomId,
+        gameDifficulty,
+        targetDifficulty,
         message: error instanceof Error ? error.message : String(error)
       });
       throw error;
@@ -279,7 +329,13 @@ export class GameOrchestrator {
       );
     }
 
-    logger.info("Question started", { roomId, roundId, questionId: question.id });
+    logger.info("Question started", {
+      roomId,
+      roundId,
+      questionId: question.id,
+      difficulty: question.difficulty,
+      gameDifficulty
+    });
 
     emitRoomEnvelope(io, roomId, {
       type: "round:question_started",
@@ -404,7 +460,7 @@ export class GameOrchestrator {
 
       result.push({
         id: row.userId,
-        displayName: row.user.displayName,
+        displayName: resolvePublicDisplayName(row.user.displayName, row.userId),
         avatarUrl: row.user.avatarUrl ?? undefined,
         score: survivorScoreMap.get(playerId) ?? row.score,
         streak: row.streak,
@@ -431,7 +487,9 @@ export class GameOrchestrator {
     roomId: string,
     io: Server,
     state: GameStateSnapshot,
-    usedQuestionIds: string[]
+    usedQuestionIds: string[],
+    targetDifficulty: Difficulty,
+    gameDifficulty: GameDifficulty
   ): Promise<void> {
     logger.info("Finale started", { roomId, finalists: state.finalists });
 
@@ -444,7 +502,13 @@ export class GameOrchestrator {
       }
     });
 
-    await this.runQuestion(roomId, io, usedQuestionIds);
+    await this.runQuestion(
+      roomId,
+      io,
+      usedQuestionIds,
+      targetDifficulty,
+      gameDifficulty
+    );
     await this.runRoundEnd(roomId, io);
   }
 
@@ -564,25 +628,41 @@ export class GameOrchestrator {
     );
   }
 
-  private async selectQuestion(usedIds: string[]): Promise<QuestionBank> {
-    const question = await prisma.questionBank.findFirst({
-      where: {
-        isActive: true,
-        id: { notIn: usedIds.length > 0 ? usedIds : undefined }
-      },
-      orderBy: [{ lastUsedAt: "asc" }, { id: "asc" }]
-    });
+  private async selectQuestion(
+    usedIds: string[],
+    targetDifficulty: Difficulty,
+    gameDifficulty: GameDifficulty
+  ): Promise<QuestionBank> {
+    const allowedDifficulties = [...getAllowedQuestionDifficulties(gameDifficulty)];
+    const preferredDifficulties = [
+      targetDifficulty,
+      ...allowedDifficulties.filter((difficulty) => difficulty !== targetDifficulty)
+    ];
 
-    if (!question) {
-      throw new Error("No available questions in the bank");
+    for (const difficulty of preferredDifficulties) {
+      const candidates = await prisma.questionBank.findMany({
+        where: {
+          isActive: true,
+          difficulty,
+          id: { notIn: usedIds.length > 0 ? usedIds : undefined }
+        }
+      });
+
+      if (candidates.length === 0) {
+        continue;
+      }
+
+      const question = candidates[randomInt(candidates.length)];
+
+      await prisma.questionBank.update({
+        where: { id: question.id },
+        data: { lastUsedAt: new Date() }
+      });
+
+      return question;
     }
 
-    await prisma.questionBank.update({
-      where: { id: question.id },
-      data: { lastUsedAt: new Date() }
-    });
-
-    return question;
+    throw new Error(`No unused ${gameDifficulty} questions are available in the bank`);
   }
 
   private async loadScores(roomId: string, playerIds: string[]): Promise<PlayerStanding[]> {
