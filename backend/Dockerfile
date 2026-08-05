@@ -1,13 +1,13 @@
 # Railway builds this service with backend/ as the source context.
 
 # Stage 1: production-only dependencies from the committed lockfile.
-FROM node:24-alpine AS deps
+FROM node:25-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
 
 # Stage 2: full dependencies, Prisma client, and TypeScript build.
-FROM node:24-alpine AS build
+FROM node:25-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
@@ -18,7 +18,7 @@ RUN npx prisma generate
 RUN npm run build
 
 # Stage 3: lean runtime image.
-FROM node:24-alpine AS runner
+FROM node:25-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app/dist ./dist
