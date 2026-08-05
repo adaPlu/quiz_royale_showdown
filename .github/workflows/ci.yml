@@ -32,6 +32,9 @@ jobs:
       - name: Backend tests
         run: npm run test -w backend
 
+      - name: Validate production backend image
+        run: docker build -t quiz-royale-backend:pr-${{ github.event.pull_request.number || github.run_number }} ./backend
+
       - name: Web typecheck
         run: npm run typecheck -w webapp
 
