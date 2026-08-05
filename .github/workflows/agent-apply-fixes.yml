@@ -29,6 +29,7 @@ jobs:
         run: |
           python scripts/apply_agent_fixes.py
           python scripts/apply_agent_followup.py
+          python scripts/apply_agent_followup2.py
 
       - name: Pin patched transitive dependencies
         shell: bash
