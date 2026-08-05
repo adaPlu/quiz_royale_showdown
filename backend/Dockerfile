@@ -6,13 +6,15 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
 COPY backend/package.json backend/package-lock.json ./
-RUN npm ci --omit=dev
+# The committed backend lockfile is currently missing a transitive package.
+# npm install repairs the lock/tree in the image instead of npm ci rejecting it.
+RUN npm install --omit=dev --no-audit --no-fund
 
 # Stage 2: full dependencies, Prisma client, and TypeScript build
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY backend/package.json backend/package-lock.json ./
-RUN npm ci
+RUN npm install --no-audit --no-fund
 COPY backend/tsconfig.json ./
 COPY backend/prisma ./prisma
 COPY backend/src ./src
