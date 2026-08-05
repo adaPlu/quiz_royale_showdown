@@ -86,15 +86,12 @@ jobs:
           echo "Backend did not become ready within 150 seconds."
           exit 1
 
-  deploy:
+  deploy-railway:
     needs: backend-image
     runs-on: ubuntu-latest
     env:
       DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
       HAS_RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN != '' }}
-      HAS_VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN != '' }}
-      HAS_VERCEL_CONFIG: ${{ secrets.VERCEL_TOKEN != '' && secrets.VERCEL_ORG_ID != '' && secrets.VERCEL_PROJECT_ID != '' }}
-      PUBLISH_GHCR_IMAGE: ${{ vars.PUBLISH_GHCR_IMAGE == 'true' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -104,37 +101,41 @@ jobs:
         with:
           node-version: 24
 
-      - name: Prepare image name
-        if: env.PUBLISH_GHCR_IMAGE == 'true'
-        run: echo "IMAGE_NAME=$(echo ghcr.io/${GITHUB_REPOSITORY}/quiz-royale-backend | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
-
-      - name: Build backend image for publishing
-        if: env.PUBLISH_GHCR_IMAGE == 'true'
-        run: docker build -t "${IMAGE_NAME}:${DEPLOY_SHA}" ./backend
-
-      - name: Login to GHCR
-        if: env.PUBLISH_GHCR_IMAGE == 'true'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Push backend image
-        if: env.PUBLISH_GHCR_IMAGE == 'true'
+      - name: Require Railway token
+        if: env.HAS_RAILWAY_TOKEN != 'true'
         run: |
-          docker push "${IMAGE_NAME}:${DEPLOY_SHA}"
-          docker tag "${IMAGE_NAME}:${DEPLOY_SHA}" "${IMAGE_NAME}:latest"
-          docker push "${IMAGE_NAME}:latest"
-
-      - name: Verify Vercel deploy secrets
-        if: env.HAS_VERCEL_TOKEN == 'true' && env.HAS_VERCEL_CONFIG != 'true'
-        run: |
-          echo "VERCEL_TOKEN is set, but VERCEL_ORG_ID or VERCEL_PROJECT_ID is missing."
+          echo "RAILWAY_TOKEN is not configured."
           exit 1
 
+      - name: Trigger Railway deploy
+        if: env.HAS_RAILWAY_TOKEN == 'true'
+        run: npm exec --yes --package @railway/cli@5.24.0 -- railway up --service quiz_royale_showdown --detach
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+  deploy-vercel:
+    needs: backend-image
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+      HAS_VERCEL_CONFIG: ${{ secrets.VERCEL_TOKEN != '' && secrets.VERCEL_ORG_ID != '' && secrets.VERCEL_PROJECT_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Vercel credentials not configured
+        if: env.HAS_VERCEL_CONFIG != 'true'
+        run: echo "Skipping Vercel CLI deploy because its credentials are incomplete; the Vercel Git integration may still deploy this commit."
+
       - name: Pull Vercel project config
+        id: vercel-pull
         if: env.HAS_VERCEL_CONFIG == 'true'
+        continue-on-error: true
         run: npm exec --yes --package vercel@58.4.4 -- vercel pull --yes --environment=production --scope adaplus-projects --token "${{ secrets.VERCEL_TOKEN }}"
         working-directory: webapp
         env:
@@ -142,7 +143,9 @@ jobs:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
       - name: Build Vercel output
-        if: env.HAS_VERCEL_CONFIG == 'true'
+        id: vercel-build
+        if: env.HAS_VERCEL_CONFIG == 'true' && steps.vercel-pull.outcome == 'success'
+        continue-on-error: true
         run: npm exec --yes --package vercel@58.4.4 -- vercel build --prod --scope adaplus-projects --token "${{ secrets.VERCEL_TOKEN }}"
         working-directory: webapp
         env:
@@ -150,15 +153,15 @@ jobs:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
       - name: Deploy Vercel output
-        if: env.HAS_VERCEL_CONFIG == 'true'
+        id: vercel-deploy
+        if: env.HAS_VERCEL_CONFIG == 'true' && steps.vercel-build.outcome == 'success'
+        continue-on-error: true
         run: npm exec --yes --package vercel@58.4.4 -- vercel deploy --prebuilt --prod --scope adaplus-projects --token "${{ secrets.VERCEL_TOKEN }}"
         working-directory: webapp
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
-      - name: Trigger Railway deploy
-        if: env.HAS_RAILWAY_TOKEN == 'true'
-        run: npm exec --yes --package @railway/cli@5.24.0 -- railway up --service backend --detach
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      - name: Report Vercel credential failure
+        if: always() && env.HAS_VERCEL_CONFIG == 'true' && steps.vercel-pull.outcome == 'failure'
+        run: echo "Vercel CLI authentication failed. Rotate VERCEL_TOKEN; Railway deployment was handled independently."
