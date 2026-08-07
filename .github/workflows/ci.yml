@@ -68,7 +68,11 @@ jobs:
         run: npm run test -w backend
 
       - name: Validate production backend image
-        run: docker build -t quiz-royale-backend:pr-${{ github.event.pull_request.number || github.run_number }} ./backend
+        run: docker build -t "quiz-royale-backend:ci-${{ github.sha }}" ./backend
+
+      - name: Validate production startup and readiness
+        shell: bash
+        run: bash scripts/validate-backend-runtime.sh "quiz-royale-backend:ci-${{ github.sha }}" "${{ github.sha }}"
 
       - name: Web typecheck
         run: npm run typecheck -w webapp
