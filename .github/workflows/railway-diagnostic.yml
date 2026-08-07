@@ -1,0 +1,37 @@
+name: Railway diagnostic
+
+on:
+  push:
+    branches:
+      - diagnostic/railway-failed-deployment-logs
+
+permissions:
+  contents: read
+
+jobs:
+  logs:
+    runs-on: ubuntu-latest
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_SERVICE: quiz_royale_showdown
+      RAILWAY_ENVIRONMENT: ed846463-c956-4087-a993-8eb72b6ade4a
+      FAILED_DEPLOYMENT: bcf67c1a-84db-4b7b-b248-31b1df5de3eb
+    steps:
+      - name: Require Railway credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${RAILWAY_TOKEN:-}" ]; then
+            echo "RAILWAY_TOKEN is not configured."
+            exit 1
+          fi
+
+      - name: Show recent deployment status
+        run: npm exec --yes --package @railway/cli@5.24.0 -- railway deployment list --service "$RAILWAY_SERVICE" --environment "$RAILWAY_ENVIRONMENT" --limit 10 --json
+
+      - name: Fetch failed deployment runtime logs
+        run: npm exec --yes --package @railway/cli@5.24.0 -- railway logs "$FAILED_DEPLOYMENT" --deployment --service "$RAILWAY_SERVICE" --environment "$RAILWAY_ENVIRONMENT" --lines 500
+
+      - name: Fetch failed deployment build logs
+        if: always()
+        run: npm exec --yes --package @railway/cli@5.24.0 -- railway logs "$FAILED_DEPLOYMENT" --build --service "$RAILWAY_SERVICE" --environment "$RAILWAY_ENVIRONMENT" --lines 250
