@@ -1,5 +1,4 @@
 import bcrypt from "bcrypt";
-import { randomBytes } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import type { Request, Response } from "express";
 import { Router } from "express";
@@ -23,6 +22,8 @@ import { buildGuestEmail } from "../utils/guestUsers";
 import { generateId } from "../utils/ulid";
 
 const BCRYPT_ROUNDS = 12;
+const GUEST_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+const DISABLED_GUEST_PASSWORD_HASH = "guest-account-has-no-password";
 
 const optionalUsernameSchema = z.preprocess(
   (value) =>
@@ -184,7 +185,9 @@ authRouter.post("/register", validate({ body: registerSchema }), async (req, res
         id: userId,
         email: normalizedEmail,
         displayName: resolvedDisplayName,
-        passwordHash
+        passwordHash,
+        isGuest: false,
+        expiresAt: null,
       },
       select: {
         id: true,
@@ -231,7 +234,9 @@ authRouter.post("/guest", validate({ body: guestSchema }), async (req, res, next
         id: userId,
         email: buildGuestEmail(userId),
         displayName: resolvedDisplayName,
-        passwordHash: await bcrypt.hash(randomBytes(32).toString("hex"), BCRYPT_ROUNDS)
+        passwordHash: DISABLED_GUEST_PASSWORD_HASH,
+        isGuest: true,
+        expiresAt: new Date(Date.now() + GUEST_SESSION_TTL_MS),
       },
       select: { id: true, email: true, displayName: true }
     });
@@ -258,11 +263,12 @@ authRouter.post("/login", validate({ body: loginSchema }), async (req, res, next
         id: true,
         email: true,
         displayName: true,
-        passwordHash: true
+        passwordHash: true,
+        isGuest: true,
       }
     });
 
-    if (!user) {
+    if (!user || user.isGuest) {
       await bcrypt.hash(password, BCRYPT_ROUNDS);
       throw new UnauthorizedError("Invalid credentials");
     }
