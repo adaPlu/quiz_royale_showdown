@@ -23,6 +23,11 @@ echo "Assigning fallback names to unnamed players..."
 timeout "$BACKFILL_TIMEOUT_SECONDS" node dist/scripts/backfillDisplayNames.js
 echo "Player display names are ready."
 
+GUEST_CLEANUP_TIMEOUT_SECONDS="${GUEST_CLEANUP_TIMEOUT_SECONDS:-30}"
+echo "Cleaning up expired guest accounts..."
+timeout "$GUEST_CLEANUP_TIMEOUT_SECONDS" node dist/scripts/cleanupExpiredGuests.js
+echo "Guest account cleanup completed."
+
 SEED_TIMEOUT_SECONDS="${SEED_TIMEOUT_SECONDS:-60}"
 echo "Ensuring the production question bank is ready..."
 timeout "$SEED_TIMEOUT_SECONDS" node dist/scripts/seed.js
