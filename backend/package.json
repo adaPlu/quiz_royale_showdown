@@ -37,7 +37,7 @@
     "ioredis": "^5.4.2",
     "jsonwebtoken": "^9.0.2",
     "openai": "^6.34.0",
-    "prisma": "^6.7.0",
+    "prisma": "^7.9.1",
     "socket.io": "^4.8.3",
     "ulid": "^2.3.0",
     "web-push": "^3.6.7",
