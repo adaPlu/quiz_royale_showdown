@@ -1,0 +1,34 @@
+name: Align durable configuration tests
+
+on:
+  push:
+    branches:
+      - agent/remediate-audit-findings
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[durability-tests-aligned]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/remediate-audit-findings
+
+      - name: Apply exact production and test changes
+        run: python .github/scripts/align_durable_config_tests.py
+
+      - name: Remove temporary patch machinery
+        run: |
+          rm .github/scripts/align_durable_config_tests.py
+          rm .github/workflows/align-durable-config-tests.yml
+
+      - name: Commit aligned changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Align durable configuration tests [durability-tests-aligned]"
+          git push origin HEAD:agent/remediate-audit-findings
