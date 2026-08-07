@@ -10,13 +10,13 @@ import { logger } from "../utils/logger";
 import { generateId } from "../utils/ulid";
 import { redisService } from "./RedisService";
 
-const DEFAULT_REFILL_THRESHOLD = 60;
-const DEFAULT_BATCH_SIZE = 30;
 const MAX_BATCH_SIZE = 60;
-const DEFAULT_DAILY_GENERATION_LIMIT = 300;
 const REFILL_LOCK_SECONDS = 300;
 const REFILL_LOCK_KEY = "questions:ai-refill-lock";
-const MODEL = process.env.OPENAI_QUESTION_MODEL?.trim() || "gpt-5-mini";
+const MODEL = env.openAiQuestionModel;
+const refillThreshold = env.questionRefillThreshold;
+const refillBatchSize = env.questionRefillBatchSize;
+const dailyGenerationLimit = env.questionDailyGenerationLimit;
 
 const AI_CATEGORIES = [
   "Technology and AI", "Science", "World History", "Sports", "Geography",
@@ -32,20 +32,6 @@ const generatedQuestionSchema = z.object({
 });
 const responseSchema = z.object({ questions: z.array(generatedQuestionSchema).max(MAX_BATCH_SIZE) });
 type GeneratedQuestion = z.infer<typeof generatedQuestionSchema>;
-
-function boundedNumber(raw: string | undefined, fallback: number, minimum: number, maximum: number): number {
-  const parsed = Number(raw);
-  return Number.isInteger(parsed) ? Math.min(maximum, Math.max(minimum, parsed)) : fallback;
-}
-
-const refillThreshold = boundedNumber(process.env.QUESTION_REFILL_THRESHOLD, DEFAULT_REFILL_THRESHOLD, 10, 500);
-const refillBatchSize = boundedNumber(process.env.QUESTION_REFILL_BATCH_SIZE, DEFAULT_BATCH_SIZE, 10, MAX_BATCH_SIZE);
-const dailyGenerationLimit = boundedNumber(
-  process.env.QUESTION_DAILY_GENERATION_LIMIT,
-  DEFAULT_DAILY_GENERATION_LIMIT,
-  MAX_BATCH_SIZE,
-  5_000,
-);
 
 function toDifficulty(value: GeneratedQuestion["difficulty"]): Difficulty {
   return value === "HARD" ? Difficulty.HARD : value === "MEDIUM" ? Difficulty.MEDIUM : Difficulty.EASY;
@@ -102,7 +88,7 @@ export class QuestionGeneratorService {
   }
 
   async generateAndStore(
-    targetCount = DEFAULT_BATCH_SIZE,
+    targetCount = refillBatchSize,
     allowedDifficulties: Difficulty[] = [Difficulty.EASY, Difficulty.MEDIUM, Difficulty.HARD],
   ): Promise<number> {
     if (!this.client) {
