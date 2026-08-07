@@ -44,6 +44,8 @@ model User {
   passwordHash      String
   avatarUrl         String?
   rating            Int                @default(1000)
+  isGuest           Boolean            @default(false)
+  expiresAt         DateTime?
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   refreshTokens     RefreshToken[]
@@ -58,6 +60,8 @@ model User {
   xpEvents          XpEvent[]
   seasonScores      SeasonScore[]
   purchaseReceipts  PurchaseReceipt[]
+
+  @@index([isGuest, expiresAt])
 }
 
 model RefreshToken {
