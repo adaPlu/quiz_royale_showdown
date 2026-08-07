@@ -1,5 +1,6 @@
 const AUTO_DISPLAY_NAME_PREFIX = "userID";
-const AUTO_DISPLAY_NAME_RANGE = 1000;
+const AUTO_DISPLAY_NAME_RANGE = 1_000_000;
+const AUTO_DISPLAY_NAME_DIGITS = 6;
 
 const INTERNAL_IDENTIFIER_PATTERNS = [
   /^[0-9A-Z]{26}$/i,
@@ -9,7 +10,7 @@ const INTERNAL_IDENTIFIER_PATTERNS = [
 
 /**
  * Build a stable, player-safe fallback name without exposing the database ID.
- * The public format is userID001 through userID999.
+ * The enlarged numeric space makes collisions inside a room extremely unlikely.
  */
 export function buildAutoDisplayName(userId: string): string {
   let hash = 0;
@@ -19,7 +20,7 @@ export function buildAutoDisplayName(userId: string): string {
   }
 
   const numericSuffix = hash === 0 ? 1 : hash;
-  return `${AUTO_DISPLAY_NAME_PREFIX}${String(numericSuffix).padStart(3, "0")}`;
+  return `${AUTO_DISPLAY_NAME_PREFIX}${String(numericSuffix).padStart(AUTO_DISPLAY_NAME_DIGITS, "0")}`;
 }
 
 export function isInternalIdentifierDisplayName(
