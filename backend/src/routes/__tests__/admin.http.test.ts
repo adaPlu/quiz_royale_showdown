@@ -16,10 +16,6 @@ const questionGeneratorServiceMock = vi.hoisted(() => ({
   refillIfNeeded: vi.fn(),
 }));
 
-const loggerMock = vi.hoisted(() => ({
-  error: vi.fn(),
-}));
-
 const TEST_ADMIN_SECRET = "change-me-in-production";
 
 vi.mock("../../models/prismaClient", () => ({
@@ -28,10 +24,6 @@ vi.mock("../../models/prismaClient", () => ({
 
 vi.mock("../../services/QuestionGeneratorService", () => ({
   questionGeneratorService: questionGeneratorServiceMock,
-}));
-
-vi.mock("../../utils/logger", () => ({
-  logger: loggerMock,
 }));
 
 interface TestResponse {
