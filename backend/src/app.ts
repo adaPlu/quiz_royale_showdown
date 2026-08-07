@@ -9,6 +9,7 @@ import { adminRouter } from "./routes/admin";
 import { authRouter } from "./routes/auth";
 import challengesRouter from "./routes/challenges";
 import cosmeticsRouter from "./routes/cosmetics";
+import friendsRouter from "./routes/friends";
 import { healthRouter } from "./routes/health";
 import leaderboardRouter from "./routes/leaderboard";
 import powerupsRouter from "./routes/powerups";
@@ -38,6 +39,7 @@ export const createApp = () => {
   app.use("/api/v1/admin", adminRouter);
   app.use("/api/v1/challenges", challengesRouter);
   app.use("/api/v1/cosmetics", cosmeticsRouter);
+  app.use("/api/v1/friends", friendsRouter);
   app.use("/api/v1/leaderboard", leaderboardRouter);
   app.use("/api/v1/powerups", powerupsRouter);
   app.use("/api/v1/push", pushRouter);

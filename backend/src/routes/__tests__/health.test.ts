@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { getHealth } from "../health";
+import { getHealth, toPublicReadiness } from "../health";
 
 describe("getHealth", () => {
   const now = () => new Date("2026-04-25T12:00:00.000Z");
@@ -54,5 +54,21 @@ describe("getHealth", () => {
     const health = await getHealth({ prisma, redis: { ping: vi.fn().mockResolvedValue("PONG") }, now });
     expect(health.status).toBe("unhealthy");
     expect(health.components.questions.error).toContain("below 11");
+  });
+
+  it("redacts component details from public readiness responses", async () => {
+    const prisma = {
+      $queryRawUnsafe: vi.fn().mockResolvedValue([{ "?column?": 1 }]),
+      questionBank
+    };
+    const health = await getHealth({ prisma, redis: { ping: vi.fn().mockResolvedValue("PONG") }, now });
+
+    expect(toPublicReadiness(health)).toEqual({
+      status: "ok",
+      ts: now().getTime(),
+      timestamp: now().toISOString(),
+    });
+    expect(toPublicReadiness(health)).not.toHaveProperty("components");
+    expect(toPublicReadiness(health)).not.toHaveProperty("buildSha");
   });
 });

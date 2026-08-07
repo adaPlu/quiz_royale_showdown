@@ -422,18 +422,29 @@ Join room accepts:
 | GET | `/api/v1/users/search?q=term` | JWT | Search users by display name |
 | GET | `/api/v1/users/:displayName/profile` | JWT | Public profile summary for an authenticated caller |
 
+### Friends
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| GET | `/api/v1/friends` | JWT | Accepted friends for the current user |
+| GET | `/api/v1/friends/pending` | JWT | Incoming pending friend requests |
+| POST | `/api/v1/friends/request` | JWT | Send a directed friend request |
+| PUT | `/api/v1/friends/:friendshipId/accept` | JWT | Accept an incoming pending request |
+| DELETE | `/api/v1/friends/:friendshipId` | JWT | Remove, cancel, or reject a friendship/request |
+| GET | `/api/v1/friends/leaderboard` | JWT | Current user and accepted friends ranked by XP |
+
 ### Leaderboard
 
 | Method | Path | Auth | Description |
 | --- | --- | --- | --- |
-| GET | `/api/v1/leaderboard?season=current&limit=100` | None | Season standings, with all-time XP fallback |
+| GET | `/api/v1/leaderboard?season=current&limit=100` | JWT | Season standings, with all-time XP fallback |
 | GET | `/api/v1/leaderboard/friends` | JWT | Friends leaderboard placeholder; returns an empty list until friends are implemented |
 
 ### Cosmetics
 
 | Method | Path | Auth | Description |
 | --- | --- | --- | --- |
-| GET | `/api/v1/cosmetics` | None | Cosmetic catalog |
+| GET | `/api/v1/cosmetics` | JWT | Cosmetic catalog |
 | GET | `/api/v1/cosmetics/owned` | JWT | Current user's owned cosmetics |
 | POST | `/api/v1/cosmetics/equip` | JWT | Equip an owned cosmetic |
 

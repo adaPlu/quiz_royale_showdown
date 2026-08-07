@@ -105,6 +105,14 @@ export async function getHealth({ prisma: prismaClient, redis, now = () => new D
   };
 }
 
+export function toPublicReadiness(health: HealthResponse) {
+  return {
+    status: health.status,
+    ts: health.ts,
+    timestamp: health.timestamp,
+  };
+}
+
 healthRouter.get("/", (_req, res) => {
   const timestamp = new Date();
   res.status(200).json({
@@ -119,5 +127,5 @@ healthRouter.get("/", (_req, res) => {
 
 healthRouter.get("/ready", async (_req, res) => {
   const health = await getHealth({ prisma, redis: redisService });
-  res.status(health.status === "ok" ? 200 : 503).json(health);
+  res.status(health.status === "ok" ? 200 : 503).json(toPublicReadiness(health));
 });

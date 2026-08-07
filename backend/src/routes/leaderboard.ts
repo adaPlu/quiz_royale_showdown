@@ -12,7 +12,7 @@ function parseLimit(value: unknown): number {
   return Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, 500) : 100;
 }
 
-router.get("/", async (req, res, next) => {
+router.get("/", requireAuth, async (req, res, next) => {
   try {
     const limit = parseLimit(req.query.limit);
     const seasonSlug = String(req.query.season ?? "current");

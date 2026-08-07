@@ -7,18 +7,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { UnauthorizedError } from "../../utils/errors";
 
 const prismaMock = vi.hoisted(() => ({
-  season: {
-    findFirst: vi.fn(),
-  },
-  seasonScore: {
+  cosmetic: {
     findMany: vi.fn(),
   },
-  xpEvent: {
-    groupBy: vi.fn(),
-  },
-  user: {
+  userCosmetic: {
     findMany: vi.fn(),
+    findUnique: vi.fn(),
+    update: vi.fn(),
+    updateMany: vi.fn(),
   },
+  $transaction: vi.fn(),
 }));
 
 vi.mock("../../models/prismaClient", () => ({
@@ -32,9 +30,9 @@ vi.mock("../../middleware/auth", () => ({
       return;
     }
     req.jwtClaims = {
-      sub: "viewer-1",
-      email: "viewer@example.com",
-      displayName: "Viewer",
+      sub: "user-1",
+      email: "user@example.com",
+      displayName: "User",
       iat: 1,
       exp: 2,
     };
@@ -73,53 +71,41 @@ async function request(app: Express, path: string, headers?: Record<string, stri
   }
 }
 
-async function createLeaderboardTestApp(): Promise<Express> {
-  const { default: leaderboardRouter } = await import("../leaderboard");
+async function createCosmeticsTestApp(): Promise<Express> {
+  const { default: cosmeticsRouter } = await import("../cosmetics");
   const { errorHandler } = await import("../../middleware/errorHandler");
   const app = express();
 
   app.use(express.json());
-  app.use("/api/v1/leaderboard", leaderboardRouter);
+  app.use("/api/v1/cosmetics", cosmeticsRouter);
   app.use(errorHandler);
 
   return app;
 }
 
-describe("leaderboard routes", () => {
+describe("cosmetics routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("requires authentication for friends leaderboard", async () => {
-    const app = await createLeaderboardTestApp();
+  it("requires authentication for the full catalog", async () => {
+    const app = await createCosmeticsTestApp();
 
-    const response = await request(app, "/api/v1/leaderboard/friends");
-
-    expect(response.status).toBe(401);
-    expect(prismaMock.user.findMany).not.toHaveBeenCalled();
-  });
-
-  it("requires authentication for global leaderboard", async () => {
-    const app = await createLeaderboardTestApp();
-
-    const response = await request(app, "/api/v1/leaderboard");
+    const response = await request(app, "/api/v1/cosmetics");
 
     expect(response.status).toBe(401);
-    expect(prismaMock.season.findFirst).not.toHaveBeenCalled();
-    expect(prismaMock.seasonScore.findMany).not.toHaveBeenCalled();
-    expect(prismaMock.xpEvent.groupBy).not.toHaveBeenCalled();
-    expect(prismaMock.user.findMany).not.toHaveBeenCalled();
+    expect(prismaMock.cosmetic.findMany).not.toHaveBeenCalled();
   });
 
-  it("returns an empty friends leaderboard instead of global top users", async () => {
-    const app = await createLeaderboardTestApp();
+  it("returns the catalog for authenticated users", async () => {
+    prismaMock.cosmetic.findMany.mockResolvedValue([{ id: "cosmetic-1", name: "Crown" }]);
+    const app = await createCosmeticsTestApp();
 
-    const response = await request(app, "/api/v1/leaderboard/friends", {
+    const response = await request(app, "/api/v1/cosmetics", {
       Authorization: "Bearer test-token",
     });
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual([]);
-    expect(prismaMock.user.findMany).not.toHaveBeenCalled();
+    expect(response.body).toEqual([{ id: "cosmetic-1", name: "Crown" }]);
   });
 });

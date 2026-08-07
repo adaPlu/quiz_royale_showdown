@@ -30,6 +30,12 @@ enum CosmeticType {
   TITLE
 }
 
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  BLOCKED
+}
+
 enum PowerUpBetStatus {
   PLACED
   WON
@@ -60,6 +66,8 @@ model User {
   xpEvents          XpEvent[]
   seasonScores      SeasonScore[]
   purchaseReceipts  PurchaseReceipt[]
+  sentFriendships   Friendship[]       @relation("SentRequests")
+  receivedFriendships Friendship[]     @relation("ReceivedRequests")
 
   @@index([isGuest, expiresAt])
 }
@@ -322,4 +330,19 @@ model PurchaseReceipt {
   status            String
   createdAt         DateTime @default(now())
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Friendship {
+  id          String           @id @db.VarChar(26)
+  requesterId String           @db.VarChar(26)
+  addresseeId String           @db.VarChar(26)
+  status      FriendshipStatus @default(PENDING)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  requester   User             @relation("SentRequests", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee   User             @relation("ReceivedRequests", fields: [addresseeId], references: [id], onDelete: Cascade)
+
+  @@unique([requesterId, addresseeId])
+  @@index([requesterId])
+  @@index([addresseeId, status])
 }

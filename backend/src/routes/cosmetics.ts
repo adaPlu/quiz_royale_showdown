@@ -8,7 +8,7 @@ import { ForbiddenError } from "../utils/errors";
 const router = Router();
 
 // GET /cosmetics — full catalog
-router.get("/", async (_req, res, next) => {
+router.get("/", requireAuth, async (_req, res, next) => {
   try {
     const cosmetics = await prisma.cosmetic.findMany({
       orderBy: [{ type: "asc" }],

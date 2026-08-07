@@ -25,6 +25,7 @@ vi.mock("../routes/auth", () => ({ authRouter: emptyRouter() }));
 vi.mock("../routes/admin", () => ({ adminRouter: mountedRouter("admin") }));
 vi.mock("../routes/challenges", () => ({ default: mountedRouter("challenges") }));
 vi.mock("../routes/cosmetics", () => ({ default: mountedRouter("cosmetics") }));
+vi.mock("../routes/friends", () => ({ default: mountedRouter("friends") }));
 vi.mock("../routes/health", () => ({ healthRouter: emptyRouter() }));
 vi.mock("../routes/leaderboard", () => ({ default: mountedRouter("leaderboard") }));
 vi.mock("../routes/powerups", () => ({ default: mountedRouter("powerups") }));
@@ -95,6 +96,7 @@ describe("createApp", () => {
       "admin",
       "challenges",
       "cosmetics",
+      "friends",
       "leaderboard",
       "powerups",
       "push",
