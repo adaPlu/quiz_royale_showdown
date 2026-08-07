@@ -12,11 +12,19 @@ echo "Reconciling legacy migration history with a ${MIGRATION_TIMEOUT_SECONDS}s 
 timeout "$MIGRATION_TIMEOUT_SECONDS" node dist/scripts/reconcileLegacyMigrations.js
 echo "Migration history reconciliation completed."
 
+# Older Railway releases continued after Prisma failures and may have left a
+# known post-baseline migration partially applied. Complete only those exact,
+# idempotent schemas and mark their migration records applied before deploy.
+echo "Repairing known post-baseline migration history..."
+timeout "$MIGRATION_TIMEOUT_SECONDS" node dist/scripts/repairKnownMigrations.js
+echo "Known migration history repair completed."
+
 # Production startup is fail-closed: the application must never serve traffic
 # against a schema that did not complete its required migrations.
 echo "Running database migrations..."
 timeout "$MIGRATION_TIMEOUT_SECONDS" npx prisma migrate deploy
 echo "Database migrations completed."
+echo "Database schema is ready for application startup."
 
 BACKFILL_TIMEOUT_SECONDS="${BACKFILL_TIMEOUT_SECONDS:-30}"
 echo "Assigning fallback names to unnamed players..."
