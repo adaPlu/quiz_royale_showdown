@@ -20,7 +20,7 @@ const CANONICAL_BASELINE = "20260425000000_init";
 const REFRESH_TOKEN_MIGRATION = "20260621000000_unique_refresh_token_hash";
 const ECONOMY_MIGRATION = "20260805130000_game_settlement_powerup_wagers";
 const GUEST_LIFECYCLE_MIGRATION = "20260806190000_guest_lifecycle";
-const EXPECTED_FRESH_MIGRATION_COUNT = 6;
+const EXPECTED_FRESH_MIGRATION_COUNT = 7;
 const KNOWN_BASELINE_MIGRATIONS = [
   ...LEGACY_DUPLICATE_MIGRATIONS,
   CANONICAL_BASELINE,
@@ -172,6 +172,59 @@ async function simulateFailedLegacyHistory(
         NULL,
         0
       )
+  `);
+}
+
+async function simulatePartialPostBaselineHistory(
+  prisma: PrismaClient,
+  prismaDir: string,
+): Promise<void> {
+  const economyChecksum = migrationChecksum(prismaDir, ECONOMY_MIGRATION);
+
+  // Simulate a PostgreSQL migration that stopped after its first table. The
+  // former Railway startup ignored the failure, leaving both schema objects
+  // and an unfinished Prisma migration record behind.
+  await prisma.$executeRawUnsafe(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'PowerUpBetStatus') THEN
+        CREATE TYPE "PowerUpBetStatus" AS ENUM ('PLACED', 'WON', 'LOST', 'REFUNDED');
+      END IF;
+    END
+    $$
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "PowerUpBet" (
+      "id" VARCHAR(26) NOT NULL,
+      "roomId" VARCHAR(26) NOT NULL,
+      "roundId" VARCHAR(26) NOT NULL,
+      "userId" VARCHAR(26) NOT NULL,
+      "powerUpId" VARCHAR(26) NOT NULL,
+      "quantity" INTEGER NOT NULL DEFAULT 1,
+      "status" "PowerUpBetStatus" NOT NULL DEFAULT 'PLACED',
+      "payoutQuantity" INTEGER NOT NULL DEFAULT 0,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "settledAt" TIMESTAMP(3),
+      CONSTRAINT "PowerUpBet_pkey" PRIMARY KEY ("id")
+    )
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    INSERT INTO "_prisma_migrations" (
+      id, checksum, started_at, migration_name, logs,
+      rolled_back_at, finished_at, applied_steps_count
+    )
+    VALUES (
+      'simulated-partial-economy-migration',
+      '${economyChecksum}',
+      CURRENT_TIMESTAMP,
+      '${ECONOMY_MIGRATION}',
+      'Simulated partial Railway economy migration',
+      NULL,
+      NULL,
+      1
+    )
   `);
 }
 
@@ -382,9 +435,11 @@ async function main(): Promise<void> {
     prisma = new PrismaClient();
     await seedRepresentativeExistingData(prisma);
     await simulateFailedLegacyHistory(prisma, prismaDir);
+    await simulatePartialPostBaselineHistory(prisma, prismaDir);
     await prisma.$disconnect();
 
     run("npx", ["tsx", "src/scripts/reconcileLegacyMigrations.ts"]);
+    run("npx", ["tsx", "src/scripts/repairKnownMigrations.ts"]);
     run("npx", ["prisma", "migrate", "deploy"]);
 
     prisma = new PrismaClient();
@@ -394,6 +449,7 @@ async function main(): Promise<void> {
 
     // Recovery and later migrations must also be idempotent.
     run("npx", ["tsx", "src/scripts/reconcileLegacyMigrations.ts"]);
+    run("npx", ["tsx", "src/scripts/repairKnownMigrations.ts"]);
     run("npx", ["prisma", "migrate", "deploy"]);
 
     console.log("Rehearsing a completely fresh production database bootstrap...");
@@ -402,6 +458,7 @@ async function main(): Promise<void> {
     await prisma.$disconnect();
 
     run("npx", ["tsx", "src/scripts/reconcileLegacyMigrations.ts"]);
+    run("npx", ["tsx", "src/scripts/repairKnownMigrations.ts"]);
     run("npx", ["prisma", "migrate", "deploy"]);
 
     prisma = new PrismaClient();
@@ -409,7 +466,7 @@ async function main(): Promise<void> {
     await prisma.$disconnect();
 
     console.log(
-      "Migration upgrade, legacy recovery, and fresh-bootstrap rehearsals passed.",
+      "Migration upgrade, partial-history repair, legacy recovery, and fresh-bootstrap rehearsals passed.",
     );
   } finally {
     await prisma.$disconnect().catch(() => undefined);

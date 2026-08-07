@@ -12,11 +12,33 @@ echo "Reconciling legacy migration history with a ${MIGRATION_TIMEOUT_SECONDS}s 
 timeout "$MIGRATION_TIMEOUT_SECONDS" node dist/scripts/reconcileLegacyMigrations.js
 echo "Migration history reconciliation completed."
 
+# Existing objects with the same names as known repaired migration objects must
+# already have the exact compatible shape. Missing objects are allowed here and
+# will be created by the idempotent repair below.
+echo "Validating known migration schema compatibility..."
+timeout "$MIGRATION_TIMEOUT_SECONDS" node dist/scripts/verifyKnownMigrationState.js
+echo "Known migration schema compatibility validated."
+
+# Older Railway releases continued after Prisma failures and may have left a
+# known post-baseline migration partially applied. Complete only those exact,
+# idempotent schemas and mark their migration records applied before deploy.
+echo "Repairing known post-baseline migration history..."
+timeout "$MIGRATION_TIMEOUT_SECONDS" node dist/scripts/repairKnownMigrations.js
+echo "Known migration history repair completed."
+
+# Verify the complete catalog shape before allowing normal Prisma deployment or
+# application startup. This catches wrong columns, indexes, enum values, foreign
+# keys, and check constraints even when a same-named object already existed.
+echo "Verifying repaired migration schema..."
+timeout "$MIGRATION_TIMEOUT_SECONDS" node dist/scripts/verifyKnownMigrationState.js --require-complete
+echo "Repaired migration schema verified."
+
 # Production startup is fail-closed: the application must never serve traffic
 # against a schema that did not complete its required migrations.
 echo "Running database migrations..."
 timeout "$MIGRATION_TIMEOUT_SECONDS" npx prisma migrate deploy
 echo "Database migrations completed."
+echo "Database schema is ready for application startup."
 
 BACKFILL_TIMEOUT_SECONDS="${BACKFILL_TIMEOUT_SECONDS:-30}"
 echo "Assigning fallback names to unnamed players..."
