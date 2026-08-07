@@ -1,9 +1,8 @@
 /**
  * Environment configuration with Zod validation.
  *
- * All environment variables are validated at startup.
- * A missing or invalid required variable causes the process to exit(1) immediately,
- * preventing the app from starting in a broken state.
+ * All environment variables are validated at startup. A missing or invalid
+ * required variable causes the process to exit immediately.
  */
 
 import "dotenv/config";
@@ -34,14 +33,11 @@ const PRODUCTION_PLACEHOLDER_VALUES: Partial<Record<(typeof PRODUCTION_REQUIRED_
 };
 
 const envSchema = z.object({
-  // Runtime
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
 
-  // CORS
   CORS_ORIGIN: z.string().default("http://localhost:5173"),
 
-  // JWT
   JWT_ACCESS_SECRET: z
     .string()
     .min(16, "JWT_ACCESS_SECRET must be at least 16 characters")
@@ -53,26 +49,23 @@ const envSchema = z.object({
   JWT_ACCESS_TTL: z.string().default("15m"),
   JWT_REFRESH_TTL: z.string().default("7d"),
 
-  // Database
-  DATABASE_URL: z
-    .string()
-    .default(DEV_DEFAULTS.DATABASE_URL),
-
-  // Redis
+  DATABASE_URL: z.string().default(DEV_DEFAULTS.DATABASE_URL),
   REDIS_URL: z.string().default(DEV_DEFAULTS.REDIS_URL),
 
-  // Logging
   LOG_LEVEL: z
     .enum(["trace", "debug", "info", "warn", "error", "fatal"])
     .default("info"),
 
-  // Web Push (optional; disabled when keys are absent)
   VAPID_PUBLIC_KEY: z.string().default(""),
   VAPID_PRIVATE_KEY: z.string().default(""),
   VAPID_SUBJECT: z.string().default("mailto:adapluguez@gmail.com"),
 
-  // AI question generation
-  OPENAI_API_KEY: z.string().optional(),
+  OPENAI_API_KEY: z.string().trim().min(1).optional(),
+  OPENAI_QUESTION_MODEL: z.string().trim().min(1).default("gpt-5-mini"),
+  QUESTION_REFILL_THRESHOLD: z.coerce.number().int().min(10).max(500).default(60),
+  QUESTION_REFILL_BATCH_SIZE: z.coerce.number().int().min(10).max(60).default(30),
+  QUESTION_DAILY_GENERATION_LIMIT: z.coerce.number().int().min(60).max(5000).default(300),
+
   ADMIN_SECRET: z.string().default(DEV_DEFAULTS.ADMIN_SECRET),
 });
 
@@ -122,11 +115,21 @@ function parseEnv() {
 }
 
 const parsed = parseEnv();
+const corsOrigins = parsed.CORS_ORIGIN
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+if (corsOrigins.length === 0) {
+  console.error("❌ Invalid environment configuration:\n  CORS_ORIGIN must contain at least one origin");
+  process.exit(1);
+}
 
 export const env = {
   nodeEnv: parsed.NODE_ENV,
   port: parsed.PORT,
-  corsOrigin: parsed.CORS_ORIGIN,
+  corsOrigins,
+  corsOrigin: corsOrigins[0],
   jwtAccessSecret: parsed.JWT_ACCESS_SECRET,
   jwtRefreshSecret: parsed.JWT_REFRESH_SECRET,
   jwtAccessTtl: parsed.JWT_ACCESS_TTL,
@@ -138,6 +141,10 @@ export const env = {
   vapidPrivateKey: parsed.VAPID_PRIVATE_KEY,
   vapidSubject: parsed.VAPID_SUBJECT,
   openAiApiKey: parsed.OPENAI_API_KEY,
+  openAiQuestionModel: parsed.OPENAI_QUESTION_MODEL,
+  questionRefillThreshold: parsed.QUESTION_REFILL_THRESHOLD,
+  questionRefillBatchSize: parsed.QUESTION_REFILL_BATCH_SIZE,
+  questionDailyGenerationLimit: parsed.QUESTION_DAILY_GENERATION_LIMIT,
   adminSecret: parsed.ADMIN_SECRET,
   isProduction: parsed.NODE_ENV === "production",
   isDevelopment: parsed.NODE_ENV === "development",

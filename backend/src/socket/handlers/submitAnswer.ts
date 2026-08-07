@@ -1,10 +1,14 @@
+import { Prisma } from "@prisma/client";
 import type { Server } from "socket.io";
 import { z } from "zod";
+
+import { prisma } from "../../models/prismaClient";
 import { powerUpWagerService } from "../../services/PowerUpWagerService";
 import { redisService } from "../../services/RedisService";
 import type { SocketErrorEvent } from "../../types/contracts";
 import { AppError } from "../../utils/errors";
 import { logger } from "../../utils/logger";
+import { generateId } from "../../utils/ulid";
 import type { AuthenticatedSocket } from "../middleware";
 
 const submitAnswerSchema = z.object({
@@ -17,6 +21,7 @@ const submitAnswerSchema = z.object({
 
 const ANSWER_LOCK_TTL_SECONDS = 3600;
 const ANSWER_GRACE_MS = 500;
+const DEFAULT_TIME_LIMIT_MS = 20_000;
 
 type CurrentQuestionContext = {
   roundId: string;
@@ -49,6 +54,49 @@ function calculateScore(receivedAtMs: number, startTs: number, timeLimitMs: numb
   return Math.max(0, 1000 - Math.floor((elapsedMs / timeLimitMs) * 400));
 }
 
+async function loadCurrentQuestion(
+  roomId: string,
+  questionId: string,
+): Promise<CurrentQuestionContext | null> {
+  const cached = redisService
+    ? await redisService.getJson<CurrentQuestionContext>(`game:${roomId}:current_question`)
+    : null;
+  if (cached?.questionId === questionId) return cached;
+
+  const round = await prisma.round.findFirst({
+    where: {
+      roomId,
+      questionId,
+      resolvedAt: null,
+    },
+    orderBy: { roundNumber: "desc" },
+    include: { question: true },
+  });
+
+  if (!round?.startedAt || round.lockedAt) return null;
+
+  const startTs = round.startedAt.getTime();
+  return {
+    roundId: round.id,
+    questionId: round.questionId,
+    prompt: round.question.prompt,
+    answers: [
+      round.question.optionA,
+      round.question.optionB,
+      round.question.optionC,
+      round.question.optionD,
+    ],
+    correctAnswerIndex: round.question.correctIndex,
+    startTs,
+    startedAt: round.startedAt.toISOString(),
+    timeLimitMs: DEFAULT_TIME_LIMIT_MS,
+  };
+}
+
+function isDuplicateAnswerError(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
 export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSocket): void {
   socket.on("message", async (message: unknown) => {
     if (
@@ -75,10 +123,6 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
     let wagerPlaced = false;
 
     try {
-      if (!redisService) {
-        throw new Error("Redis unavailable");
-      }
-
       if (!socket.data.roomId) {
         emitError(socket, "ROOM_NOT_JOINED", "Socket has not joined a room");
         return;
@@ -89,11 +133,9 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
         return;
       }
 
-      const questionContext = await redisService.getJson<CurrentQuestionContext>(
-        `game:${roomId}:current_question`
-      );
+      const questionContext = await loadCurrentQuestion(roomId, questionId);
 
-      if (!questionContext || questionContext.questionId !== questionId) {
+      if (!questionContext) {
         emitError(socket, "QUESTION_NOT_ACTIVE", "Question is no longer active for this room");
         return;
       }
@@ -107,11 +149,13 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
         return;
       }
 
-      lockKey = `answer_lock:${roomId}:${questionContext.roundId}:${userId}`;
-      const locked = await redisService.setnx(lockKey, "1", ANSWER_LOCK_TTL_SECONDS);
-      if (!locked) {
-        emitError(socket, "ALREADY_ANSWERED", "You have already submitted an answer for this round");
-        return;
+      if (redisService) {
+        lockKey = `answer_lock:${roomId}:${questionContext.roundId}:${userId}`;
+        const locked = await redisService.setnx(lockKey, "1", ANSWER_LOCK_TTL_SECONDS);
+        if (!locked) {
+          emitError(socket, "ALREADY_ANSWERED", "You have already submitted an answer for this round");
+          return;
+        }
       }
 
       if (wagerPowerUpId) {
@@ -125,24 +169,62 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
       }
 
       const isCorrect = answerIndex === questionContext.correctAnswerIndex;
+      const answerTimeMs = Math.max(0, receivedAtMs - questionContext.startTs);
       const scoreDelta = isCorrect
         ? calculateScore(receivedAtMs, questionContext.startTs, questionContext.timeLimitMs)
         : 0;
 
-      await redisService.zincrby(`room:${roomId}:scores`, scoreDelta, userId);
+      const persisted = await prisma.$transaction(async (tx) => {
+        await tx.answer.create({
+          data: {
+            id: generateId(),
+            roundId: questionContext.roundId,
+            userId,
+            answerIndex,
+            isCorrect,
+            answerTimeMs,
+            submittedAt: new Date(receivedAtMs),
+          },
+        });
 
-      await redisService.hset(
-        `room:${roomId}:round:${questionContext.roundId}:answers`,
-        userId,
-        JSON.stringify({
-          answerIndex,
-          clientSentAt,
-          isCorrect,
-          scoreDelta,
-          wagerPowerUpId,
-          submittedAt: new Date(receivedAtMs).toISOString()
-        })
-      );
+        return tx.roomPlayer.update({
+          where: { roomId_userId: { roomId, userId } },
+          data: isCorrect
+            ? {
+                score: { increment: scoreDelta },
+                streak: { increment: 1 },
+              }
+            : {
+                streak: 0,
+              },
+          select: { score: true },
+        });
+      });
+
+      if (redisService) {
+        const cacheResults = await Promise.allSettled([
+          redisService.zadd(`room:${roomId}:scores`, persisted.score, userId),
+          redisService.hset(
+            `room:${roomId}:round:${questionContext.roundId}:answers`,
+            userId,
+            JSON.stringify({
+              answerIndex,
+              clientSentAt,
+              isCorrect,
+              scoreDelta,
+              wagerPowerUpId,
+              submittedAt: new Date(receivedAtMs).toISOString()
+            })
+          ),
+        ]);
+        if (cacheResults.some((result) => result.status === "rejected")) {
+          logger.warn("Answer persisted but Redis cache update was incomplete", {
+            roomId,
+            roundId: questionContext.roundId,
+            userId,
+          });
+        }
+      }
 
       logger.info("Answer submitted", {
         roomId,
@@ -153,6 +235,14 @@ export function registerSubmitAnswerHandler(_io: Server, socket: AuthenticatedSo
         wagerPowerUpId,
       });
     } catch (error) {
+      if (isDuplicateAnswerError(error)) {
+        if (wagerPlaced && activeRoundId) {
+          await powerUpWagerService.refundWager(activeRoundId, userId).catch(() => undefined);
+        }
+        emitError(socket, "ALREADY_ANSWERED", "You have already submitted an answer for this round");
+        return;
+      }
+
       if (redisService && lockKey) {
         await redisService.del(lockKey).catch(() => undefined);
       }

@@ -8,12 +8,11 @@ import { adminLimiter } from "../middleware/rateLimiter";
 import { validate } from "../middleware/validate";
 import { prisma } from "../models/prismaClient";
 import { questionGeneratorService } from "../services/QuestionGeneratorService";
-import { logger } from "../utils/logger";
 
 export const adminRouter = Router();
 
-const DEFAULT_GENERATE_COUNT = 200;
-const MAX_GENERATE_COUNT = 500;
+const DEFAULT_GENERATE_COUNT = env.questionRefillBatchSize;
+const MAX_GENERATE_COUNT = 60;
 
 const generateQuestionsSchema = z.object({
   count: z
@@ -44,7 +43,6 @@ function requireAdminSecret(req: Request, res: Response, next: NextFunction): vo
 
 adminRouter.use(adminLimiter, requireAdminSecret);
 
-// GET /api/v1/admin/questions/count
 adminRouter.get("/questions/count", async (_req, res, next) => {
   try {
     const total = await prisma.questionBank.count();
@@ -55,7 +53,6 @@ adminRouter.get("/questions/count", async (_req, res, next) => {
   }
 });
 
-// POST /api/v1/admin/questions/generate - AI generation
 adminRouter.post("/questions/generate", validate({ body: generateQuestionsSchema }), async (req, res, next) => {
   try {
     if (!questionGeneratorService.isAvailable) {
@@ -64,25 +61,29 @@ adminRouter.post("/questions/generate", validate({ body: generateQuestionsSchema
     }
 
     const { count: target } = req.body as z.infer<typeof generateQuestionsSchema>;
-    // Respond immediately; generation continues in the background.
-    void questionGeneratorService.generateAndStore(target).catch((error: unknown) => {
-      logger.error("AI question generation failed", { error });
-    });
+    const added = await questionGeneratorService.generateAndStore(target);
 
-    res.json({ message: `AI question generation started (target: ${target})`, status: "running" });
+    res.json({
+      message: "OpenAI question generation completed",
+      status: "completed",
+      requested: target,
+      added,
+    });
   } catch (err) {
     next(err);
   }
 });
 
-// POST /api/v1/admin/questions/refill - auto-refill if below threshold
 adminRouter.post("/questions/refill", async (_req, res, next) => {
   try {
-    void questionGeneratorService.refillIfNeeded().catch((error: unknown) => {
-      logger.error("AI question refill failed", { error });
-    });
+    await questionGeneratorService.refillIfNeeded();
+    const active = await prisma.questionBank.count({ where: { isActive: true } });
 
-    res.json({ message: "Refill check triggered" });
+    res.json({
+      message: "OpenAI refill check completed",
+      status: "completed",
+      active,
+    });
   } catch (err) {
     next(err);
   }

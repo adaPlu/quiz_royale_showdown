@@ -1,12 +1,22 @@
 /**
  * Typed Redis wrapper for Quiz Royale backend.
  *
- * Provides a safe, typed interface over ioredis.  All methods are typed
- * generics where appropriate.  Pipeline is exposed for batched writes.
+ * Redis is a low-latency cache for active gameplay. Authoritative answers and
+ * room scores live in PostgreSQL; score and answer reads rebuild missing cache
+ * entries so a Redis restart does not change a match result.
  */
 
 import Redis, { type Redis as RedisClient, type ChainableCommander } from "ioredis";
+
+import { prisma } from "../models/prismaClient";
 import { logger } from "../utils/logger";
+
+const DEFAULT_TIME_LIMIT_MS = 20_000;
+
+function calculatePersistedScore(isCorrect: boolean, answerTimeMs: number): number {
+  if (!isCorrect) return 0;
+  return Math.max(0, 1000 - Math.floor((answerTimeMs / DEFAULT_TIME_LIMIT_MS) * 400));
+}
 
 export class RedisService {
   private readonly client: RedisClient;
@@ -114,7 +124,45 @@ export class RedisService {
   }
 
   async hgetall(key: string): Promise<Record<string, string>> {
-    return this.client.hgetall(key);
+    const cached = await this.client.hgetall(key);
+    if (Object.keys(cached).length > 0) return cached;
+
+    const match = /^room:([^:]+):round:([^:]+):answers$/.exec(key);
+    if (!match) return cached;
+
+    const [, roomId, roundId] = match;
+    const answers = await prisma.answer.findMany({
+      where: { roundId, round: { roomId } },
+      select: {
+        userId: true,
+        answerIndex: true,
+        isCorrect: true,
+        answerTimeMs: true,
+        submittedAt: true,
+      },
+    });
+    if (answers.length === 0) return cached;
+
+    const rebuilt = Object.fromEntries(
+      answers.map((answer) => [
+        answer.userId,
+        JSON.stringify({
+          answerIndex: answer.answerIndex,
+          clientSentAt: answer.submittedAt.toISOString(),
+          isCorrect: answer.isCorrect,
+          scoreDelta: calculatePersistedScore(answer.isCorrect, answer.answerTimeMs),
+          submittedAt: answer.submittedAt.toISOString(),
+        }),
+      ]),
+    );
+    await this.client.hset(key, rebuilt);
+    await this.client.expire(key, 7200);
+    logger.warn("Rebuilt missing round-answer cache from PostgreSQL", {
+      roomId,
+      roundId,
+      answerCount: answers.length,
+    });
+    return rebuilt;
   }
 
   async hdel(key: string, ...fields: string[]): Promise<number> {
@@ -168,7 +216,33 @@ export class RedisService {
     for (let i = 0; i < raw.length; i += 2) {
       result.push({ member: raw[i], score: parseFloat(raw[i + 1]) });
     }
-    return result;
+    if (result.length > 0) return result;
+
+    const match = /^room:([^:]+):scores$/.exec(key);
+    if (!match) return result;
+
+    const roomId = match[1];
+    const persisted = await prisma.roomPlayer.findMany({
+      where: { roomId },
+      orderBy: [{ score: "desc" }, { userId: "asc" }],
+      select: { userId: true, score: true },
+    });
+    if (persisted.length === 0) return result;
+
+    const pipeline = this.client.pipeline();
+    for (const row of persisted) pipeline.zadd(key, row.score, row.userId);
+    pipeline.expire(key, 7200);
+    await pipeline.exec();
+
+    const lastIndex = stop < 0 ? persisted.length : stop + 1;
+    logger.warn("Rebuilt missing room-score cache from PostgreSQL", {
+      roomId,
+      playerCount: persisted.length,
+    });
+    return persisted.slice(start, lastIndex).map((row) => ({
+      member: row.userId,
+      score: row.score,
+    }));
   }
 
   async zrank(key: string, member: string): Promise<number | null> {

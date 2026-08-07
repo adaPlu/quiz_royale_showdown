@@ -2,6 +2,7 @@ import { randomInt } from "node:crypto";
 
 import { Difficulty } from "@prisma/client";
 
+import { prisma } from "../models/prismaClient";
 import { redisService } from "./RedisService";
 
 export const GAME_DIFFICULTIES = ["easy", "medium", "hard"] as const;
@@ -18,6 +19,10 @@ const DIFFICULTY_POOLS: Readonly<Record<GameDifficulty, readonly Difficulty[]>> 
   medium: [Difficulty.EASY, Difficulty.MEDIUM],
   hard: [Difficulty.MEDIUM, Difficulty.HARD],
 };
+
+function isGameDifficulty(value: string | null | undefined): value is GameDifficulty {
+  return GAME_DIFFICULTIES.includes(value as GameDifficulty);
+}
 
 export function getAllowedQuestionDifficulties(
   gameDifficulty: GameDifficulty,
@@ -49,27 +54,44 @@ export function buildQuestionDifficultyPlan(
 }
 
 export async function getRoomGameDifficulty(roomId: string): Promise<GameDifficulty> {
-  if (!redisService) {
-    return DEFAULT_GAME_DIFFICULTY;
+  if (redisService) {
+    const stored = await redisService.get(difficultyKey(roomId));
+    if (isGameDifficulty(stored)) return stored;
   }
 
-  const stored = await redisService.get(difficultyKey(roomId));
-  return GAME_DIFFICULTIES.includes(stored as GameDifficulty)
-    ? (stored as GameDifficulty)
+  const room = await prisma.room.findUnique({
+    where: { id: roomId },
+    select: { gameDifficulty: true },
+  });
+  const difficulty = isGameDifficulty(room?.gameDifficulty)
+    ? room.gameDifficulty
     : DEFAULT_GAME_DIFFICULTY;
+
+  if (redisService) {
+    await redisService.set(
+      difficultyKey(roomId),
+      difficulty,
+      ROOM_DIFFICULTY_TTL_SECONDS,
+    );
+  }
+
+  return difficulty;
 }
 
 export async function setRoomGameDifficulty(
   roomId: string,
   gameDifficulty: GameDifficulty,
 ): Promise<void> {
-  if (!redisService) {
-    return;
-  }
+  await prisma.room.update({
+    where: { id: roomId },
+    data: { gameDifficulty },
+  });
 
-  await redisService.set(
-    difficultyKey(roomId),
-    gameDifficulty,
-    ROOM_DIFFICULTY_TTL_SECONDS,
-  );
+  if (redisService) {
+    await redisService.set(
+      difficultyKey(roomId),
+      gameDifficulty,
+      ROOM_DIFFICULTY_TTL_SECONDS,
+    );
+  }
 }

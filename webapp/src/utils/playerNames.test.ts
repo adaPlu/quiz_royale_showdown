@@ -3,11 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { buildAutoPlayerName, resolvePlayerName } from './playerNames';
 
 describe('player name fallbacks', () => {
-  it('creates a stable userID### name', () => {
+  it('creates a stable userID###### name', () => {
     const playerId = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
     const generatedName = buildAutoPlayerName(playerId);
 
-    expect(generatedName).toMatch(/^userID\d{3}$/);
+    expect(generatedName).toMatch(/^userID\d{6}$/);
     expect(generatedName).toBe(buildAutoPlayerName(playerId));
     expect(generatedName).not.toContain(playerId);
   });
@@ -22,9 +22,9 @@ describe('player name fallbacks', () => {
         '01ARZ3NDEKTSV4RRFFQ69G5FAV',
         '01ARZ3NDEKTSV4RRFFQ69G5FAV',
       ),
-    ).toMatch(/^userID\d{3}$/);
+    ).toMatch(/^userID\d{6}$/);
     expect(
       resolvePlayerName('29021eeb02befe3b4372a964d283a4d7', 'player-id'),
-    ).toMatch(/^userID\d{3}$/);
+    ).toMatch(/^userID\d{6}$/);
   });
 });

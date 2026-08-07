@@ -16,10 +16,6 @@ const questionGeneratorServiceMock = vi.hoisted(() => ({
   refillIfNeeded: vi.fn(),
 }));
 
-const loggerMock = vi.hoisted(() => ({
-  error: vi.fn(),
-}));
-
 const TEST_ADMIN_SECRET = "change-me-in-production";
 
 vi.mock("../../models/prismaClient", () => ({
@@ -28,10 +24,6 @@ vi.mock("../../models/prismaClient", () => ({
 
 vi.mock("../../services/QuestionGeneratorService", () => ({
   questionGeneratorService: questionGeneratorServiceMock,
-}));
-
-vi.mock("../../utils/logger", () => ({
-  logger: loggerMock,
 }));
 
 interface TestResponse {
@@ -98,7 +90,7 @@ describe("admin routes", () => {
     process.env.ADMIN_SECRET = TEST_ADMIN_SECRET;
     process.env.NODE_ENV = "test";
     questionGeneratorServiceMock.isAvailable = true;
-    questionGeneratorServiceMock.generateAndStore.mockResolvedValue(undefined);
+    questionGeneratorServiceMock.generateAndStore.mockResolvedValue(0);
     questionGeneratorServiceMock.refillIfNeeded.mockResolvedValue(undefined);
   });
 
@@ -176,10 +168,12 @@ describe("admin routes", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(questionGeneratorServiceMock.generateAndStore).toHaveBeenCalledWith(500);
+    expect(questionGeneratorServiceMock.generateAndStore).toHaveBeenCalledWith(60);
     expect(response.body).toMatchObject({
-      message: "AI question generation started (target: 500)",
-      status: "running",
+      message: "OpenAI question generation completed",
+      status: "completed",
+      requested: 60,
+      added: 0,
     });
   });
 
@@ -198,9 +192,10 @@ describe("admin routes", () => {
     expect(questionGeneratorServiceMock.generateAndStore).not.toHaveBeenCalled();
   });
 
-  it("logs background generation failures", async () => {
-    const error = new Error("generation failed");
-    questionGeneratorServiceMock.generateAndStore.mockRejectedValue(error);
+  it("returns a failure when OpenAI generation fails", async () => {
+    questionGeneratorServiceMock.generateAndStore.mockRejectedValue(
+      new Error("generation failed"),
+    );
     const app = await createAdminTestApp();
 
     const response = await request(
@@ -210,9 +205,11 @@ describe("admin routes", () => {
       { count: 5 },
       { "x-admin-key": TEST_ADMIN_SECRET }
     );
-    await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(response.status).toBe(200);
-    expect(loggerMock.error).toHaveBeenCalledWith("AI question generation failed", { error });
+    expect(response.status).toBe(500);
+    expect(response.body).toMatchObject({
+      error: "generation failed",
+      code: "INTERNAL_SERVER_ERROR",
+    });
   });
 });

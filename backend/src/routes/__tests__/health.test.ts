@@ -6,7 +6,7 @@ describe("getHealth", () => {
   const now = () => new Date("2026-04-25T12:00:00.000Z");
   const questionBank = { count: vi.fn().mockResolvedValue(60) };
 
-  it("reports ok when Postgres, Redis, and question checks pass", async () => {
+  it("reports ok when Postgres, Redis, and every question pool pass", async () => {
     const prisma = {
       $queryRawUnsafe: vi.fn().mockResolvedValue([{ "?column?": 1 }]),
       questionBank
@@ -19,7 +19,10 @@ describe("getHealth", () => {
     expect(health.ts).toBe(now().getTime());
     expect(health.components.postgres.status).toBe("ok");
     expect(health.components.redis.status).toBe("ok");
-    expect(health.components.questions.status).toBe("ok");
+    expect(health.components.questions).toMatchObject({
+      status: "ok",
+      details: { easy: 60, medium: 60, hard: 60 },
+    });
   });
 
   it("reports unhealthy details when Postgres check fails", async () => {
@@ -43,13 +46,13 @@ describe("getHealth", () => {
     expect(health.components.redis).toMatchObject({ status: "unhealthy", error: "Redis service is not initialized" });
   });
 
-  it("reports unhealthy when fewer than ten active questions exist", async () => {
+  it("reports unhealthy when any difficulty pool has fewer than eleven questions", async () => {
     const prisma = {
       $queryRawUnsafe: vi.fn().mockResolvedValue([{ "?column?": 1 }]),
-      questionBank: { count: vi.fn().mockResolvedValue(9) }
+      questionBank: { count: vi.fn().mockResolvedValue(10) }
     };
     const health = await getHealth({ prisma, redis: { ping: vi.fn().mockResolvedValue("PONG") }, now });
     expect(health.status).toBe("unhealthy");
-    expect(health.components.questions.error).toContain("10 required");
+    expect(health.components.questions.error).toContain("below 11");
   });
 });

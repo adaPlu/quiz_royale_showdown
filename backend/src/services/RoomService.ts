@@ -129,7 +129,7 @@ export class RoomService {
       room = await this.matchmakeOrCreate(userId);
     }
 
-    const config = await this.getRoomConfig(room.id);
+    const config = this.configFromRoom(room);
     const joinResult = await this.joinRoomPlayer(room.id, userId, config);
     if (joinResult.joined) {
       await this.addLivePlayer(room.id, userId);
@@ -511,6 +511,9 @@ export class RoomService {
           status: "WAITING",
           totalRounds: 10,
           currentRound: 0,
+          isPrivate: config.isPrivate,
+          maxPlayers: config.maxPlayers,
+          autoStartSolo: config.autoStartSolo,
         },
       });
 
@@ -566,25 +569,68 @@ export class RoomService {
     await redisService.srem(`room:${roomId}:players`, userId);
   }
 
-  private async setRoomConfig(roomId: string, config: RoomConfig): Promise<void> {
-    if (!redisService) {
-      return;
-    }
+  private configFromRoom(
+    room: Pick<Room, "isPrivate" | "maxPlayers" | "autoStartSolo">,
+  ): RoomConfig {
+    return {
+      isPrivate: room.isPrivate ?? DEFAULT_ROOM_CONFIG.isPrivate,
+      maxPlayers: room.maxPlayers ?? DEFAULT_ROOM_CONFIG.maxPlayers,
+      autoStartSolo: room.autoStartSolo ?? DEFAULT_ROOM_CONFIG.autoStartSolo,
+    };
+  }
 
-    await redisService.setJson(
-      `room:${roomId}:config`,
-      config,
-      ROOM_PLAYERS_TTL_SECONDS
-    );
+  private async setRoomConfig(roomId: string, config: RoomConfig): Promise<void> {
+    await prisma.room.update({
+      where: { id: roomId },
+      data: {
+        isPrivate: config.isPrivate,
+        maxPlayers: config.maxPlayers,
+        autoStartSolo: config.autoStartSolo,
+      },
+    });
+
+    if (redisService) {
+      await redisService.setJson(
+        `room:${roomId}:config`,
+        config,
+        ROOM_PLAYERS_TTL_SECONDS
+      );
+    }
   }
 
   private async getRoomConfig(roomId: string): Promise<RoomConfig> {
-    if (!redisService) {
-      return DEFAULT_ROOM_CONFIG;
+    if (redisService) {
+      const cached = await redisService.getJson<RoomConfig>(`room:${roomId}:config`);
+      if (cached) return cached;
     }
 
-    const config = await redisService.getJson<RoomConfig>(`room:${roomId}:config`);
-    return config ?? DEFAULT_ROOM_CONFIG;
+    const room = await prisma.room.findUnique({
+      where: { id: roomId },
+      select: {
+        isPrivate: true,
+        maxPlayers: true,
+        autoStartSolo: true,
+      },
+    });
+    if (!room) {
+      throw new NotFoundError(`Room ${roomId} not found`);
+    }
+
+    const config: RoomConfig = {
+      isPrivate: room.isPrivate,
+      maxPlayers: room.maxPlayers,
+      autoStartSolo: room.autoStartSolo,
+    };
+
+    if (redisService) {
+      await redisService.setJson(
+        `room:${roomId}:config`,
+        config,
+        ROOM_PLAYERS_TTL_SECONDS,
+      );
+    }
+
+    return config;
   }
 
   private async clearRoomCache(roomId: string): Promise<void> {
@@ -599,7 +645,7 @@ export class RoomService {
     room: RoomWithPlayers,
     configOverride?: RoomConfig
   ): Promise<RoomLifecycleState> {
-    const config = configOverride ?? (await this.getRoomConfig(room.id));
+    const config = configOverride ?? this.configFromRoom(room);
 
     return {
       room: {

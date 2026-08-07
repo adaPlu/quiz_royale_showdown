@@ -10,6 +10,7 @@ import {
   setRoomGameDifficulty,
 } from "../services/GameDifficultyService";
 import { gameOrchestrator } from "../services/GameOrchestrator";
+import { gameRunLeaseService } from "../services/GameRunLeaseService";
 import {
   LeaveRoomResult,
   RoomLifecycleState,
@@ -345,6 +346,9 @@ roomsRouter.post(
   requireAuth,
   validate({ params: roomIdParamsSchema, body: startRoomSchema }),
   async (req, res, next) => {
+    let leaseToken: string | null = null;
+    let orchestratorScheduled = false;
+
     try {
       const requesterId = getAuthenticatedUserId(req.jwtClaims?.sub);
       const { roomId } = req.params as z.infer<typeof roomIdParamsSchema>;
@@ -352,8 +356,10 @@ roomsRouter.post(
 
       await roomService.recoverStaleCountdown(
         roomId,
-        gameOrchestrator.hasActiveGame(roomId)
+        await gameRunLeaseService.isActive(roomId),
       );
+
+      leaseToken = await gameRunLeaseService.acquire(roomId);
 
       const room = await roomService.startGame(roomId, requesterId, { allowSolo });
       const difficulty = await getRoomGameDifficulty(roomId);
@@ -376,28 +382,41 @@ roomsRouter.post(
       });
       const playerIds = playerRows.map((row) => row.userId);
       const io = getIo();
+      const ownedLeaseToken = leaseToken;
+      orchestratorScheduled = true;
 
-      void gameOrchestrator.startGame(roomId, playerIds, io).catch(async (err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error("[rooms] GameOrchestrator.startGame failed", { roomId, message });
-        await roomService.resetStartFailure(roomId, message).catch(() => undefined);
-        const recovered = await roomService.getRoomById(roomId).catch(() => null);
-        if (recovered) {
+      void gameOrchestrator
+        .startGame(roomId, playerIds, io)
+        .catch(async (err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error("[rooms] GameOrchestrator.startGame failed", { roomId, message });
+          await roomService.resetStartFailure(roomId, message).catch(() => undefined);
+          const recovered = await roomService.getRoomById(roomId).catch(() => null);
+          if (recovered) {
+            io.to(roomId).emit("message", {
+              type: "room:state_sync",
+              version: "v1",
+              payload: { room: recovered.room },
+            });
+          }
           io.to(roomId).emit("message", {
-            type: "room:state_sync",
+            type: "error",
             version: "v1",
-            payload: { room: recovered.room },
+            payload: { code: "GAME_START_FAILED", message },
           });
-        }
-        io.to(roomId).emit("message", {
-          type: "error",
-          version: "v1",
-          payload: { code: "GAME_START_FAILED", message },
+        })
+        .finally(async () => {
+          await gameRunLeaseService.release(roomId, ownedLeaseToken).catch(() => undefined);
         });
-      });
 
       res.json(formatRoomResponse(room, difficulty));
     } catch (error) {
+      if (leaseToken && !orchestratorScheduled) {
+        const roomId = (req.params as Partial<z.infer<typeof roomIdParamsSchema>>).roomId;
+        if (roomId) {
+          await gameRunLeaseService.release(roomId, leaseToken).catch(() => undefined);
+        }
+      }
       next(error);
     }
   }

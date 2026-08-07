@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import OpenAI from "openai";
 import { Difficulty } from "@prisma/client";
 import { z } from "zod";
@@ -8,12 +10,13 @@ import { logger } from "../utils/logger";
 import { generateId } from "../utils/ulid";
 import { redisService } from "./RedisService";
 
-const DEFAULT_REFILL_THRESHOLD = 60;
-const DEFAULT_BATCH_SIZE = 30;
 const MAX_BATCH_SIZE = 60;
 const REFILL_LOCK_SECONDS = 300;
 const REFILL_LOCK_KEY = "questions:ai-refill-lock";
-const MODEL = process.env.OPENAI_QUESTION_MODEL?.trim() || "gpt-5-mini";
+const MODEL = env.openAiQuestionModel;
+const refillThreshold = env.questionRefillThreshold;
+const refillBatchSize = env.questionRefillBatchSize;
+const dailyGenerationLimit = env.questionDailyGenerationLimit;
 
 const AI_CATEGORIES = [
   "Technology and AI", "Science", "World History", "Sports", "Geography",
@@ -30,21 +33,24 @@ const generatedQuestionSchema = z.object({
 const responseSchema = z.object({ questions: z.array(generatedQuestionSchema).max(MAX_BATCH_SIZE) });
 type GeneratedQuestion = z.infer<typeof generatedQuestionSchema>;
 
-function boundedNumber(raw: string | undefined, fallback: number, minimum: number, maximum: number): number {
-  const parsed = Number(raw);
-  return Number.isInteger(parsed) ? Math.min(maximum, Math.max(minimum, parsed)) : fallback;
-}
-
-const refillThreshold = boundedNumber(process.env.QUESTION_REFILL_THRESHOLD, DEFAULT_REFILL_THRESHOLD, 10, 500);
-const refillBatchSize = boundedNumber(process.env.QUESTION_REFILL_BATCH_SIZE, DEFAULT_BATCH_SIZE, 10, MAX_BATCH_SIZE);
-
 function toDifficulty(value: GeneratedQuestion["difficulty"]): Difficulty {
   return value === "HARD" ? Difficulty.HARD : value === "MEDIUM" ? Difficulty.MEDIUM : Difficulty.EASY;
 }
 
+function dailyBudgetKey(now = new Date()): string {
+  return `questions:ai-generated:${now.toISOString().slice(0, 10)}`;
+}
+
 export class QuestionGeneratorService {
-  private readonly client = env.openAiApiKey ? new OpenAI({ apiKey: env.openAiApiKey }) : null;
-  private localRefillInProgress = false;
+  private readonly client = env.openAiApiKey
+    ? new OpenAI({
+        apiKey: env.openAiApiKey,
+        timeout: 45_000,
+        maxRetries: 2,
+      })
+    : null;
+  private localRefillToken: string | null = null;
+  private localDailyGenerated = 0;
 
   get isAvailable(): boolean {
     return this.client !== null;
@@ -58,8 +64,8 @@ export class QuestionGeneratorService {
     let count = await this.countEligible(allowedDifficulties);
     if (count >= target || !this.client) return count;
 
-    const ownsLock = await this.acquireRefillLock();
-    if (!ownsLock) return count;
+    const lockToken = await this.acquireRefillLock();
+    if (!lockToken) return count;
 
     try {
       count = await this.countEligible(allowedDifficulties);
@@ -77,12 +83,12 @@ export class QuestionGeneratorService {
       });
       return count;
     } finally {
-      await this.releaseRefillLock();
+      await this.releaseRefillLock(lockToken);
     }
   }
 
   async generateAndStore(
-    targetCount = DEFAULT_BATCH_SIZE,
+    targetCount = refillBatchSize,
     allowedDifficulties: Difficulty[] = [Difficulty.EASY, Difficulty.MEDIUM, Difficulty.HARD],
   ): Promise<number> {
     if (!this.client) {
@@ -91,7 +97,15 @@ export class QuestionGeneratorService {
     }
 
     const boundedTarget = Math.min(MAX_BATCH_SIZE, Math.max(1, Math.floor(targetCount)));
-    const questions = await this.generateBatch(boundedTarget, allowedDifficulties);
+    const allowedCount = await this.reserveDailyBudget(boundedTarget);
+    if (allowedCount <= 0) {
+      logger.warn("AI question generation skipped because the daily question budget is exhausted", {
+        dailyGenerationLimit,
+      });
+      return 0;
+    }
+
+    const questions = await this.generateBatch(allowedCount, allowedDifficulties);
     let added = 0;
     for (const question of questions) {
       if (await this.storeQuestion(question)) added += 1;
@@ -176,18 +190,39 @@ export class QuestionGeneratorService {
     });
   }
 
-  private async acquireRefillLock(): Promise<boolean> {
-    if (redisService) return redisService.setnx(REFILL_LOCK_KEY, String(Date.now()), REFILL_LOCK_SECONDS);
-    if (this.localRefillInProgress) return false;
-    this.localRefillInProgress = true;
-    return true;
+  private async reserveDailyBudget(requested: number): Promise<number> {
+    if (!redisService) {
+      const remaining = Math.max(0, dailyGenerationLimit - this.localDailyGenerated);
+      const reserved = Math.min(requested, remaining);
+      this.localDailyGenerated += reserved;
+      return reserved;
+    }
+
+    const key = dailyBudgetKey();
+    const total = await redisService.incrBy(key, requested);
+    await redisService.expire(key, 2 * 24 * 60 * 60);
+    if (total <= dailyGenerationLimit) return requested;
+
+    const overflow = total - dailyGenerationLimit;
+    return Math.max(0, requested - overflow);
   }
 
-  private async releaseRefillLock(): Promise<void> {
+  private async acquireRefillLock(): Promise<string | null> {
+    const token = randomUUID();
     if (redisService) {
-      await redisService.del(REFILL_LOCK_KEY).catch(() => undefined);
+      const acquired = await redisService.setnx(REFILL_LOCK_KEY, token, REFILL_LOCK_SECONDS);
+      return acquired ? token : null;
     }
-    this.localRefillInProgress = false;
+    if (this.localRefillToken) return null;
+    this.localRefillToken = token;
+    return token;
+  }
+
+  private async releaseRefillLock(token: string): Promise<void> {
+    if (redisService) {
+      await redisService.compareAndDelete(REFILL_LOCK_KEY, token).catch(() => undefined);
+    }
+    if (this.localRefillToken === token) this.localRefillToken = null;
   }
 }
 
