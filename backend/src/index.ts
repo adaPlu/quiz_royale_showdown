@@ -1,9 +1,9 @@
 /**
  * Quiz Royale Showdown — Backend entrypoint.
  *
- * Production startup is fail-closed for Redis and the singleton game-server
- * lease. This prevents two independent Socket.IO/game-loop processes from
- * splitting a live match until distributed orchestration is implemented.
+ * Production startup is fail-closed for Redis. Individual game loops are
+ * protected by per-room distributed leases, allowing safe rolling deploys
+ * without permitting duplicate runners for the same room.
  */
 
 import http from "http";
@@ -13,7 +13,6 @@ import { createApp } from "./app";
 import { env } from "./config/env";
 import { prisma } from "./models/prismaClient";
 import { initRedis } from "./services/RedisService";
-import { SingleInstanceGuard } from "./services/SingleInstanceGuard";
 import { initSocketServer } from "./socket";
 import { logger } from "./utils/logger";
 
@@ -32,7 +31,6 @@ async function bootstrap(): Promise<void> {
   initSocketServer(io);
 
   const redis = initRedis(env.redisUrl);
-  let singletonGuard: SingleInstanceGuard | null = null;
   let shuttingDown = false;
 
   const shutdown = async (signal: string, exitCode = 0): Promise<void> => {
@@ -47,14 +45,6 @@ async function bootstrap(): Promise<void> {
 
     await new Promise<void>((resolve) => io.close(() => resolve()));
     logger.info("Socket.IO server closed");
-
-    if (singletonGuard) {
-      await singletonGuard.release().catch((error: unknown) => {
-        logger.warn("Failed to release production singleton lease", {
-          message: error instanceof Error ? error.message : String(error),
-        });
-      });
-    }
 
     await redis.disconnect().catch(() => undefined);
     await prisma.$disconnect().catch(() => undefined);
@@ -78,11 +68,6 @@ async function bootstrap(): Promise<void> {
   await redis.connect();
   logger.info("Redis connected");
 
-  if (env.isProduction) {
-    singletonGuard = new SingleInstanceGuard(redis);
-    await singletonGuard.acquire(() => void shutdown("singleton-lease-lost", 1));
-  }
-
   await new Promise<void>((resolve) => {
     server.listen(env.port, "0.0.0.0", resolve);
   });
@@ -93,7 +78,7 @@ async function bootstrap(): Promise<void> {
     env: env.nodeEnv,
     wsPath: "/ws",
     buildSha: process.env.BUILD_SHA ?? "unknown",
-    singleInstanceEnforced: env.isProduction,
+    gameOwnership: "per-room-redis-lease",
   });
 }
 
