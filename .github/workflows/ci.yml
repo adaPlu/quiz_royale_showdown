@@ -32,12 +32,7 @@ jobs:
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "$PRS_URL")"
 
-          MERGED_MAIN_PRS="$(printf '%s' "$PRS_JSON" | python3 -c '
-import json,sys
-prs=json.load(sys.stdin)
-valid=[pr for pr in prs if pr.get("merged_at") and pr.get("base",{}).get("ref") == "main"]
-print(len(valid))
-')"
+          MERGED_MAIN_PRS="$(printf '%s' "$PRS_JSON" | python3 -c 'import json,sys; prs=json.load(sys.stdin); print(sum(1 for pr in prs if pr.get("merged_at") and pr.get("base", {}).get("ref") == "main"))')"
 
           if [ "$MERGED_MAIN_PRS" -lt 1 ]; then
             echo "Release blocked: ${RELEASE_SHA} is not associated with a merged pull request into main."
