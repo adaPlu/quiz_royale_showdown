@@ -21,7 +21,7 @@ async function bootstrap(): Promise<void> {
   const server = http.createServer(app);
   const io = new Server(server, {
     cors: {
-      origin: env.corsOrigin,
+      origin: env.corsOrigins,
       credentials: true
     },
     path: "/ws",
