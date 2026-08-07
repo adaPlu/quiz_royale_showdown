@@ -3,12 +3,35 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const redisMock = {
   getJson: vi.fn(),
   setnx: vi.fn(),
-  zincrby: vi.fn(),
-  hset: vi.fn()
+  zadd: vi.fn(),
+  hset: vi.fn(),
+  del: vi.fn()
+};
+
+const transactionMock = {
+  answer: {
+    create: vi.fn(),
+  },
+  roomPlayer: {
+    update: vi.fn(),
+  },
+};
+
+const prismaMock = {
+  round: {
+    findFirst: vi.fn(),
+  },
+  $transaction: vi.fn(async (callback: (tx: typeof transactionMock) => unknown) =>
+    callback(transactionMock)
+  ),
 };
 
 vi.mock("../../../services/RedisService", () => ({
   redisService: redisMock
+}));
+
+vi.mock("../../../models/prismaClient", () => ({
+  prisma: prismaMock,
 }));
 
 function createSocket(roomId?: string) {
@@ -42,6 +65,9 @@ function createSocket(roomId?: string) {
 describe("registerSubmitAnswerHandler", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    transactionMock.roomPlayer.update.mockResolvedValue({ score: 900 });
+    redisMock.zadd.mockResolvedValue(1);
+    redisMock.hset.mockResolvedValue(undefined);
   });
 
   it("rejects answer submissions before the socket joins a room", async () => {
@@ -73,7 +99,7 @@ describe("registerSubmitAnswerHandler", () => {
     });
   });
 
-  it("stores a deterministic score and answer record for a valid first answer", async () => {
+  it("persists a deterministic score and mirrors it into Redis", async () => {
     vi.setSystemTime(new Date("2026-04-25T12:00:05.000Z"));
     const { registerSubmitAnswerHandler } = await import("../submitAnswer");
     const { socket, emit, dispatch } = createSocket("room-1");
@@ -105,7 +131,24 @@ describe("registerSubmitAnswerHandler", () => {
 
     expect(emit).not.toHaveBeenCalled();
     expect(redisMock.setnx).toHaveBeenCalledWith("answer_lock:room-1:round-1:user-1", "1", 3600);
-    expect(redisMock.zincrby).toHaveBeenCalledWith("room:room-1:scores", 900, "user-1");
+    expect(transactionMock.answer.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        roundId: "round-1",
+        userId: "user-1",
+        answerIndex: 1,
+        isCorrect: true,
+        answerTimeMs: 5000,
+      }),
+    });
+    expect(transactionMock.roomPlayer.update).toHaveBeenCalledWith({
+      where: { roomId_userId: { roomId: "room-1", userId: "user-1" } },
+      data: {
+        score: { increment: 900 },
+        streak: { increment: 1 },
+      },
+      select: { score: true },
+    });
+    expect(redisMock.zadd).toHaveBeenCalledWith("room:room-1:scores", 900, "user-1");
     expect(redisMock.hset).toHaveBeenCalledWith(
       "room:room-1:round:round-1:answers",
       "user-1",
