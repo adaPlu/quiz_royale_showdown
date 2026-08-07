@@ -14,7 +14,7 @@ echo "Migration history reconciliation completed."
 
 # Existing objects with the same names as known repaired migration objects must
 # already have the exact compatible shape. Missing objects are allowed here and
-# will be created by the idempotent repair below.
+# will be created by the idempotent repair below or by normal Prisma migration.
 echo "Validating known migration schema compatibility..."
 timeout "$MIGRATION_TIMEOUT_SECONDS" node dist/scripts/verifyKnownMigrationState.js
 echo "Known migration schema compatibility validated."
@@ -26,18 +26,19 @@ echo "Repairing known post-baseline migration history..."
 timeout "$MIGRATION_TIMEOUT_SECONDS" node dist/scripts/repairKnownMigrations.js
 echo "Known migration history repair completed."
 
-# Verify the complete catalog shape before allowing normal Prisma deployment or
-# application startup. This catches wrong columns, indexes, enum values, foreign
-# keys, and check constraints even when a same-named object already existed.
-echo "Verifying repaired migration schema..."
-timeout "$MIGRATION_TIMEOUT_SECONDS" node dist/scripts/verifyKnownMigrationState.js --require-complete
-echo "Repaired migration schema verified."
-
-# Production startup is fail-closed: the application must never serve traffic
-# against a schema that did not complete its required migrations.
+# Production startup is fail-closed: apply the canonical migration chain before
+# requiring the complete schema. This ordering is essential for a fresh empty
+# database, where User/Room and the other canonical objects do not exist yet.
 echo "Running database migrations..."
 timeout "$MIGRATION_TIMEOUT_SECONDS" npx prisma migrate deploy
 echo "Database migrations completed."
+
+# Verify the final catalog after both targeted repair and normal migration.
+# This catches wrong columns, indexes, enum values, foreign keys, and check
+# constraints before any application traffic is served.
+echo "Verifying final migration schema..."
+timeout "$MIGRATION_TIMEOUT_SECONDS" node dist/scripts/verifyKnownMigrationState.js --require-complete
+echo "Final migration schema verified."
 echo "Database schema is ready for application startup."
 
 BACKFILL_TIMEOUT_SECONDS="${BACKFILL_TIMEOUT_SECONDS:-30}"
