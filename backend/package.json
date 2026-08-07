@@ -11,7 +11,7 @@
     "test": "vitest run --pool=threads --exclude \"dist/**\"",
     "test:watch": "vitest --pool=threads",
     "test:coverage": "vitest run --coverage",
-    "test:migrations": "tsx src/scripts/validateMigrationUpgrade.ts",
+    "test:migrations": "tsx src/scripts/validateMigrationUpgrade.ts && tsx src/scripts/validateKnownMigrationVerifier.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",
     "prisma:migrate:dev": "prisma migrate dev",
