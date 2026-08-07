@@ -21,6 +21,19 @@ const friendshipIdParamsSchema = z.object({
   friendshipId: z.string().trim().refine(isValidId, "friendshipId must be a valid ULID"),
 });
 
+function friendshipPairLockKey(requesterId: string, addresseeId: string): string {
+  const [firstUserId, secondUserId] = [requesterId, addresseeId].sort();
+  return `friendship:${firstUserId}:${secondUserId}`;
+}
+
+async function lockFriendshipPair(
+  tx: Prisma.TransactionClient,
+  requesterId: string,
+  addresseeId: string,
+): Promise<void> {
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${friendshipPairLockKey(requesterId, addresseeId)}, 0))`;
+}
+
 router.get("/", async (req, res, next) => {
   try {
     const userId = req.jwtClaims!.sub;
@@ -89,32 +102,36 @@ router.post("/request", validate({ body: requestBodySchema }), async (req, res, 
       throw new NotFoundError("User not found");
     }
 
-    const existing = await prisma.friendship.findFirst({
-      where: {
-        OR: [
-          { requesterId: userId, addresseeId },
-          { requesterId: addresseeId, addresseeId: userId },
-        ],
-      },
-    });
+    const friendship = await prisma.$transaction(async (tx) => {
+      await lockFriendshipPair(tx, userId, addresseeId);
 
-    if (existing?.status === "ACCEPTED") {
-      throw new ConflictError("Already friends");
-    }
-    if (existing?.status === "BLOCKED") {
-      throw new ForbiddenError("Cannot send request");
-    }
-    if (existing) {
-      throw new ConflictError("Friend request already pending");
-    }
+      const existing = await tx.friendship.findFirst({
+        where: {
+          OR: [
+            { requesterId: userId, addresseeId },
+            { requesterId: addresseeId, addresseeId: userId },
+          ],
+        },
+      });
 
-    const friendship = await prisma.friendship.create({
-      data: {
-        id: generateId(),
-        requesterId: userId,
-        addresseeId,
-        status: "PENDING",
-      },
+      if (existing?.status === "ACCEPTED") {
+        throw new ConflictError("Already friends");
+      }
+      if (existing?.status === "BLOCKED") {
+        throw new ForbiddenError("Cannot send request");
+      }
+      if (existing) {
+        throw new ConflictError("Friend request already pending");
+      }
+
+      return tx.friendship.create({
+        data: {
+          id: generateId(),
+          requesterId: userId,
+          addresseeId,
+          status: "PENDING",
+        },
+      });
     });
 
     res.status(201).json({ friendshipId: friendship.id, status: friendship.status });
@@ -132,13 +149,11 @@ router.put("/:friendshipId/accept", validate({ params: friendshipIdParamsSchema 
     const userId = req.jwtClaims!.sub;
     const { friendshipId } = req.params as z.infer<typeof friendshipIdParamsSchema>;
 
-    const friendship = await prisma.friendship.findUnique({ where: { id: friendshipId } });
+    const friendship = await prisma.friendship.findFirst({
+      where: { id: friendshipId, addresseeId: userId },
+    });
     if (!friendship) {
       throw new NotFoundError("Friendship not found");
-    }
-
-    if (friendship.addresseeId !== userId) {
-      throw new ForbiddenError("Only the recipient can accept a friend request");
     }
 
     if (friendship.status !== "PENDING") {
@@ -161,13 +176,18 @@ router.delete("/:friendshipId", validate({ params: friendshipIdParamsSchema }), 
     const userId = req.jwtClaims!.sub;
     const { friendshipId } = req.params as z.infer<typeof friendshipIdParamsSchema>;
 
-    const friendship = await prisma.friendship.findUnique({ where: { id: friendshipId } });
+    const friendship = await prisma.friendship.findFirst({
+      where: {
+        id: friendshipId,
+        OR: [{ requesterId: userId }, { addresseeId: userId }],
+      },
+    });
     if (!friendship) {
       throw new NotFoundError("Friendship not found");
     }
 
-    if (friendship.requesterId !== userId && friendship.addresseeId !== userId) {
-      throw new ForbiddenError("Access denied");
+    if (friendship.status === "BLOCKED") {
+      throw new ForbiddenError("Blocked friendships cannot be deleted from this endpoint");
     }
 
     await prisma.friendship.delete({ where: { id: friendshipId } });

@@ -11,6 +11,8 @@ const ADDRESSEE_ID = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const FRIENDSHIP_ID = "03ARZ3NDEKTSV4RRFFQ69G5FAV";
 
 const prismaMock = vi.hoisted(() => ({
+  $queryRaw: vi.fn(),
+  $transaction: vi.fn(),
   friendship: {
     create: vi.fn(),
     delete: vi.fn(),
@@ -109,18 +111,16 @@ async function createFriendsTestApp(): Promise<Express> {
 describe("friends routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    prismaMock.$queryRaw.mockResolvedValue([]);
+    prismaMock.$transaction.mockImplementation(async (callback) => callback(prismaMock));
   });
 
   it("preserves requester/addressee direction and prevents requester self-acceptance", async () => {
     prismaMock.user.findUnique.mockResolvedValue({ id: ADDRESSEE_ID });
-    prismaMock.friendship.findFirst.mockResolvedValue(null);
+    prismaMock.friendship.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
     prismaMock.friendship.create.mockResolvedValue({
-      id: FRIENDSHIP_ID,
-      requesterId: REQUESTER_ID,
-      addresseeId: ADDRESSEE_ID,
-      status: "PENDING",
-    });
-    prismaMock.friendship.findUnique.mockResolvedValue({
       id: FRIENDSHIP_ID,
       requesterId: REQUESTER_ID,
       addresseeId: ADDRESSEE_ID,
@@ -145,6 +145,11 @@ describe("friends routes", () => {
     );
 
     expect(createResponse.status).toBe(201);
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(1);
+    expect(prismaMock.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(prismaMock.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      prismaMock.friendship.findFirst.mock.invocationCallOrder[0],
+    );
     expect(prismaMock.friendship.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -154,7 +159,53 @@ describe("friends routes", () => {
         }),
       }),
     );
-    expect(acceptResponse.status).toBe(403);
+    expect(acceptResponse.status).toBe(404);
+    expect(prismaMock.friendship.findFirst).toHaveBeenLastCalledWith({
+      where: { id: FRIENDSHIP_ID, addresseeId: REQUESTER_ID },
+    });
     expect(prismaMock.friendship.update).not.toHaveBeenCalled();
+  });
+
+  it("does not reveal whether another user's friendship id exists on delete", async () => {
+    prismaMock.friendship.findFirst.mockResolvedValue(null);
+    const app = await createFriendsTestApp();
+
+    const response = await request(
+      app,
+      "DELETE",
+      `/api/v1/friends/${FRIENDSHIP_ID}`,
+      undefined,
+      { Authorization: `Bearer ${REQUESTER_ID}` },
+    );
+
+    expect(response.status).toBe(404);
+    expect(prismaMock.friendship.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: FRIENDSHIP_ID,
+        OR: [{ requesterId: REQUESTER_ID }, { addresseeId: REQUESTER_ID }],
+      },
+    });
+    expect(prismaMock.friendship.delete).not.toHaveBeenCalled();
+  });
+
+  it("does not delete blocked friendships through the generic delete route", async () => {
+    prismaMock.friendship.findFirst.mockResolvedValue({
+      id: FRIENDSHIP_ID,
+      requesterId: REQUESTER_ID,
+      addresseeId: ADDRESSEE_ID,
+      status: "BLOCKED",
+    });
+    const app = await createFriendsTestApp();
+
+    const response = await request(
+      app,
+      "DELETE",
+      `/api/v1/friends/${FRIENDSHIP_ID}`,
+      undefined,
+      { Authorization: `Bearer ${REQUESTER_ID}` },
+    );
+
+    expect(response.status).toBe(403);
+    expect(prismaMock.friendship.delete).not.toHaveBeenCalled();
   });
 });

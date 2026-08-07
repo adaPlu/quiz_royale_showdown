@@ -24,6 +24,12 @@ const gameOrchestratorMock = vi.hoisted(() => ({
   startGame: vi.fn(),
 }));
 
+const gameRunLeaseServiceMock = vi.hoisted(() => ({
+  acquire: vi.fn(),
+  isActive: vi.fn(),
+  release: vi.fn(),
+}));
+
 const prismaMock = vi.hoisted(() => ({
   room: {
     findUnique: vi.fn(),
@@ -61,6 +67,10 @@ vi.mock("../../services/RoomService", () => ({
 
 vi.mock("../../services/GameOrchestrator", () => ({
   gameOrchestrator: gameOrchestratorMock,
+}));
+
+vi.mock("../../services/GameRunLeaseService", () => ({
+  gameRunLeaseService: gameRunLeaseServiceMock,
 }));
 
 vi.mock("../../models/prismaClient", () => ({
@@ -138,8 +148,25 @@ describe("room routes", () => {
     gameOrchestratorMock.hasActiveGame.mockReturnValue(false);
     gameOrchestratorMock.assertQuestionBankReady.mockResolvedValue(undefined);
     gameOrchestratorMock.startGame.mockResolvedValue(undefined);
+    gameRunLeaseServiceMock.acquire.mockResolvedValue("lease-token");
+    gameRunLeaseServiceMock.isActive.mockResolvedValue(false);
+    gameRunLeaseServiceMock.release.mockResolvedValue(undefined);
     prismaMock.room.findUnique.mockResolvedValue({ gameDifficulty: "medium" });
     prismaMock.roomPlayer.findMany.mockResolvedValue([{ userId: "host-user" }]);
+    roomServiceMock.getRoomById.mockResolvedValue({
+      room: {
+        roomId: VALID_ROOM_ID,
+        code: VALID_ROOM_CODE,
+        phase: "WAITING",
+        roundNumber: 0,
+        totalRounds: 10,
+        players: [],
+      },
+      hostUserId: "host-user",
+      config: { isPrivate: true, maxPlayers: 8 },
+      createdAt: "2026-04-25T12:00:00.000Z",
+      startedAt: null,
+    });
   });
 
   afterEach(() => {
@@ -280,6 +307,38 @@ describe("room routes", () => {
       error: "At least 2 players are required to start",
       code: "BAD_REQUEST",
     });
+  });
+
+  it("rejects non-host start attempts before stale countdown recovery", async () => {
+    roomServiceMock.getRoomById.mockResolvedValue({
+      room: {
+        roomId: VALID_ROOM_ID,
+        code: VALID_ROOM_CODE,
+        phase: "COUNTDOWN",
+        roundNumber: 0,
+        totalRounds: 10,
+        players: [],
+      },
+      hostUserId: "host-user",
+      config: { isPrivate: true, maxPlayers: 8 },
+      createdAt: "2026-04-25T12:00:00.000Z",
+      startedAt: "2026-04-25T12:00:00.000Z",
+    });
+    const app = await createRoomsTestApp();
+
+    const response = await request(app, "POST", `/api/v1/rooms/${VALID_ROOM_ID}/start`, {
+      authUserId: "other-user",
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body).toMatchObject({
+      error: "Only the host can start the game",
+      code: "FORBIDDEN",
+    });
+    expect(roomServiceMock.recoverStaleCountdown).not.toHaveBeenCalled();
+    expect(gameRunLeaseServiceMock.isActive).not.toHaveBeenCalled();
+    expect(gameRunLeaseServiceMock.acquire).not.toHaveBeenCalled();
+    expect(roomServiceMock.startGame).not.toHaveBeenCalled();
   });
 
   it("passes the solo start flag to the room service", async () => {

@@ -167,6 +167,14 @@ async function assertHostCanConfigureRoom(roomId: string, requesterId: string) {
   return room;
 }
 
+async function assertHostCanStartRoom(roomId: string, requesterId: string): Promise<void> {
+  const room = await roomService.getRoomById(roomId);
+
+  if (room.hostUserId !== requesterId) {
+    throw new ForbiddenError("Only the host can start the game");
+  }
+}
+
 function formatRoomResponse(
   payload: RoomLifecycleState,
   difficulty: (typeof GAME_DIFFICULTIES)[number],
@@ -354,6 +362,7 @@ roomsRouter.post(
       const { roomId } = req.params as z.infer<typeof roomIdParamsSchema>;
       const { allowSolo } = req.body as z.infer<typeof startRoomSchema>;
 
+      await assertHostCanStartRoom(roomId, requesterId);
       await roomService.recoverStaleCountdown(
         roomId,
         await gameRunLeaseService.isActive(roomId),
