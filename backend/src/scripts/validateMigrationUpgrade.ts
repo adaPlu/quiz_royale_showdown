@@ -19,6 +19,8 @@ const LEGACY_DUPLICATE_MIGRATIONS = [
 const CANONICAL_BASELINE = "20260425000000_init";
 const REFRESH_TOKEN_MIGRATION = "20260621000000_unique_refresh_token_hash";
 const ECONOMY_MIGRATION = "20260805130000_game_settlement_powerup_wagers";
+const GUEST_LIFECYCLE_MIGRATION = "20260806190000_guest_lifecycle";
+const EXPECTED_FRESH_MIGRATION_COUNT = 6;
 const KNOWN_BASELINE_MIGRATIONS = [
   ...LEGACY_DUPLICATE_MIGRATIONS,
   CANONICAL_BASELINE,
@@ -53,7 +55,8 @@ async function seedRepresentativeExistingData(prisma: PrismaClient): Promise<voi
     INSERT INTO "User" ("id", "email", "displayName", "passwordHash", "updatedAt")
     VALUES
       ('migration-user-1', 'migration-1@example.com', 'Existing Player One', 'hash', CURRENT_TIMESTAMP),
-      ('migration-user-2', 'migration-2@example.com', 'Existing Player Two', 'hash', CURRENT_TIMESTAMP)
+      ('migration-user-2', 'migration-2@example.com', 'Existing Player Two', 'hash', CURRENT_TIMESTAMP),
+      ('migration-guest-1', 'migration-guest-1@guest.quizroyale.invalid', 'Existing Guest', 'hash', CURRENT_TIMESTAMP)
   `);
 
   await prisma.$executeRawUnsafe(`
@@ -77,7 +80,7 @@ async function seedRepresentativeExistingData(prisma: PrismaClient): Promise<voi
     VALUES ('migration-room-1', 'MIGR8', 'migration-user-1', 'GAME_OVER', 1, 10)
   `);
 
-  // Historical data can contain duplicate seat indexes. The new migration must
+  // Historical data can contain duplicate seat indexes. New migrations must
   // preserve those rows rather than introducing an unrelated uniqueness failure.
   await prisma.$executeRawUnsafe(`
     INSERT INTO "RoomPlayer" (
@@ -218,6 +221,14 @@ async function verifyUpgrade(prisma: PrismaClient): Promise<void> {
       to_regclass('"GameWinnerReward"')::text AS rewards
   `);
 
+  const guestLifecycle = await prisma.$queryRawUnsafe<
+    Array<{ is_guest: boolean; expires_at: Date | null }>
+  >(`
+    SELECT "isGuest" AS is_guest, "expiresAt" AS expires_at
+    FROM "User"
+    WHERE "id" = 'migration-guest-1'
+  `);
+
   if (Number(preservedUsers[0]?.count ?? 0) !== 2) {
     throw new Error("Existing users were not preserved by the migration");
   }
@@ -228,6 +239,10 @@ async function verifyUpgrade(prisma: PrismaClient): Promise<void> {
 
   if (!newTables[0]?.bets || !newTables[0]?.settlements || !newTables[0]?.rewards) {
     throw new Error("One or more settlement economy tables are missing");
+  }
+
+  if (!guestLifecycle[0]?.is_guest || !guestLifecycle[0]?.expires_at) {
+    throw new Error("Existing guest accounts were not marked for expiration");
   }
 
   await prisma.$executeRawUnsafe(`
@@ -277,14 +292,26 @@ async function verifyFreshDatabase(prisma: PrismaClient): Promise<void> {
       to_regclass('"GameSettlement"')::text AS settlements
   `);
 
-  if (Number(migrationCount[0]?.count ?? 0) !== 5) {
+  const guestColumns = await prisma.$queryRawUnsafe<Array<{ count: bigint }>>(`
+    SELECT COUNT(*)::bigint AS count
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'User'
+      AND column_name IN ('isGuest', 'expiresAt')
+  `);
+
+  if (Number(migrationCount[0]?.count ?? 0) !== EXPECTED_FRESH_MIGRATION_COUNT) {
     throw new Error(
-      `Expected 5 applied migrations after fresh bootstrap; found ${migrationCount[0]?.count ?? 0}`,
+      `Expected ${EXPECTED_FRESH_MIGRATION_COUNT} applied migrations after fresh bootstrap; found ${migrationCount[0]?.count ?? 0}`,
     );
   }
 
   if (!tables[0]?.users || !tables[0]?.bets || !tables[0]?.settlements) {
     throw new Error("Fresh database bootstrap did not create the complete schema");
+  }
+
+  if (Number(guestColumns[0]?.count ?? 0) !== 2) {
+    throw new Error("Fresh database bootstrap did not create guest lifecycle columns");
   }
 }
 
@@ -323,11 +350,13 @@ async function main(): Promise<void> {
     await seedRepresentativeExistingData(prisma);
     await prisma.$disconnect();
 
-    cpSync(
-      path.join(prismaDir, "migrations", ECONOMY_MIGRATION),
-      path.join(rehearsalMigrations, ECONOMY_MIGRATION),
-      { recursive: true },
-    );
+    for (const migrationName of [ECONOMY_MIGRATION, GUEST_LIFECYCLE_MIGRATION]) {
+      cpSync(
+        path.join(prismaDir, "migrations", migrationName),
+        path.join(rehearsalMigrations, migrationName),
+        { recursive: true },
+      );
+    }
 
     runPrisma(rehearsalSchema);
     prisma = new PrismaClient();
@@ -342,10 +371,12 @@ async function main(): Promise<void> {
     await resetPublicSchema(prisma);
     await prisma.$disconnect();
 
-    rmSync(path.join(rehearsalMigrations, ECONOMY_MIGRATION), {
-      recursive: true,
-      force: true,
-    });
+    for (const migrationName of [ECONOMY_MIGRATION, GUEST_LIFECYCLE_MIGRATION]) {
+      rmSync(path.join(rehearsalMigrations, migrationName), {
+        recursive: true,
+        force: true,
+      });
+    }
     runPrisma(rehearsalSchema);
 
     prisma = new PrismaClient();
@@ -361,7 +392,7 @@ async function main(): Promise<void> {
     await verifyUpgrade(prisma);
     await prisma.$disconnect();
 
-    // Recovery and the economy migration must also be idempotent.
+    // Recovery and later migrations must also be idempotent.
     run("npx", ["tsx", "src/scripts/reconcileLegacyMigrations.ts"]);
     run("npx", ["prisma", "migrate", "deploy"]);
 
