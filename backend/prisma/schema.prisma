@@ -83,6 +83,10 @@ model Room {
   status            RoomStatus         @default(WAITING)
   currentRound      Int                @default(0)
   totalRounds       Int                @default(10)
+  isPrivate         Boolean            @default(true)
+  maxPlayers        Int                @default(8)
+  autoStartSolo     Boolean            @default(false)
+  gameDifficulty    String             @default("medium") @db.VarChar(10)
   createdAt         DateTime           @default(now())
   startedAt         DateTime?
   finishedAt        DateTime?
