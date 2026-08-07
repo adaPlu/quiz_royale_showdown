@@ -2,6 +2,12 @@ import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 
+const nativeBuildSha =
+  process.env.VITE_BUILD_SHA?.trim() ||
+  process.env.VERCEL_GIT_COMMIT_SHA?.trim() ||
+  "unknown";
+process.env.VITE_BUILD_SHA = nativeBuildSha;
+
 export default defineConfig({
   plugins: [react()],
   resolve: {

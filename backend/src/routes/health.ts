@@ -27,7 +27,10 @@ interface HealthDependencies {
   now?: () => Date;
 }
 const VERSION = process.env.npm_package_version ?? "1.0.0";
-const BUILD_SHA = process.env.BUILD_SHA?.trim() || "unknown";
+const BUILD_SHA =
+  process.env.BUILD_SHA?.trim() ||
+  process.env.RAILWAY_GIT_COMMIT_SHA?.trim() ||
+  "unknown";
 const SERVICE = "quiz-royale-backend";
 const MIN_READY_QUESTIONS_PER_MODE = 11;
 
