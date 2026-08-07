@@ -24,6 +24,7 @@ echo "Known migration history repair completed."
 echo "Running database migrations..."
 timeout "$MIGRATION_TIMEOUT_SECONDS" npx prisma migrate deploy
 echo "Database migrations completed."
+echo "Database schema is ready for application startup."
 
 BACKFILL_TIMEOUT_SECONDS="${BACKFILL_TIMEOUT_SECONDS:-30}"
 echo "Assigning fallback names to unnamed players..."
