@@ -31,62 +31,7 @@ jobs:
 
       - name: Validate production startup and readiness
         shell: bash
-        run: |
-          set -euo pipefail
-          IMAGE="quiz-royale-backend:${DEPLOY_SHA}"
-          NETWORK="quiz-runtime-${{ github.run_id }}"
-
-          cleanup() {
-            docker logs quiz-backend 2>/dev/null || true
-            docker rm -f quiz-backend quiz-postgres quiz-redis 2>/dev/null || true
-            docker network rm "$NETWORK" 2>/dev/null || true
-          }
-          trap cleanup EXIT
-
-          docker network create "$NETWORK"
-          docker run -d --name quiz-postgres --network "$NETWORK" \
-            -e POSTGRES_USER=postgres \
-            -e POSTGRES_PASSWORD=test-password \
-            -e POSTGRES_DB=quiz_royale \
-            postgres:16-alpine
-          docker run -d --name quiz-redis --network "$NETWORK" redis:7-alpine
-
-          for attempt in {1..30}; do
-            if docker exec quiz-postgres pg_isready -U postgres -d quiz_royale >/dev/null 2>&1 \
-              && docker exec quiz-redis redis-cli ping | grep -q PONG; then
-              break
-            fi
-            sleep 2
-          done
-
-          docker run -d --name quiz-backend --network "$NETWORK" -p 4000:4000 \
-            -e NODE_ENV=production \
-            -e PORT=4000 \
-            -e LOG_LEVEL=info \
-            -e CORS_ORIGIN=https://quiz-royale-showdown.vercel.app \
-            -e DATABASE_URL=postgresql://postgres:test-password@quiz-postgres:5432/quiz_royale \
-            -e REDIS_URL=redis://quiz-redis:6379 \
-            -e JWT_ACCESS_SECRET=ci-access-secret-that-is-at-least-32-characters \
-            -e JWT_REFRESH_SECRET=ci-refresh-secret-that-is-at-least-32-characters \
-            -e ADMIN_SECRET=ci-admin-secret-that-is-at-least-32-characters \
-            -e BUILD_SHA="${DEPLOY_SHA}" \
-            "$IMAGE"
-
-          for attempt in {1..75}; do
-            if curl --fail --silent --show-error http://127.0.0.1:4000/health/ready; then
-              echo
-              echo "Backend production readiness check passed."
-              exit 0
-            fi
-            if ! docker inspect -f '{{.State.Running}}' quiz-backend | grep -q true; then
-              echo "Backend container exited before becoming ready."
-              exit 1
-            fi
-            sleep 2
-          done
-
-          echo "Backend did not become ready within 150 seconds."
-          exit 1
+        run: bash scripts/validate-backend-runtime.sh "quiz-royale-backend:${DEPLOY_SHA}" "${DEPLOY_SHA}"
 
   provider-status:
     needs: backend-image
