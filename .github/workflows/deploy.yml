@@ -10,6 +10,7 @@ on:
 permissions:
   contents: read
   actions: read
+  statuses: read
   packages: write
 
 jobs:
@@ -87,99 +88,56 @@ jobs:
           echo "Backend did not become ready within 150 seconds."
           exit 1
 
-  deploy-railway:
+  provider-status:
     needs: backend-image
     runs-on: ubuntu-latest
     env:
       DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
-      HAS_RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN != '' }}
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.DEPLOY_SHA }}
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: Require Railway token
-        if: env.HAS_RAILWAY_TOKEN != 'true'
-        run: |
-          echo "RAILWAY_TOKEN is not configured."
-          exit 1
-
-      - name: Set Railway deployment SHA
-        run: npm exec --yes --package @railway/cli@5.24.0 -- railway variable set "BUILD_SHA=${DEPLOY_SHA}" --service quiz_royale_showdown
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-
-      - name: Deploy Railway backend
-        run: npm exec --yes --package @railway/cli@5.24.0 -- railway up --service quiz_royale_showdown --ci
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-
-  deploy-vercel:
-    needs: backend-image
-    runs-on: ubuntu-latest
-    env:
-      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
-      HAS_VERCEL_CONFIG: ${{ secrets.VERCEL_TOKEN != '' && secrets.VERCEL_ORG_ID != '' && secrets.VERCEL_PROJECT_ID != '' }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.DEPLOY_SHA }}
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: Require Vercel credentials
-        if: env.HAS_VERCEL_CONFIG != 'true'
-        run: |
-          echo "VERCEL_TOKEN, VERCEL_ORG_ID, and VERCEL_PROJECT_ID are required."
-          exit 1
-
-      - name: Pull Vercel project config
-        run: npm exec --yes --package vercel@58.4.4 -- vercel pull --yes --environment=production --scope adaplus-projects --token "${{ secrets.VERCEL_TOKEN }}"
-        working-directory: webapp
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-
-      - name: Build Vercel output for deployment SHA
-        run: npm exec --yes --package vercel@58.4.4 -- vercel build --prod --scope adaplus-projects --token "${{ secrets.VERCEL_TOKEN }}"
-        working-directory: webapp
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-          VITE_BUILD_SHA: ${{ env.DEPLOY_SHA }}
-
-      - name: Deploy Vercel output
-        run: npm exec --yes --package vercel@58.4.4 -- vercel deploy --prebuilt --prod --scope adaplus-projects --token "${{ secrets.VERCEL_TOKEN }}"
-        working-directory: webapp
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-
-  release-gate:
-    needs:
-      - deploy-railway
-      - deploy-vercel
-    runs-on: ubuntu-latest
-    env:
-      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
-      FRONTEND_URL: ${{ vars.PRODUCTION_FRONTEND_URL }}
-      BACKEND_URL: ${{ vars.PRODUCTION_BACKEND_URL }}
-    steps:
-      - name: Require production service URLs
+      - name: Wait for native Railway and Vercel deployments
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${FRONTEND_URL}" ] || [ -z "${BACKEND_URL}" ]; then
-            echo "PRODUCTION_FRONTEND_URL and PRODUCTION_BACKEND_URL repository variables are required."
-            exit 1
-          fi
+          STATUS_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${DEPLOY_SHA}/status"
 
+          for attempt in {1..120}; do
+            STATUS_JSON="$(curl --fail --silent --show-error \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$STATUS_URL")"
+
+            VERCEL_STATE="$(printf '%s' "$STATUS_JSON" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(next((item.get("state", "") for item in data.get("statuses", []) if item.get("context") == "Vercel"), ""))')"
+            RAILWAY_STATE="$(printf '%s' "$STATUS_JSON" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(next((item.get("state", "") for item in data.get("statuses", []) if "quiz_royale_showdown" in item.get("context", "")), ""))')"
+
+            echo "Provider attempt ${attempt}: Vercel=${VERCEL_STATE:-pending} Railway=${RAILWAY_STATE:-pending}"
+
+            if [ "$VERCEL_STATE" = "failure" ] || [ "$VERCEL_STATE" = "error" ] \
+              || [ "$RAILWAY_STATE" = "failure" ] || [ "$RAILWAY_STATE" = "error" ]; then
+              echo "A native provider deployment failed."
+              exit 1
+            fi
+
+            if [ "$VERCEL_STATE" = "success" ] && [ "$RAILWAY_STATE" = "success" ]; then
+              echo "Native Railway and Vercel deployments completed successfully."
+              exit 0
+            fi
+
+            sleep 5
+          done
+
+          echo "Native provider deployments did not complete within 10 minutes."
+          exit 1
+
+  release-gate:
+    needs: provider-status
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+      FRONTEND_URL: ${{ vars.PRODUCTION_FRONTEND_URL || 'https://quiz-royale-showdown.vercel.app' }}
+      BACKEND_URL: ${{ vars.PRODUCTION_BACKEND_URL || 'https://quizroyaleshowdown-production.up.railway.app' }}
+    steps:
       - name: Verify live frontend and backend SHA synchronization
         shell: bash
         run: |
@@ -187,7 +145,7 @@ jobs:
           FRONTEND_URL="${FRONTEND_URL%/}"
           BACKEND_URL="${BACKEND_URL%/}"
 
-          for attempt in {1..36}; do
+          for attempt in {1..60}; do
             BACKEND_JSON="$(curl --fail --silent --show-error --max-time 10 "${BACKEND_URL}/health" || true)"
             FRONTEND_HTML="$(curl --fail --silent --show-error --max-time 10 "${FRONTEND_URL}/" || true)"
 
