@@ -25,6 +25,9 @@ const gameOrchestratorMock = vi.hoisted(() => ({
 }));
 
 const prismaMock = vi.hoisted(() => ({
+  room: {
+    findUnique: vi.fn(),
+  },
   roomPlayer: {
     findMany: vi.fn(),
   },
@@ -135,6 +138,7 @@ describe("room routes", () => {
     gameOrchestratorMock.hasActiveGame.mockReturnValue(false);
     gameOrchestratorMock.assertQuestionBankReady.mockResolvedValue(undefined);
     gameOrchestratorMock.startGame.mockResolvedValue(undefined);
+    prismaMock.room.findUnique.mockResolvedValue({ gameDifficulty: "medium" });
     prismaMock.roomPlayer.findMany.mockResolvedValue([{ userId: "host-user" }]);
   });
 

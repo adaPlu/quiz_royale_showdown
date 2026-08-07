@@ -129,7 +129,7 @@ export class RoomService {
       room = await this.matchmakeOrCreate(userId);
     }
 
-    const config = await this.getRoomConfig(room.id);
+    const config = this.configFromRoom(room);
     const joinResult = await this.joinRoomPlayer(room.id, userId, config);
     if (joinResult.joined) {
       await this.addLivePlayer(room.id, userId);
@@ -569,6 +569,16 @@ export class RoomService {
     await redisService.srem(`room:${roomId}:players`, userId);
   }
 
+  private configFromRoom(
+    room: Pick<Room, "isPrivate" | "maxPlayers" | "autoStartSolo">,
+  ): RoomConfig {
+    return {
+      isPrivate: room.isPrivate ?? DEFAULT_ROOM_CONFIG.isPrivate,
+      maxPlayers: room.maxPlayers ?? DEFAULT_ROOM_CONFIG.maxPlayers,
+      autoStartSolo: room.autoStartSolo ?? DEFAULT_ROOM_CONFIG.autoStartSolo,
+    };
+  }
+
   private async setRoomConfig(roomId: string, config: RoomConfig): Promise<void> {
     await prisma.room.update({
       where: { id: roomId },
@@ -635,7 +645,7 @@ export class RoomService {
     room: RoomWithPlayers,
     configOverride?: RoomConfig
   ): Promise<RoomLifecycleState> {
-    const config = configOverride ?? (await this.getRoomConfig(room.id));
+    const config = configOverride ?? this.configFromRoom(room);
 
     return {
       room: {
