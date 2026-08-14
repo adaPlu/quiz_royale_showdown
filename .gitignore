@@ -125,3 +125,8 @@ credentials/
 .cache/
 tmp/
 .temp/
+
+# Claude Code agent worktrees — ephemeral full repo checkouts (~71MB across 13
+# dirs at time of writing). Never commit these; `git add -A` from the repo root
+# would otherwise pull in nested checkouts.
+.claude/worktrees/
