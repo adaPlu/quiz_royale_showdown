@@ -48,7 +48,11 @@ echo "Player display names are ready."
 
 GUEST_CLEANUP_TIMEOUT_SECONDS="${GUEST_CLEANUP_TIMEOUT_SECONDS:-30}"
 echo "Cleaning up expired guest accounts..."
-timeout "$GUEST_CLEANUP_TIMEOUT_SECONDS" node dist/scripts/cleanupExpiredGuests.js
+# DATA-10: never let opportunistic housekeeping block the server from starting.
+# This step previously ran under `set -e` ahead of `exec node dist/index.js`, so a
+# single undeletable guest row aborted boot permanently — the offending Room row is
+# durable, so every subsequent deploy failed identically. Cleanup is best-effort.
+timeout "$GUEST_CLEANUP_TIMEOUT_SECONDS" node dist/scripts/cleanupExpiredGuests.js ||   echo "Guest cleanup failed; continuing startup (non-fatal)."
 echo "Guest account cleanup completed."
 
 SEED_TIMEOUT_SECONDS="${SEED_TIMEOUT_SECONDS:-60}"

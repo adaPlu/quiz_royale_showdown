@@ -18,13 +18,21 @@ async function main(): Promise<void> {
           room: { select: { status: true } },
         },
       },
+      // DATA-10: a guest who joined public matchmaking with no room code becomes
+      // the room's host (matchmakeOrCreate -> createRoomEntity). Room_hostUserId_fkey
+      // is ON DELETE RESTRICT and finished rooms are never deleted, so deleting such
+      // a guest raises P2003. Membership status alone does not capture this — the
+      // guest's own RoomPlayer row points at a GAME_OVER room and looks eligible.
+      roomsHosted: { select: { id: true }, take: 1 },
     },
     take: 500,
   });
 
   const removableIds = expiredGuests
-    .filter((guest) =>
-      guest.roomPlayers.every((membership) => membership.room.status === RoomStatus.GAME_OVER)
+    .filter(
+      (guest) =>
+        guest.roomsHosted.length === 0 &&
+        guest.roomPlayers.every((membership) => membership.room.status === RoomStatus.GAME_OVER)
     )
     .map((guest) => guest.id);
 
