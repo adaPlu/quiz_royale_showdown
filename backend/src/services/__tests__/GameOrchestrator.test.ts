@@ -29,6 +29,13 @@ const prismaMock = {
   xpEvent: {
     create: vi.fn()
   },
+  // Season pass lookup added when settlement was wired to pass progression.
+  seasonPass: {
+    findUnique: vi.fn(),
+  },
+  userSeasonPass: {
+    upsert: vi.fn(),
+  },
   seasonScore: {
     upsert: vi.fn()
   },

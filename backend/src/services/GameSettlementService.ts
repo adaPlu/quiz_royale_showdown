@@ -4,6 +4,7 @@ import { prisma } from "../models/prismaClient";
 import { generateId } from "../utils/ulid";
 import { logger } from "../utils/logger";
 import { CANONICAL_PHASE_2_POWERUP_CODES } from "./PowerUpService";
+import { seasonPassService } from "./SeasonPassService";
 
 export interface SettlementStanding {
   playerId: string;
@@ -108,7 +109,28 @@ export class GameSettlementService {
           }
         }
 
+        // Season pass progression rides the same transaction as settlement, so
+        // a rolled-back settlement cannot leave orphaned pass XP. This adds one
+        // upsert per player to a loop that already does one xpEvent.create per
+        // player — it roughly doubles that loop rather than introducing a new
+        // N, and settlement now retries serialization conflicts (SETTLE-RETRY).
+        const seasonPass = room.seasonId
+          ? await tx.seasonPass.findUnique({
+              where: { seasonId: room.seasonId },
+              select: { id: true },
+            })
+          : null;
+
         for (const standing of input.persistentStandings) {
+          if (seasonPass) {
+            await seasonPassService.addPassXp(
+              standing.playerId,
+              seasonPass.id,
+              standing.xpAwarded,
+              tx,
+            );
+          }
+
           await tx.xpEvent.create({
             data: {
               id: generateId(),
