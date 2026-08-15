@@ -124,44 +124,73 @@ export async function rotateRefreshToken(incomingRefreshToken: string): Promise<
   const payload = verifyRefreshToken(incomingRefreshToken);
   const incomingTokenHash = hashRefreshToken(incomingRefreshToken);
 
-  return prisma.$transaction(async (tx) => {
-    const consumeResult = await tx.refreshToken.deleteMany({
-      where: {
-        tokenHash: incomingTokenHash,
-        userId: payload.sub,
-        expiresAt: {
-          gt: new Date()
+  // SEC-11: set inside the transaction, acted on outside it. The family sweep
+  // MUST NOT run inside the callback — Prisma rolls an interactive transaction
+  // back when the callback throws, so a sweep followed by a throw is silently
+  // undone and the stolen chain survives. Mocked tests cannot catch that: a
+  // `$transaction: (cb) => cb(tx)` double has no rollback semantics.
+  let reuseDetected = false;
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const consumeResult = await tx.refreshToken.deleteMany({
+        where: {
+          tokenHash: incomingTokenHash,
+          userId: payload.sub,
+          expiresAt: {
+            gt: new Date()
+          }
         }
-      }
-    });
+      });
 
-    if (consumeResult.count !== 1) {
-      throw new UnauthorizedError("Refresh token revoked");
+      if (consumeResult.count !== 1) {
+        // count === 0 is the signature of a replay. Discarding it as a plain 401
+        // let a stolen token stay useful: rotation is single-use, so if an
+        // attacker redeems first they own the live chain, the real client gets a
+        // 401 and re-authenticates, and the theft is absorbed silently while the
+        // attacker keeps rotating for the full refresh TTL.
+        //
+        // No stale-row check: `expiresAt` is derived from the JWT's own `exp`
+        // (getRefreshTokenExpiry), so the DB row and the JWT expire at the same
+        // instant. verifyRefreshToken already rejected expired tokens above,
+        // which means count === 0 here can ONLY mean the hash was consumed.
+        // A guard distinguishing "expired row" from "replay" would be dead code.
+        reuseDetected = true;
+        throw new UnauthorizedError("Refresh token reuse detected");
+      }
+
+      const user = await tx.user.findUnique({
+        where: { id: payload.sub },
+        select: { id: true, email: true, displayName: true }
+      });
+
+      if (!user) {
+        throw new UnauthorizedError("User not found");
+      }
+
+      const accessToken = signAccessToken(user);
+      const refreshToken = signRefreshToken(user);
+
+      await tx.refreshToken.create({
+        data: {
+          id: ulid(),
+          userId: user.id,
+          tokenHash: hashRefreshToken(refreshToken),
+          expiresAt: getRefreshTokenExpiry(refreshToken)
+        }
+      });
+
+      return { accessToken, refreshToken };
+    });
+  } catch (error) {
+    if (reuseDetected) {
+      // Outside the rolled-back transaction, so this actually persists. Uses the
+      // top-level client deliberately: `tx` is dead once the callback threw.
+      await prisma.refreshToken.deleteMany({ where: { userId: payload.sub } });
     }
 
-    const user = await tx.user.findUnique({
-      where: { id: payload.sub },
-      select: { id: true, email: true, displayName: true }
-    });
-
-    if (!user) {
-      throw new UnauthorizedError("User not found");
-    }
-
-    const accessToken = signAccessToken(user);
-    const refreshToken = signRefreshToken(user);
-
-    await tx.refreshToken.create({
-      data: {
-        id: ulid(),
-        userId: user.id,
-        tokenHash: hashRefreshToken(refreshToken),
-        expiresAt: getRefreshTokenExpiry(refreshToken)
-      }
-    });
-
-    return { accessToken, refreshToken };
-  });
+    throw error;
+  }
 }
 
 export async function revokeRefreshToken(token: string): Promise<void> {
