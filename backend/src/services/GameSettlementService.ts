@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "../models/prismaClient";
 import { generateId } from "../utils/ulid";
+import { logger } from "../utils/logger";
 import { CANONICAL_PHASE_2_POWERUP_CODES } from "./PowerUpService";
 
 export interface SettlementStanding {
@@ -31,6 +32,19 @@ function stableHash(value: string): number {
   return hash;
 }
 
+// SETTLE-RETRY: bounded retry for Serializable conflicts. Settlement is
+// idempotent (GameSettlement_roomId_key), so re-running is safe.
+const SETTLE_MAX_ATTEMPTS = 3;
+
+function isSerializationConflict(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: string }).code === "P2034"
+  );
+}
+
 function isUniqueConstraintError(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
@@ -41,6 +55,18 @@ export class GameSettlementService {
     winnerIds: string[];
     persistentStandings: SettlementStanding[];
   }): Promise<GameSettlementResult> {
+    // SETTLE-RETRY. This transaction is Serializable and, until now, had no
+    // retry: P2002 took the idempotent already-settled path and every other
+    // error — including P2034 serialization conflicts — was rethrown, which
+    // means the match never settles. No XP, no rewards, no MMR.
+    //
+    // That was survivable only because the SeasonScore block below is currently
+    // unreachable (nothing creates a Season or sets Room.seasonId). Activating
+    // seasons makes it hot: one upsert per player, up to Room.maxPlayers (100),
+    // sequentially inside the Serializable transaction. Contention on
+    // SeasonScore rows is exactly what produces P2034 — so the season pass would
+    // have made launch traffic the first real execution of this path.
+    for (let attempt = 1; attempt <= SETTLE_MAX_ATTEMPTS; attempt += 1) {
     try {
       const winnerPowerUpRewards = await prisma.$transaction(async (tx) => {
         await tx.gameSettlement.create({
@@ -152,6 +178,22 @@ export class GameSettlementService {
 
       return { alreadySettled: false, winnerPowerUpRewards };
     } catch (error) {
+      // Retry serialization conflicts before falling through. The whole
+      // transaction rolled back, so a retry re-runs it cleanly — including the
+      // gameSettlement.create, whose unique constraint still guarantees exactly
+      // one settlement survives.
+      if (isSerializationConflict(error) && attempt < SETTLE_MAX_ATTEMPTS) {
+        continue;
+      }
+
+      if (isSerializationConflict(error)) {
+        logger.error("Game settlement exhausted serialization retries; match not settled", {
+          roomId: input.roomId,
+          attempts: SETTLE_MAX_ATTEMPTS,
+        });
+        throw error;
+      }
+
       if (!isUniqueConstraintError(error)) throw error;
 
       const existingRewards = await prisma.gameWinnerReward.findMany({
@@ -170,6 +212,11 @@ export class GameSettlementService {
         })),
       };
     }
+    }
+
+    // Unreachable: the loop either returns or throws on the final attempt.
+    // Present so the function satisfies its return type without a cast.
+    throw new Error("Game settlement retry loop exited unexpectedly");
   }
 }
 
