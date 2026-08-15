@@ -42,12 +42,48 @@ Emit an architecture map: component · responsibility · inputs · outputs ·
 dependencies · external systems · security-sensitive operations · trust
 boundaries.
 
-**Check the repo layout for traps before assigning work.** This project is
-several git worktrees of one repo (`QuizGame`, `-main`, `-backend`, `-android`,
-`-webapp`) on *different branches*. An auditor pointed at the wrong worktree will
-report a real defect against the wrong branch. That happened in a previous audit
-here: a finding was raised against `main`'s `start.sh` when the defect existed
-only on `feature/backend`. **State the worktree and branch in every agent brief.**
+### GATE 0 — prove the baseline is current, before anything else
+
+Naming the branch is not enough. **Run this and act on the number:**
+
+```bash
+git fetch origin --quiet
+git log --oneline HEAD..origin/main | wc -l     # commits main has that you don't
+git diff --stat HEAD origin/main | tail -1      # files / lines of divergence
+```
+
+- **0** → proceed.
+- **Non-zero** → **STOP.** You are about to audit dead code. Check out the branch
+  that actually ships and audit that, or tell the user the baseline is stale and
+  let them choose. Do **not** proceed and caveat it afterwards: every downstream
+  finding inherits the error — including your own verification steps — and a
+  false positive is indistinguishable from a real finding until someone
+  re-checks every one of them.
+
+This is not hypothetical. An audit in this repo ran against a branch **69 commits
+and ~33,000 lines behind `origin/main`** and produced one Critical plus four
+Highs. Re-verified against `origin/main`, **six of seven were false positives** —
+the missing commits were titled "Remediate production audit findings" and
+"production hardening". Hours of agent time yielded one Low-severity change. The
+graph, the fan-out, and the independent verification all worked correctly. They
+were pointed at code nobody runs.
+
+Re-run Gate 0 for **every** worktree you assign work in — they sit on different
+branches and go stale independently.
+
+**Then check the repo layout for traps.** This project is several git worktrees
+of one repo (`QuizGame`, `-main`, `-backend`, `-android`, `-webapp`) on
+*different branches*. An auditor pointed at the wrong worktree reports a real
+defect against the wrong branch — that happened here too, when a `start.sh`
+finding was raised against `main` but existed only on `feature/backend`.
+
+**State the worktree, the branch, AND its Gate 0 number in every agent brief** —
+e.g. "worktree `QuizGame`, branch `main`, 0 commits behind origin".
+
+**Stale build artifacts lie exactly like stale source.** A generated Prisma
+client, `dist/`, or a `node_modules` left over from another branch produces
+phantom type errors that look like findings. Regenerate before treating any build
+output as evidence — in this repo, `npx prisma generate`.
 
 Also read `LLMHandOff.md` first — prior findings, their IDs, and their evidence
 levels. Don't re-derive what's already established, and don't renumber.

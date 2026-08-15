@@ -35,6 +35,29 @@ Take only VERIFIED findings. Skip FALSE_POSITIVE, rejected, speculative, and
 NEEDS_MORE_EVIDENCE. Use the final severity for anything downgraded. **Never
 renumber an ID** — they are the join key across sessions.
 
+### GATE 0 — the findings and your working tree must share a baseline
+
+A verified finding is only verified *against the commit it was found on*. Before
+fixing anything:
+
+```bash
+git fetch origin --quiet
+git log --oneline HEAD..origin/main | wc -l    # your tree vs what ships
+```
+
+Then ask: **was the audit run on this same baseline?** If the audit branch and
+your working tree differ, findings will not land where the audit said they were,
+and some will already be fixed.
+
+Non-zero, or an audit run elsewhere → **STOP and re-verify each finding against
+the tree you are about to edit** before writing a line. Cheap: grep for the
+vulnerable construct at the cited `file:line`. If it isn't there, the finding is
+`FALSE_POSITIVE (stale baseline)` — record that, don't "fix" it.
+
+Earned here: an audit against a branch 69 commits behind `origin/main` produced
+seven findings; six were already fixed on main. Re-verification took one command
+each. Implementing them would have re-introduced nothing and wasted everything.
+
 ## 2. Normalize root causes
 
 Map `FINDING → ROOT CAUSE → REQUIRED CHANGE`. Fix a shared root cause once when
