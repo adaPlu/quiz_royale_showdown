@@ -127,6 +127,35 @@ jobs:
       - name: Rehearse populated upgrade and fresh bootstrap
         run: npm run test:migrations -w backend
 
+      # CI-01. Fails the build when prisma/migrations no longer fully expresses
+      # schema.prisma.
+      #
+      # This is the control that would have caught DATA-01/02: three tables, an
+      # enum, and all 18 @@index declarations existed only in schema.prisma and
+      # were created by no migration. `prisma migrate deploy` only applies files
+      # in prisma/migrations and never reads the schema, so the drift was
+      # invisible in every environment until a mounted route hit a missing table.
+      #
+      # Diffs the live catalog left by the rehearsal step above against the
+      # declared datamodel. --exit-code makes a non-empty diff a non-zero exit.
+      # Reusing the datasource avoids needing a shadow database.
+      #
+      # ORDERING IS LOAD-BEARING: this step deliberately does NOT run
+      # `prisma migrate deploy` itself. The repo carries two byte-identical init
+      # migrations, and Postgres has no CREATE TYPE IF NOT EXISTS, so a bare
+      # deploy against a clean database fails with "type already exists". Only
+      # reconcileLegacyMigrations (invoked by test:migrations above, via
+      # start.sh's chain) resolves the duplicates by marking them applied. Keep
+      # this step immediately after the rehearsal, and do not set
+      # continue-on-error on that step.
+      - name: Check for migration drift
+        working-directory: backend
+        run: |
+          npx prisma migrate diff \
+            --from-schema-datasource ./prisma/schema.prisma \
+            --to-schema-datamodel ./prisma/schema.prisma \
+            --exit-code
+
   android:
     runs-on: ubuntu-latest
     steps:
