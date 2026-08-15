@@ -3,6 +3,10 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../models/prismaClient";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../utils/errors";
 import { generateId } from "../utils/ulid";
+import { logger } from "../utils/logger";
+
+// DATA-12a: bounded retry for Serializable conflicts on the refund path.
+const REFUND_MAX_ATTEMPTS = 3;
 
 export interface PowerUpWagerPayout {
   userId: string;
@@ -94,34 +98,93 @@ export class PowerUpWagerService {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
-  async refundWager(roundId: string, userId: string): Promise<void> {
-    await prisma.$transaction(async (tx) => {
-      const bet = await tx.powerUpBet.findUnique({
-        where: { roundId_userId: { roundId, userId } },
-      });
-      if (!bet || bet.status !== "PLACED") return;
+  private isSerializationConflict(error: unknown): boolean {
+    return (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as { code?: string }).code === "P2034"
+    );
+  }
 
-      await tx.playerPowerUp.upsert({
-        where: {
-          userId_powerUpId: {
+  async refundWager(roundId: string, userId: string): Promise<void> {
+    // DATA-12a (regression introduced by the DATA-12 fix): raising this
+    // transaction to Serializable made P2034 serialization failures possible
+    // where READ COMMITTED could not produce them. Both call sites swallow
+    // errors — submitAnswer.ts:240 and :250 use `.catch(() => undefined)` — and
+    // placeWager has already decremented inventory by this point, so an
+    // unretried conflict silently destroys the player's power-up.
+    //
+    // Retry on conflict, mirroring RoomService.joinRoomPlayer's house pattern.
+    for (let attempt = 1; attempt <= REFUND_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        await this.refundWagerOnce(roundId, userId);
+        return;
+      } catch (error) {
+        if (this.isSerializationConflict(error) && attempt < REFUND_MAX_ATTEMPTS) {
+          continue;
+        }
+
+        // Surface it rather than letting the caller's catch swallow it silently:
+        // a lost power-up with no log line is undiagnosable.
+        logger.error("Wager refund failed; player power-up may not be restored", {
+          roundId,
+          userId,
+          attempt,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    }
+  }
+
+  private async refundWagerOnce(roundId: string, userId: string): Promise<void> {
+    // DATA-12: this read-then-write ran at the Postgres default (READ COMMITTED)
+    // with the status predicate only on the *read*, so it could double-credit.
+    // settleRoundWagers (Serializable) could credit a payout and set WON while
+    // this transaction had already read PLACED; SSI does not protect a
+    // Serializable transaction from a READ COMMITTED one, so the unpredicated
+    // update below then blocked on settle's row lock and overwrote WON with
+    // REFUNDED. The player kept both the payout and the refund, and the bet row
+    // showed REFUNDED with a non-zero payoutQuantity — silently un-auditable.
+    //
+    // Two guards, because either alone is insufficient: Serializable makes the
+    // conflict detectable, and the status predicate on the write makes the
+    // transition itself conditional rather than last-writer-wins.
+    await prisma.$transaction(
+      async (tx) => {
+        const bet = await tx.powerUpBet.findUnique({
+          where: { roundId_userId: { roundId, userId } },
+        });
+        if (!bet || bet.status !== "PLACED") return;
+
+        const claimed = await tx.powerUpBet.updateMany({
+          where: { id: bet.id, status: "PLACED" },
+          data: { status: "REFUNDED", settledAt: new Date() },
+        });
+
+        // Someone else settled this bet between the read and here. Credit
+        // nothing — their payout stands.
+        if (claimed.count !== 1) return;
+
+        await tx.playerPowerUp.upsert({
+          where: {
+            userId_powerUpId: {
+              userId: bet.userId,
+              powerUpId: bet.powerUpId,
+            },
+          },
+          create: {
+            id: generateId(),
             userId: bet.userId,
             powerUpId: bet.powerUpId,
+            quantity: bet.quantity,
           },
-        },
-        create: {
-          id: generateId(),
-          userId: bet.userId,
-          powerUpId: bet.powerUpId,
-          quantity: bet.quantity,
-        },
-        update: { quantity: { increment: bet.quantity } },
-      });
-
-      await tx.powerUpBet.update({
-        where: { id: bet.id },
-        data: { status: "REFUNDED", settledAt: new Date() },
-      });
-    });
+          update: { quantity: { increment: bet.quantity } },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   }
 
   async settleRoundWagers(
