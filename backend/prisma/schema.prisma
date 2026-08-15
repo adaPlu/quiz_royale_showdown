@@ -36,6 +36,27 @@ enum FriendshipStatus {
   BLOCKED
 }
 
+enum SeasonPassTrack {
+  FREE
+  PREMIUM
+}
+
+// Premium entitlement is tracked separately from the receipt so it can be
+// revoked without deleting purchase history. REVOKED locks future premium
+// tiers; it never touches rewards already claimed.
+enum SeasonPassEntitlement {
+  NONE
+  ACTIVE
+  REVOKED
+}
+
+enum PurchaseStatus {
+  PENDING
+  VALIDATED
+  REFUNDED
+  REVOKED
+}
+
 enum PowerUpBetStatus {
   PLACED
   WON
@@ -65,6 +86,7 @@ model User {
   userCosmetics     UserCosmetic[]
   xpEvents          XpEvent[]
   seasonScores      SeasonScore[]
+  seasonPasses      UserSeasonPass[]
   purchaseReceipts  PurchaseReceipt[]
   sentFriendships   Friendship[]       @relation("SentRequests")
   receivedFriendships Friendship[]     @relation("ReceivedRequests")
@@ -187,6 +209,7 @@ model PowerUp {
   playerPowerUps PlayerPowerUp[]
   uses           PowerUpUse[]
   bets           PowerUpBet[]
+  passTiers      SeasonPassTier[]
   winnerRewards  GameWinnerReward[]
 }
 
@@ -266,6 +289,7 @@ model Cosmetic {
   rarity        String
   createdAt     DateTime       @default(now())
   userCosmetics UserCosmetic[]
+  passTiers     SeasonPassTier[]
 }
 
 model UserCosmetic {
@@ -301,6 +325,7 @@ model Season {
   createdAt     DateTime      @default(now())
   rooms         Room[]
   seasonScores  SeasonScore[]
+  seasonPass    SeasonPass?
 
   @@index([startsAt, endsAt])
 }
@@ -326,10 +351,11 @@ model PurchaseReceipt {
   providerReceiptId String   @unique
   sku               String
   amountCents       Int
-  currencyCode      String   @db.VarChar(3)
-  status            String
-  createdAt         DateTime @default(now())
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currencyCode      String         @db.VarChar(3)
+  status            PurchaseStatus @default(PENDING)
+  createdAt         DateTime       @default(now())
+  user              User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  seasonPasses      UserSeasonPass[]
 }
 
 model Friendship {
@@ -345,4 +371,79 @@ model Friendship {
   @@unique([requesterId, addresseeId])
   @@index([requesterId])
   @@index([addresseeId, status])
+}
+
+// ---------------------------------------------------------------------------
+// Season pass
+//
+// Progression is deliberately separate from SeasonScore. SeasonScore is
+// competitive standing (mmr/wins); the pass is a spend-and-play track. A strong
+// player ranks high without buying; a casual buyer progresses the pass. Merging
+// them would couple matchmaking rating to monetisation.
+// ---------------------------------------------------------------------------
+
+model SeasonPass {
+  id          String           @id @db.VarChar(26)
+  seasonId    String           @unique @db.VarChar(26)
+  premiumSku  String
+  tierCount   Int
+  xpPerTier   Int
+  createdAt   DateTime         @default(now())
+  season      Season           @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  tiers       SeasonPassTier[]
+  userPasses  UserSeasonPass[]
+}
+
+model SeasonPassTier {
+  id              String          @id @db.VarChar(26)
+  seasonPassId    String          @db.VarChar(26)
+  tier            Int
+  track           SeasonPassTrack
+  cosmeticId      String?         @db.VarChar(26)
+  powerUpId       String?         @db.VarChar(26)
+  powerUpQuantity Int             @default(0)
+  seasonPass      SeasonPass      @relation(fields: [seasonPassId], references: [id], onDelete: Cascade)
+  cosmetic        Cosmetic?       @relation(fields: [cosmeticId], references: [id], onDelete: Restrict)
+  powerUp         PowerUp?        @relation(fields: [powerUpId], references: [id], onDelete: Restrict)
+  claims          UserSeasonPassClaim[]
+
+  // One reward slot per (pass, tier, track) so FREE and PREMIUM can both exist
+  // at the same tier number.
+  @@unique([seasonPassId, tier, track])
+  @@index([seasonPassId, tier])
+}
+
+model UserSeasonPass {
+  id                String                @id @db.VarChar(26)
+  seasonPassId      String                @db.VarChar(26)
+  userId            String                @db.VarChar(26)
+  entitlement       SeasonPassEntitlement @default(NONE)
+  premiumReceiptId  String?               @db.VarChar(26)
+  earnedXp          Int                   @default(0)
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  seasonPass        SeasonPass            @relation(fields: [seasonPassId], references: [id], onDelete: Cascade)
+  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  premiumReceipt    PurchaseReceipt?      @relation(fields: [premiumReceiptId], references: [id], onDelete: SetNull)
+  claims            UserSeasonPassClaim[]
+
+  @@unique([seasonPassId, userId])
+  @@index([userId])
+}
+
+// Append-only claim ledger. Rows are NEVER deleted — that is what makes
+// "revoke premium, keep already-claimed rewards" work: revocation flips
+// UserSeasonPass.entitlement to REVOKED, which gates future PREMIUM tiers,
+// while every row here stays as proof the reward was legitimately earned.
+// The compound unique makes claiming idempotent under retry.
+model UserSeasonPassClaim {
+  id               String         @id @db.VarChar(26)
+  userSeasonPassId String         @db.VarChar(26)
+  tierId           String         @db.VarChar(26)
+  claimedAt        DateTime       @default(now())
+  userSeasonPass   UserSeasonPass @relation(fields: [userSeasonPassId], references: [id], onDelete: Cascade)
+  tier             SeasonPassTier @relation(fields: [tierId], references: [id], onDelete: Restrict)
+
+  @@unique([userSeasonPassId, tierId])
+  @@index([userSeasonPassId])
 }
