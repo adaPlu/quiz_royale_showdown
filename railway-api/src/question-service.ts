@@ -74,6 +74,7 @@ type QuestionBankRow = {
   createdAt: string | Date | null;
   review_status?: string | null;
   source?: string | null;
+  content_hash?: string | null;
 };
 
 export async function selectQuestionSet(db: DbClient, count: number): Promise<QuestionForMatch[]> {
@@ -115,10 +116,10 @@ export async function upsertQuestions(db: DbClient, records: QuestionRecord[]): 
     const result = await db.query(
       `INSERT INTO "QuestionBank"(id, prompt, "optionA", "optionB", "optionC", "optionD", "correctIndex",
                                   category, difficulty, "lastUsedAt", "isActive", "createdAt",
-                                  review_status, source, generated_at)
+                                  review_status, source, generated_at, content_hash)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, upper($9)::"Difficulty", NULL, $10, to_timestamp($11 / 1000.0),
-               $12, $13, $14)
-       ON CONFLICT (id) DO NOTHING
+               $12, $13, $14, $15)
+       ON CONFLICT DO NOTHING
        RETURNING id`,
       [
         question.questionId,
@@ -135,6 +136,7 @@ export async function upsertQuestions(db: DbClient, records: QuestionRecord[]): 
         question.status === "active" ? "approved" : question.status === "rejected" ? "rejected" : "pending",
         question.source === "static" ? "manual" : question.source,
         question.source === "generated" ? new Date(question.createdAt) : null,
+        question.contentHash,
       ],
     );
     if (result.rowCount) inserted += 1;
@@ -208,8 +210,9 @@ export function normalizeGeneratedQuestionForStorage(
   const parsed = questionInputSchema.safeParse(raw);
   if (!parsed.success) return null;
   const input = parsed.data satisfies QuestionInput;
-  const category = canonicalCategory(input.category);
-  if (!category) return null;
+  const category = canonicalCategory(requestedCategory);
+  const inputCategory = canonicalCategory(input.category);
+  if (!category || inputCategory !== category || input.difficulty !== requestedDifficulty) return null;
   const options = input.options.map(normalizeText);
   const text = normalizeText(input.text);
   const correct = input.correctIndex ?? input.correct;
@@ -217,12 +220,12 @@ export function normalizeGeneratedQuestionForStorage(
 
   const hasDuplicateOptions = new Set(options.map((option) => option.toLowerCase())).size !== options.length;
   const status: QuestionStatus = "pending_review";
-  const contentHash = questionContentHash(category, input.difficulty, text, options, correct);
+  const contentHash = questionContentHash(category, requestedDifficulty, text, options, correct);
   const now = Date.now();
   return {
     questionId: normalizeQuestionId(input.questionId ?? input.id ?? `q-${contentHash.slice(0, 16)}`),
     category,
-    difficulty: input.difficulty,
+    difficulty: requestedDifficulty,
     text,
     options,
     correct,
@@ -301,7 +304,7 @@ async function activeQuestionBankQuestions(db: DbClient, difficulty: Difficulty)
     const rows = await db.query<QuestionBankRow>(
       `SELECT id, prompt, "optionA", "optionB", "optionC", "optionD", "correctIndex",
               category, difficulty::text AS difficulty, "lastUsedAt", "isActive", "createdAt",
-              review_status, source
+              review_status, source, content_hash
        FROM "QuestionBank"
        WHERE "isActive" = true AND review_status = 'approved' AND lower(difficulty::text) = $1
        ORDER BY "lastUsedAt" ASC NULLS FIRST, "createdAt" ASC`,
@@ -333,7 +336,7 @@ function rowToQuestionBankQuestion(row: QuestionBankRow): QuestionRecord | null 
     text,
     options,
     correct,
-    contentHash: `questionbank:${questionId}`,
+    contentHash: row.content_hash ?? questionContentHash(normalizeText(row.category), difficulty as Difficulty, text, options, correct),
     source: row.source === "generated" || row.source === "manual" ? row.source : "import",
     status: "active",
     createdAt,

@@ -83,6 +83,25 @@ nav button:hover, .mode:hover, .shopCard:hover { border-color: #26d0ce; }
 
 .mode strong, .shopCard strong { font-size: 1.3rem; }
 .mode span, .shopCard span, .muted { color: #b9c6d2; }
+.emptyCard {
+  min-height: 5rem;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  color: #b9c6d2;
+  background: rgba(255,255,255,0.05);
+  padding: 1rem;
+}
+.styleCard { position: relative; overflow: hidden; }
+.cosmeticAccent {
+  width: 2.5rem;
+  height: 0.35rem;
+  border-radius: 999px;
+  background: #b9c6d2;
+}
+.rarity-common { background: #b9c6d2; }
+.rarity-rare { background: #26d0ce; }
+.rarity-epic { background: #ff2e63; }
+.rarity-legendary { background: #ffc259; }
 
 .notice, .error {
   width: min(1120px, calc(100% - 2rem));

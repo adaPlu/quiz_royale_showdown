@@ -1520,19 +1520,24 @@ async function adjustCurrency(
   reason: string,
   referenceId: string,
 ): Promise<{ ok: true; balances: VirtualCurrencyBalances } | { ok: false; balances: VirtualCurrencyBalances }> {
-  const current = normalizeCurrencyBalances(user.currency_balances);
+  const locked = await getUserForUpdate(client, user.user_id);
+  if (!locked) return { ok: false, balances: currencyBalancesFor(user) };
+  const current = normalizeCurrencyBalances(locked.currency_balances);
   const next = { ...current, [currency]: current[currency] + delta };
   if (next[currency] < 0) return { ok: false, balances: current };
+  const ledger = await client.query(
+    `INSERT INTO currency_ledger(ledger_id, user_id, currency, delta, balance_after, reason, reference_id, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT DO NOTHING
+     RETURNING ledger_id`,
+    [`cl-${crypto.randomUUID()}`, user.user_id, currency, delta, next[currency], reason, referenceId, Date.now()],
+  );
+  if (!ledger.rowCount) return { ok: false, balances: current };
   await client.query(
     "UPDATE users SET currency_balances = $2 WHERE user_id = $1",
     [user.user_id, JSON.stringify(next)],
   );
-  await client.query(
-    `INSERT INTO currency_ledger(ledger_id, user_id, currency, delta, balance_after, reason, reference_id, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-     ON CONFLICT DO NOTHING`,
-    [`cl-${crypto.randomUUID()}`, user.user_id, currency, delta, next[currency], reason, referenceId, Date.now()],
-  );
+  user.currency_balances = next;
   return { ok: true, balances: next };
 }
 
@@ -1938,7 +1943,7 @@ function mintGuestSecret(): string {
 
 function validGuestSecret(guest: GuestRow, guestSecret: string | null): boolean {
   if (!guestSecret || !guest.guest_secret_digest) return false;
-  return sha256Hex(guestSecret) === guest.guest_secret_digest;
+  return constantTimeSecretEqual(sha256Hex(guestSecret), guest.guest_secret_digest);
 }
 
 type ApiResponse = [number, unknown];

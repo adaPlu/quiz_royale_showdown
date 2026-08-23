@@ -56,6 +56,25 @@ class GameClient {
         }.body()
     }
 
+    suspend fun refreshRoomTicket(
+        roomId: String,
+        roomTicket: String,
+        mode: GameMode,
+        credentials: MatchCredentials
+    ): MatchmakeResponse {
+        return http.get("$baseUrl/match-ticket") {
+            parameter("roomId", roomId)
+            parameter("roomTicket", roomTicket)
+            parameter("mode", mode.name)
+            credentials.token?.let { header("Authorization", "Bearer $it") }
+            if (credentials.guestId != null && credentials.guestSecret != null) {
+                header("X-Guest-Id", credentials.guestId)
+                header("X-Guest-Secret", credentials.guestSecret)
+            }
+        }.body()
+    }
+
+
     /**
      * Opens the match socket and emits every decoded server message until the
      * connection closes. Cancelling the collecting coroutine closes the socket.

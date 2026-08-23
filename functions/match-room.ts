@@ -119,13 +119,16 @@ export class MatchRoom extends DurableObject<Env> {
   }
 
   override async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
     if (request.headers.get("Upgrade") !== "websocket") {
+      if (url.pathname === "/internal/status") return this.statusResponse();
       return new Response("expected websocket", { status: 426 });
     }
 
-    const url = new URL(request.url);
     const playerId = url.searchParams.get("playerId");
     if (!playerId) return new Response("missing playerId", { status: 400 });
+    const ticketUseKey = url.searchParams.get("ticketUseKey");
+    if (!ticketUseKey) return new Response("missing room ticket", { status: 403 });
     const limited = await enforceRateLimit(this.ctx, request, "match-socket", MATCH_SOCKET_RATE_LIMIT);
     if (limited) return limited;
 
@@ -146,19 +149,25 @@ export class MatchRoom extends DurableObject<Env> {
     // Late joiners become spectators rather than being rejected outright —
     // they still see the match play out and can rematch from the results screen.
     const existing = state.players[playerId];
+    const canJoinLobby = !existing && state.phase === "LOBBY" && humanCount(state) < MODE_CONFIG[state.mode].maxPlayers;
+    if (!existing && !canJoinLobby && sockets.filter((socket) => this.isSpectatorSocket(socket, state)).length >= MAX_SPECTATOR_SOCKETS) {
+      return new Response("spectator limit reached", { status: 429 });
+    }
+    if (!await this.consumeTicket(ticketUseKey)) {
+      return new Response("room ticket already used", { status: 409 });
+    }
+
     if (existing) {
       existing.connected = true;
       existing.name = name || existing.name;
       existing.subjectKind = subjectKind;
       existing.powerUpCharges = powerUpCharges;
-    } else if (state.phase === "LOBBY" && humanCount(state) < MODE_CONFIG[state.mode].maxPlayers) {
+    } else if (canJoinLobby) {
       const player = newPlayer(playerId, name, false, MODE_CONFIG[state.mode].lives);
       player.subjectKind = subjectKind;
       player.powerUpCharges = powerUpCharges;
       state.players[playerId] = player;
       state.order.push(playerId);
-    } else if (sockets.filter((socket) => this.isSpectatorSocket(socket, state)).length >= MAX_SPECTATOR_SOCKETS) {
-      return new Response("spectator limit reached", { status: 429 });
     }
 
     // Presence is written here rather than trusted from the client: the room is
@@ -179,6 +188,25 @@ export class MatchRoom extends DurableObject<Env> {
     this.armPhaseTimer();
 
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  private statusResponse(): Response {
+    const state = this.state;
+    return Response.json({
+      phase: state?.phase ?? "LOBBY",
+      humanPlayers: state ? humanCount(state) : 0,
+      maxPlayers: state ? MODE_CONFIG[state.mode].maxPlayers : null,
+    });
+  }
+
+  private async consumeTicket(ticketUseKey: string): Promise<boolean> {
+    let consumed = false;
+    await this.ctx.blockConcurrencyWhile(async () => {
+      if (await this.ctx.storage.get(ticketUseKey)) return;
+      await this.ctx.storage.put(ticketUseKey, Date.now());
+      consumed = true;
+    });
+    return consumed;
   }
 
   override async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {

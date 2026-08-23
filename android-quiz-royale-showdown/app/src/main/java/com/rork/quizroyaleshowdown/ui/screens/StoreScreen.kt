@@ -53,6 +53,8 @@ fun StoreScreen(
     onRegister: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val powerUpAndPassItems = state.items.filter { it.itemType != "COSMETIC" }
+    val cosmeticStoreItems = state.items.filter { it.itemType == "COSMETIC" }
 
     ArenaBackground(accent = Arena.Gold) {
         Column(
@@ -91,7 +93,10 @@ fun StoreScreen(
             SectionHeader("Power-ups and passes")
             Spacer(Modifier.height(10.dp))
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                state.items.forEach { item ->
+                if (powerUpAndPassItems.isEmpty()) {
+                    EmptyState("No power-up packs or passes are available right now.")
+                }
+                powerUpAndPassItems.forEach { item ->
                     StoreItemCard(
                         item = item,
                         busy = state.busyItemId == item.itemId,
@@ -101,9 +106,28 @@ fun StoreScreen(
             }
 
             Spacer(Modifier.height(22.dp))
-            SectionHeader("Cosmetics")
+            SectionHeader("Cosmetic shop")
             Spacer(Modifier.height(10.dp))
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (cosmeticStoreItems.isEmpty()) {
+                    EmptyState("No cosmetic offers are available right now.")
+                }
+                cosmeticStoreItems.forEach { item ->
+                    StoreItemCard(
+                        item = item,
+                        busy = state.busyItemId == item.itemId,
+                        onBuy = { viewModel.purchase(item) }
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(22.dp))
+            SectionHeader("Owned cosmetics")
+            Spacer(Modifier.height(10.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (state.cosmetics.isEmpty()) {
+                    EmptyState("Cosmetics will appear here after the catalog loads.")
+                }
                 state.cosmetics.forEach { cosmetic ->
                     CosmeticCard(
                         cosmetic = cosmetic,
@@ -113,6 +137,13 @@ fun StoreScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun EmptyState(text: String) {
+    SurfaceCard(accent = Arena.TextLow) {
+        Text(text = text, style = MaterialTheme.typography.bodyMedium, color = Arena.TextLow)
     }
 }
 

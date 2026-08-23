@@ -12,6 +12,7 @@ export function buildMatchRoomTargetUrl(
   roomId: string,
   mode: GameMode,
   identity: MatchRoomIdentity,
+  ticketUseKey?: string,
 ): string {
   const target = new URL(sourceUrl);
   target.pathname = `/room/${encodeURIComponent(roomId)}`;
@@ -21,5 +22,6 @@ export function buildMatchRoomTargetUrl(
   target.searchParams.set("kind", identity.kind);
   target.searchParams.set("mode", mode);
   target.searchParams.set("powerUpCharges", String(identity.powerUpCharges));
+  if (ticketUseKey) target.searchParams.set("ticketUseKey", ticketUseKey);
   return target.toString();
 }

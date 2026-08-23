@@ -30,8 +30,12 @@ test("question upsert treats content-hash conflicts as duplicates", async () => 
   const rows = makeRecords("easy", 2);
   const db = {
     calls: 0,
-    async query() {
+    sql: "",
+    params: [] as unknown[],
+    async query(sql: string, params: unknown[]) {
       this.calls += 1;
+      this.sql = sql;
+      this.params = params;
       return { rowCount: this.calls === 1 ? 1 : 0, rows: this.calls === 1 ? [{ question_id: "q1" }] : [] };
     },
   };
@@ -39,6 +43,26 @@ test("question upsert treats content-hash conflicts as duplicates", async () => 
   const result = await upsertQuestions(db as unknown as DbClient, rows);
 
   assert.deepEqual(result, { inserted: 1, duplicates: 1 });
+  assert.match(db.sql, /content_hash/);
+  assert.equal(db.params[14], rows[1]!.contentHash);
+});
+
+test("generated question storage rejects wrong requested bucket", () => {
+  assert.equal(normalizeGeneratedQuestionForStorage({
+    category: "History",
+    difficulty: "easy",
+    text: "Which generated option should be reviewed first?",
+    options: ["Alpha", "Beta", "Gamma", "Delta"],
+    correctIndex: 0,
+  }, "Science", "easy"), null);
+
+  assert.equal(normalizeGeneratedQuestionForStorage({
+    category: "Science",
+    difficulty: "hard",
+    text: "Which generated option should be reviewed first?",
+    options: ["Alpha", "Beta", "Gamma", "Delta"],
+    correctIndex: 0,
+  }, "Science", "easy"), null);
 });
 
 test("usage reporting updates QuestionBank last-used timestamps without lowercase question tables", async () => {

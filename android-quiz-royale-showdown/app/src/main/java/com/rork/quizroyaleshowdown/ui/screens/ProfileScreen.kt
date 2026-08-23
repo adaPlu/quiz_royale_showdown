@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rork.quizroyaleshowdown.data.AuthViewModel
+import com.rork.quizroyaleshowdown.data.CosmeticItem
 import com.rork.quizroyaleshowdown.data.Friend
 import com.rork.quizroyaleshowdown.data.FriendInvite
 import com.rork.quizroyaleshowdown.data.GuestExpiryState
@@ -82,14 +83,19 @@ fun ProfileScreen(
     val expiry by viewModel.guestExpiry.collectAsStateWithLifecycle()
     val identity = state.identity
     val stats = identity.stats ?: PlayerStats()
+    val equippedCosmetics = state.cosmetics.filter { it.equipped }
     var friendName by remember { mutableStateOf("") }
 
-    val accent = if (identity.isRegistered) Arena.Gold else Arena.Cyan
+    val accent = equippedCosmetics.firstOrNull { it.cosmeticType == "avatar_frame" }?.rarityColor()
+        ?: if (identity.isRegistered) Arena.Gold else Arena.Cyan
 
     // Pull fresh presence the moment the list is on screen rather than waiting
     // for the next background ping.
     LaunchedEffect(identity.isRegistered) {
-        if (identity.isRegistered) viewModel.refreshFriends()
+        if (identity.isRegistered) {
+            viewModel.refreshFriends()
+            viewModel.refreshCosmetics()
+        }
     }
 
     ArenaBackground(accent = accent) {
@@ -134,6 +140,11 @@ fun ProfileScreen(
             Spacer(Modifier.height(20.dp))
 
             IdentityCard(identity = identity, accent = accent, expiry = expiry)
+
+            if (identity.isRegistered && equippedCosmetics.isNotEmpty()) {
+                Spacer(Modifier.height(14.dp))
+                EquippedCosmeticsCard(cosmetics = equippedCosmetics)
+            }
 
             if (identity is Identity.Guest) {
                 Spacer(Modifier.height(14.dp))
@@ -633,6 +644,53 @@ private fun FriendRow(friend: Friend, busy: Boolean, onRemove: () -> Unit) {
 }
 
 @Composable
+private fun EquippedCosmeticsCard(cosmetics: List<CosmeticItem>) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Arena.Surface.copy(alpha = 0.6f))
+            .border(1.dp, Arena.Outline.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "EQUIPPED STYLE",
+            style = MaterialTheme.typography.labelSmall,
+            color = Arena.TextLow,
+            letterSpacing = 1.5.sp
+        )
+        Spacer(Modifier.height(10.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            cosmetics.sortedBy { it.cosmeticType }.forEach { cosmetic ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(12.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(cosmetic.rarityColor())
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = cosmetic.displayName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Arena.TextHi,
+                            fontWeight = FontWeight.W700
+                        )
+                        Text(
+                            text = cosmetic.cosmeticType.replace('_', ' '),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Arena.TextLow
+                        )
+                    }
+                    TagChip(text = cosmetic.rarity, color = cosmetic.rarityColor())
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun FriendInviteRow(
     invite: FriendInvite,
     busy: Boolean,
@@ -756,4 +814,11 @@ private fun Divider() {
             .height(34.dp)
             .background(Arena.Outline.copy(alpha = 0.6f))
     )
+}
+
+private fun CosmeticItem.rarityColor(): Color = when (rarity) {
+    "legendary" -> Arena.GoldBright
+    "epic" -> Arena.Magenta
+    "rare" -> Arena.Cyan
+    else -> Arena.TextMid
 }

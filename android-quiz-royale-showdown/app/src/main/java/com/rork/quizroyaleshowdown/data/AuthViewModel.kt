@@ -68,7 +68,8 @@ data class AuthUiState(
     /** Friends with live presence. Kept beside the profile so pings can refresh it. */
     val friends: List<Friend> = emptyList(),
     val incomingInvites: List<FriendInvite> = emptyList(),
-    val outgoingInvites: List<FriendInvite> = emptyList()
+    val outgoingInvites: List<FriendInvite> = emptyList(),
+    val cosmetics: List<CosmeticItem> = emptyList()
 )
 
 /**
@@ -176,11 +177,13 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
             if (token != null) {
                 val profile = api.me(token)
                 if (profile != null) {
+                    val cosmetics = api.cosmetics(token).orEmpty()
                     prefs.playerName = profile.username
                     _uiState.update {
                         it.copy(
                             identity = Identity.Registered(profile),
                             friends = profile.friends,
+                            cosmetics = cosmetics,
                             bootstrapped = true
                         )
                     }
@@ -212,6 +215,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                 friends = emptyList(),
                 incomingInvites = emptyList(),
                 outgoingInvites = emptyList(),
+                cosmetics = emptyList(),
                 error = null
             )
         }
@@ -520,6 +524,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                 friends = result.profile.friends
             )
         }
+        refreshCosmetics()
         startPresence()
     }
 
@@ -536,6 +541,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                 friends = emptyList(),
                 incomingInvites = emptyList(),
                 outgoingInvites = emptyList(),
+                cosmetics = emptyList(),
                 notice = "Signed out."
             )
         }
@@ -679,6 +685,9 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                             it.copy(identity = Identity.Registered(profile), friends = profile.friends)
                         }
                     }
+                    api.cosmetics(token)?.let { cosmetics ->
+                        _uiState.update { it.copy(cosmetics = cosmetics) }
+                    }
                 }
 
                 is Identity.Guest -> {
@@ -699,6 +708,15 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                 }
 
                 Identity.Unknown -> Unit
+            }
+        }
+    }
+
+    fun refreshCosmetics() {
+        val token = prefs.sessionToken ?: return
+        viewModelScope.launch {
+            api.cosmetics(token)?.let { cosmetics ->
+                _uiState.update { it.copy(cosmetics = cosmetics) }
             }
         }
     }

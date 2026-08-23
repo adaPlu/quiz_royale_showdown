@@ -45,6 +45,5 @@ export async function enforceRateLimit(
 function clientRateId(request: Request): string {
   const cf = request.headers.get("CF-Connecting-IP")?.trim();
   if (cf) return cf;
-  const forwarded = request.headers.get("X-Forwarded-For")?.split(",")[0]?.trim();
-  return forwarded || "unknown";
+  return "unknown";
 }

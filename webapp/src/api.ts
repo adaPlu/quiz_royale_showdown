@@ -151,7 +151,15 @@ async function request<T>(path: string, init: { method?: string; body?: unknown;
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
   });
   const text = await response.text();
-  const json = text ? JSON.parse(text) : null;
-  if (!response.ok) throw new Error(json?.message ?? json?.error ?? `Request failed: ${response.status}`);
+  let json: unknown = null;
+  if (text) {
+    try {
+      json = JSON.parse(text);
+    } catch {
+      json = null;
+    }
+  }
+  const body = json && typeof json === "object" ? json as { message?: string; error?: string } : null;
+  if (!response.ok) throw new Error(body?.message ?? body?.error ?? (text || `Request failed: ${response.status}`));
   return json as T;
 }

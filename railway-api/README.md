@@ -14,12 +14,19 @@ friends, stats, powerups, password reset, and leaderboards.
 - `PASSWORD_RESET_EMAIL_TOKEN`: optional bearer token for the email endpoint.
 - `PASSWORD_RESET_BASE_URL`: optional deep link / reset URL base.
 - `CORS_ORIGIN`: optional CORS origin, defaults to `*`.
+- `MATCH_ROOM_TICKET_SECRET`: must match the Cloudflare Worker secret used to mint and verify match-room tickets.
+- `RAILWAY_PUBLIC_URL`: public Railway API URL used by `npm run validate:production` for `/health`.
+- `WORKER_PUBLIC_URL`: public Cloudflare Worker URL used by `npm run validate:production` for `/health`.
 
 ## Commands
 
 - `npm run build`
 - `npm run migrate`
 - `npm run import:questions`
+- `npm run seed:catalog`
+- `npm run seed:season`
+- `npm run validate:commerce`
+- `npm run validate:production`
 - `npm test`
 - `npm start`
 
@@ -41,3 +48,9 @@ manual migrations only after the target Railway service has the correct
 inspection and refuses to mutate databases with unknown tables, unless
 `ALLOW_UNKNOWN_SCHEMA=true` or `ALLOW_UNMANAGED_APP_SCHEMA=true` is set after
 manual review.
+
+`npm run validate:production` is read-only. It verifies required Railway and
+Worker-facing environment variables, migrations `009_questionbank_content_hash`
+and `010_default_commerce_catalog`, active commerce catalog counts, reviewer
+account role/entitlements/balances, approved `QuestionBank` readiness, and
+public Railway/Worker health endpoints.

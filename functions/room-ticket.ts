@@ -42,7 +42,12 @@ export async function verifyRoomTicket(
 
   const payload = parts.slice(0, 5).join(".");
   const expected = await sign(secret, payload);
-  return expected === parts[5];
+  return fixedWorkStringEqual(expected, parts[5] ?? "");
+}
+
+export async function roomTicketUseKey(ticket: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(ticket));
+  return `room-ticket:${base64Url(digest)}`;
 }
 
 function ticketSecret(env: DoEnv): string | null {
@@ -79,4 +84,13 @@ function base64Url(buffer: ArrayBuffer): string {
   let raw = "";
   for (const byte of new Uint8Array(buffer)) raw += String.fromCharCode(byte);
   return btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function fixedWorkStringEqual(left: string, right: string): boolean {
+  const max = Math.max(left.length, right.length);
+  let diff = left.length ^ right.length;
+  for (let index = 0; index < max; index += 1) {
+    diff |= (left.charCodeAt(index) || 0) ^ (right.charCodeAt(index) || 0);
+  }
+  return diff === 0;
 }

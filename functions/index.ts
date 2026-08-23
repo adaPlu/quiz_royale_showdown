@@ -51,7 +51,7 @@ import { type GameMode } from "./protocol";
 import type { GuestSessionDto, SubjectKind } from "./identity";
 import { callRailwayJson } from "./railway-api";
 import { buildMatchRoomTargetUrl } from "./match-routing";
-import { mintRoomTicket, verifyRoomTicket } from "./room-ticket";
+import { mintRoomTicket, roomTicketUseKey, verifyRoomTicket } from "./room-ticket";
 
 type Env = DoEnv;
 
@@ -100,6 +100,9 @@ export default {
 
     if (url.pathname === "/matchmake" && request.method === "GET") {
       return await handleMatchmake(request, env, url);
+    }
+    if (url.pathname === "/match-ticket" && request.method === "GET") {
+      return await handleMatchTicket(request, env, url);
     }
 
     const roomMatch = url.pathname.match(/^\/match\/([A-Za-z0-9_-]+)$/);
@@ -151,6 +154,30 @@ async function handleMatchmake(request: Request, env: Env, url: URL): Promise<Re
   return Response.json({ ...body, roomTicket }, { status: response.status, headers: CORS });
 }
 
+async function handleMatchTicket(request: Request, env: Env, url: URL): Promise<Response> {
+  const roomId = url.searchParams.get("roomId")?.trim();
+  if (!roomId) return Response.json({ error: "missing_room_id" }, { status: 400, headers: CORS });
+  const mode = parseMode(url.searchParams.get("mode"));
+  const previousTicket = url.searchParams.get("roomTicket");
+  const identity = await resolveIdentity(env, request, url);
+  if (!identity) {
+    return new Response("unable to establish an identity for this match", {
+      status: 401,
+      headers: CORS,
+    });
+  }
+  if (!(await verifyRoomTicket(env, previousTicket, roomId, mode, identityTicketKey(identity)))) {
+    return new Response("invalid previous match room ticket", {
+      status: 403,
+      headers: CORS,
+    });
+  }
+
+  const roomTicket = await mintRoomTicket(env, roomId, mode, identityTicketKey(identity));
+  if (!roomTicket) return Response.json({ error: "match_tickets_unavailable" }, { status: 503, headers: CORS });
+  return Response.json({ roomId, mode, roomTicket }, { headers: CORS });
+}
+
 // --------------------------------------------------------------- match socket
 
 type ResolvedIdentity = {
@@ -182,7 +209,7 @@ async function handleMatchSocket(
     });
   }
 
-  const target = buildMatchRoomTargetUrl(url.toString(), roomId, mode, identity);
+  const target = buildMatchRoomTargetUrl(url.toString(), roomId, mode, identity, await roomTicketUseKey(ticket!));
 
   // 2-arg form: the 1-arg form silently drops the Upgrade header.
   return dispatchToDo(env, "MatchRoom", roomId, new Request(target, request));

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildMatchRoomTargetUrl } from "./match-routing.ts";
 import { incrementGuestName } from "./guest-names.ts";
-import { mintRoomTicket, verifyRoomTicket } from "./room-ticket.ts";
+import { mintRoomTicket, roomTicketUseKey, verifyRoomTicket } from "./room-ticket.ts";
 
 test("room tickets reject missing malformed expired and mismatched credentials", async () => {
   const env = { MATCH_ROOM_TICKET_SECRET: "ticket-secret" };
@@ -35,6 +35,7 @@ test("match room target overwrites spoofed client identity query parameters", ()
     "room-a",
     "QUICK",
     { kind: "GUEST", subjectId: "g1001-real", displayName: "Challenger01", powerUpCharges: 2 },
+    "room-ticket:abc",
   ));
 
   assert.equal(target.pathname, "/room/room-a");
@@ -43,7 +44,19 @@ test("match room target overwrites spoofed client identity query parameters", ()
   assert.equal(target.searchParams.get("kind"), "GUEST");
   assert.equal(target.searchParams.get("mode"), "QUICK");
   assert.equal(target.searchParams.get("powerUpCharges"), "2");
+  assert.equal(target.searchParams.get("ticketUseKey"), "room-ticket:abc");
   assert.equal(target.searchParams.has("roomTicket"), false);
+});
+
+test("room ticket use keys are stable and do not expose raw tickets", async () => {
+  const ticket = await mintRoomTicket({ MATCH_ROOM_TICKET_SECRET: "ticket-secret" }, "room-a", "QUICK", "USER:u1", 1_000);
+  assert(ticket);
+  const first = await roomTicketUseKey(ticket);
+  const second = await roomTicketUseKey(ticket);
+
+  assert.equal(first, second);
+  assert.match(first, /^room-ticket:/);
+  assert.equal(first.includes(ticket), false);
 });
 
 test("guest display-name suffixing preserves challenger sequence formatting", () => {

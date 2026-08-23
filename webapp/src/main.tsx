@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   boards,
@@ -33,6 +33,7 @@ function App() {
   const [view, setView] = useState<View>(routeFromLocation());
   const [mode, setMode] = useState<GameMode>("QUICK");
   const [session, setSession] = useState<StoredSession>(() => loadSession());
+  const sessionRef = useRef(session);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [notice, setNotice] = useState("");
 
@@ -44,6 +45,7 @@ function App() {
 
   useEffect(() => {
     saveSession(session);
+    sessionRef.current = session;
   }, [session]);
 
   useEffect(() => {
@@ -56,12 +58,14 @@ function App() {
     setView(next);
   }
 
-  async function ensureGuest() {
-    const guest = await guestSession(session);
-    const next = { ...session, guestId: guest.guestId, guestSecret: guest.guestSecret ?? session.guestSecret, displayName: guest.displayName };
+  const ensureGuest = useCallback(async () => {
+    const current = sessionRef.current;
+    const guest = await guestSession(current);
+    const next = { ...current, guestId: guest.guestId, guestSecret: guest.guestSecret ?? current.guestSecret, displayName: guest.displayName };
+    sessionRef.current = next;
     setSession(next);
     return next;
-  }
+  }, []);
 
   const authed = Boolean(session.token);
 
@@ -74,7 +78,14 @@ function App() {
           <button onClick={() => navigate("friends")}>Friends</button>
           <button onClick={() => navigate("store")}>Store</button>
           <button onClick={() => navigate("season")}>Season</button>
-          {authed ? <button onClick={() => navigate("profile")}>{user?.username ?? "Profile"}</button> : <button onClick={() => navigate("login")}>Sign in</button>}
+          {authed ? (
+            <button onClick={() => navigate("profile")}>{user?.username ?? "Profile"}</button>
+          ) : (
+            <>
+              <button onClick={() => navigate("login")}>Sign in</button>
+              <button onClick={() => navigate("register")}>Register</button>
+            </>
+          )}
         </nav>
       </header>
 
@@ -135,7 +146,13 @@ function Play({ mode, session, ensureGuest }: { mode: GameMode; session: StoredS
           ws.send(JSON.stringify({ type: "JOIN_MATCH", name: current.displayName }));
         };
         ws.onmessage = (event) => {
-          const msg = JSON.parse(String(event.data)) as ServerMessage;
+          let msg: ServerMessage;
+          try {
+            msg = JSON.parse(String(event.data)) as ServerMessage;
+          } catch {
+            setError("Received an unreadable match update.");
+            return;
+          }
           if (msg.type === "STATE") {
             setMatch(msg.match);
             setYou(msg.you);
@@ -155,7 +172,7 @@ function Play({ mode, session, ensureGuest }: { mode: GameMode; session: StoredS
       cancelled = true;
       wsRef.current?.close();
     };
-  }, [mode]);
+  }, [mode, ensureGuest]);
 
   const question = match?.question;
   const selected = you?.answerIndex;
@@ -228,6 +245,9 @@ function Profile({ token, user, setUser, logout }: { token: string | null; user:
   useEffect(() => { if (token) me(token).then((r) => setUser(r.user)).catch(() => undefined); }, [token]);
   useEffect(() => { if (token) cosmetics(token).then((r) => setOwnedCosmetics(r.cosmetics)).catch(() => undefined); }, [token]);
   if (!token) return <Gate />;
+  const equipped = ownedCosmetics.filter((item) => item.equipped);
+  const owned = ownedCosmetics.filter((item) => item.owned || item.equipped);
+  return <main className="panelPage"><h1>{user?.username ?? "Profile"}</h1><div className="stats"><Stat label="Points" value={user?.stats.totalPoints ?? 0} /><Stat label="Wins" value={user?.stats.wins ?? 0} /><Stat label="Coins" value={user?.currencyBalances.coins ?? 0} /><Stat label="Gems" value={user?.currencyBalances.gems ?? 0} /></div>{equipped.length > 0 && <><h2>Equipped Style</h2><section className="cardGrid">{equipped.map((item) => <div className="shopCard styleCard" key={item.cosmeticId}><i className={`cosmeticAccent rarity-${item.rarity}`} /><strong>{item.displayName}</strong><span>{item.cosmeticType.replace("_", " ")} - {item.rarity}</span><b>Equipped</b></div>)}</section></>}<h2>Cosmetics</h2><section className="cardGrid">{owned.length === 0 ? <div className="emptyCard">Unlocked cosmetics will appear here.</div> : owned.map((item) => <div className="shopCard" key={item.cosmeticId}><strong>{item.displayName}</strong><span>{item.cosmeticType.replace("_", " ")} - {item.rarity}</span><b>{item.equipped ? "Equipped" : "Owned"}</b></div>)}</section><button onClick={logout}>Sign out</button></main>;
   return <main className="panelPage"><h1>{user?.username ?? "Profile"}</h1><div className="stats"><Stat label="Points" value={user?.stats.totalPoints ?? 0} /><Stat label="Wins" value={user?.stats.wins ?? 0} /><Stat label="Coins" value={user?.currencyBalances.coins ?? 0} /><Stat label="Gems" value={user?.currencyBalances.gems ?? 0} /></div><h2>Cosmetics</h2><section className="cardGrid">{ownedCosmetics.filter((item) => item.owned || item.equipped).map((item) => <div className="shopCard" key={item.cosmeticId}><strong>{item.displayName}</strong><span>{item.cosmeticType} · {item.rarity}</span><b>{item.equipped ? "Equipped" : "Owned"}</b></div>)}</section><button onClick={logout}>Sign out</button></main>;
 }
 
@@ -244,18 +264,19 @@ function Friends({ token }: { token: string | null }) {
   }
   useEffect(() => { refresh().catch((e) => setError(e.message)); }, [token]);
   if (!token) return <Gate />;
-  return <main className="panelPage"><h1>Friends</h1>{error && <p className="error">{error}</p>}<form className="inline" onSubmit={(e) => { e.preventDefault(); sendInvite(token, username).then(refresh).catch((err) => setError(err.message)); }}><input placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} /><button>Invite</button></form><InviteList title="Incoming" invites={incoming} onAction={(id, a) => respondInvite(token, id, a).then(refresh)} /><InviteList title="Outgoing" invites={outgoing} onAction={(id) => respondInvite(token, id, "cancel").then(refresh)} /><section className="roster">{list.map((f) => <div className="player" key={f.userId}><strong>{f.username}</strong><span>{f.presence}{f.matchMode ? ` · ${f.matchMode}` : ""}</span></div>)}</section></main>;
+  return <main className="panelPage"><h1>Friends</h1>{error && <p className="error">{error}</p>}<form className="inline" onSubmit={(e) => { e.preventDefault(); sendInvite(token, username).then(refresh).catch((err) => setError(err.message)); }}><input placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} /><button>Invite</button></form><InviteList title="Incoming" invites={incoming} onAction={(id, a) => respondInvite(token, id, a).then(refresh).catch((err) => setError(err.message))} /><InviteList title="Outgoing" invites={outgoing} onAction={(id) => respondInvite(token, id, "cancel").then(refresh).catch((err) => setError(err.message))} /><section className="roster">{list.map((f) => <div className="player" key={f.userId}><strong>{f.username}</strong><span>{f.presence}{f.matchMode ? ` · ${f.matchMode}` : ""}</span></div>)}</section></main>;
 }
 
 function InviteList({ title, invites, onAction }: { title: string; invites: FriendInvite[]; onAction: (id: string, action: "accept" | "decline" | "cancel") => Promise<unknown> }) {
   return <section><h2>{title}</h2>{invites.length === 0 ? <p className="muted">No {title.toLowerCase()} invites.</p> : invites.map((invite) => <div className="player" key={invite.inviteId}><strong>{invite.username}</strong><span><button onClick={() => onAction(invite.inviteId, invite.direction === "incoming" ? "accept" : "cancel")}>{invite.direction === "incoming" ? "Accept" : "Cancel"}</button>{invite.direction === "incoming" && <button onClick={() => onAction(invite.inviteId, "decline")}>Decline</button>}</span></div>)}</section>;
 }
 
-function Store({ token }: { token: string | null }) {
+function Store({ token: rawToken }: { token: string | null }) {
   const [items, setItems] = useState<StoreItem[]>([]);
   const [cos, setCos] = useState<CosmeticItem[]>([]);
   const [balances, setBalances] = useState({ coins: 0, gems: 0, seasonalTickets: 0 });
   const [error, setError] = useState("");
+  const token = rawToken;
   async function refresh() {
     if (!token) return;
     const [s, c] = await Promise.all([store(token), cosmetics(token)]);
@@ -263,7 +284,18 @@ function Store({ token }: { token: string | null }) {
   }
   useEffect(() => { refresh().catch((e) => setError(e.message)); }, [token]);
   if (!token) return <Gate />;
+  const utilityItems = items.filter((item) => item.itemType !== "COSMETIC");
+  const cosmeticOffers = items.filter((item) => item.itemType === "COSMETIC");
+  const updateStore = (r: { balances: { coins: number; gems: number; seasonalTickets: number }; items: StoreItem[]; cosmetics: CosmeticItem[] }) => { setItems(r.items); setBalances(r.balances); setCos(r.cosmetics); };
+  return <main className="panelPage"><h1>Store</h1><div className="stats"><Stat label="Coins" value={balances.coins} /><Stat label="Gems" value={balances.gems} /><Stat label="Tickets" value={balances.seasonalTickets} /></div>{error && <p className="error">{error}</p>}<h2>Power-ups and Passes</h2><StoreItemGrid items={utilityItems} token={token!} onPurchased={updateStore} onError={setError} empty="No power-up packs or passes are available right now." /><h2>Cosmetic Shop</h2><StoreItemGrid items={cosmeticOffers} token={token!} onPurchased={updateStore} onError={setError} empty="No cosmetic offers are available right now." /><h2>Owned Cosmetics</h2><div className="cardGrid">{cos.length === 0 ? <div className="emptyCard">Cosmetics will appear here after the catalog loads.</div> : cos.map((item) => <button className="shopCard" key={item.cosmeticId} disabled={!item.owned || item.equipped} onClick={() => equipCosmetic(token!, item.cosmeticId).then((r) => setCos(r.cosmetics)).catch((e) => setError(e.message))}><strong>{item.displayName}</strong><span>{item.cosmeticType.replace("_", " ")} - {item.rarity}</span><b>{item.equipped ? "Equipped" : item.owned ? "Equip" : "Locked"}</b></button>)}</div></main>;
+  /*
+  // @ts-expect-error legacy unreachable fallback kept until this compact JSX file is normalized.
   return <main className="panelPage"><h1>Store</h1><div className="stats"><Stat label="Coins" value={balances.coins} /><Stat label="Gems" value={balances.gems} /><Stat label="Tickets" value={balances.seasonalTickets} /></div>{error && <p className="error">{error}</p>}<h2>Items</h2><div className="cardGrid">{items.map((item) => <button className="shopCard" key={item.itemId} disabled={item.owned} onClick={() => buy(token, item.itemId).then((r) => { setItems(r.items); setBalances(r.balances); setCos(r.cosmetics); }).catch((e) => setError(e.message))}><strong>{item.displayName}</strong><span>{item.description}</span><b>{item.owned ? "Owned" : `${item.price} ${item.currency}`}</b></button>)}</div><h2>Cosmetics</h2><div className="cardGrid">{cos.map((item) => <button className="shopCard" key={item.cosmeticId} disabled={!item.owned || item.equipped} onClick={() => equipCosmetic(token, item.cosmeticId).then((r) => setCos(r.cosmetics)).catch((e) => setError(e.message))}><strong>{item.displayName}</strong><span>{item.cosmeticType} · {item.rarity}</span><b>{item.equipped ? "Equipped" : item.owned ? "Equip" : "Locked"}</b></button>)}</div></main>;
+  */
+}
+
+function StoreItemGrid({ items, token, onPurchased, onError, empty }: { items: StoreItem[]; token: string; onPurchased: (result: { balances: { coins: number; gems: number; seasonalTickets: number }; items: StoreItem[]; cosmetics: CosmeticItem[] }) => void; onError: (message: string) => void; empty: string }) {
+  return <div className="cardGrid">{items.length === 0 ? <div className="emptyCard">{empty}</div> : items.map((item) => <button className="shopCard" key={item.itemId} disabled={item.owned} onClick={() => buy(token, item.itemId).then(onPurchased).catch((e) => onError(e.message))}><strong>{item.displayName}</strong><span>{item.description}</span><b>{item.owned ? "Owned" : `${item.price} ${item.currency}`}</b></button>)}</div>;
 }
 
 function Season({ token }: { token: string | null }) {

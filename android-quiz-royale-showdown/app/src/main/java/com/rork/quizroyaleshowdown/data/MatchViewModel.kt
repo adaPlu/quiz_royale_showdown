@@ -71,7 +71,11 @@ class MatchViewModel(app: Application) : AndroidViewModel(app) {
 
             while (isActive && attempt <= MAX_RECONNECT_ATTEMPTS) {
                 try {
-                    if (matchmake == null) matchmake = client.findMatch(mode, credentials)
+                    matchmake = if (matchmake == null) {
+                        client.findMatch(mode, credentials)
+                    } else {
+                        client.refreshRoomTicket(matchmake.roomId, matchmake.roomTicket, mode, credentials)
+                    }
                     _uiState.update {
                         it.copy(
                             status = if (attempt == 0) ConnectionStatus.CONNECTING

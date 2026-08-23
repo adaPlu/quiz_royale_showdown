@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build --outDir dist",
+    "build": "tsc -p tsconfig.json && vite build --outDir dist",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run typecheck",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -9,14 +9,25 @@ async function main(): Promise<void> {
   const startsAt = Number.parseInt(arg("--starts-at") ?? String(now), 10);
   const endsAt = Number.parseInt(arg("--ends-at") ?? String(startsAt + days * 24 * 60 * 60 * 1000), 10);
 
-  await pool.query(
-    `INSERT INTO seasons(season_id, name, starts_at, ends_at, reward_track, active, created_at)
-     VALUES ($1, $2, $3, $4, $5, true, $6)
-     ON CONFLICT (season_id)
-     DO UPDATE SET name = EXCLUDED.name, starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at,
-                   reward_track = EXCLUDED.reward_track, active = true`,
-    [seasonId, name, startsAt, endsAt, JSON.stringify(defaultRewardTrack), now],
-  );
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("UPDATE seasons SET active = false WHERE active = true AND season_id <> $1", [seasonId]);
+    await client.query(
+      `INSERT INTO seasons(season_id, name, starts_at, ends_at, reward_track, active, created_at)
+       VALUES ($1, $2, $3, $4, $5, true, $6)
+       ON CONFLICT (season_id)
+       DO UPDATE SET name = EXCLUDED.name, starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at,
+                     reward_track = EXCLUDED.reward_track, active = true`,
+      [seasonId, name, startsAt, endsAt, JSON.stringify(defaultRewardTrack), now],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
   console.log(JSON.stringify({ ok: true, seasonId, name, startsAt, endsAt }));
 }
 
