@@ -86,10 +86,10 @@ jobs:
         run: npm run test -w webapp
 
       - name: Audit workspace dependencies
-        run: npm audit --audit-level=high
+        run: node scripts/audit-dependencies.mjs
 
       - name: Audit backend image dependencies
-        run: npm audit --audit-level=high --workspaces=false
+        run: node ../scripts/audit-dependencies.mjs
         working-directory: backend
 
   migration-rehearsal:
@@ -230,18 +230,12 @@ jobs:
 
       - name: Regenerate workspace lockfile
         if: steps.guard.outputs.skip != 'true'
-        shell: bash
-        run: |
-          npm install --package-lock-only --force --ignore-scripts --no-audit --no-fund
-          npm install deepmerge-ts@8.0.0 --package-lock-only --force --no-save --ignore-scripts --no-audit --no-fund
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
 
       - name: Regenerate standalone backend lockfile
         if: steps.guard.outputs.skip != 'true'
         working-directory: backend
-        shell: bash
-        run: |
-          npm install --package-lock-only --force --ignore-scripts --no-audit --no-fund --workspaces=false
-          npm install deepmerge-ts@8.0.0 --package-lock-only --force --no-save --ignore-scripts --no-audit --no-fund --workspaces=false
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund --workspaces=false
 
       - name: Verify clean installs and audits
         if: steps.guard.outputs.skip != 'true'
@@ -249,9 +243,8 @@ jobs:
         run: |
           set -euo pipefail
           npm ci --ignore-scripts
-          npm ls deepmerge-ts --all
-          npm audit --audit-level=high
-          (cd backend && npm ci --ignore-scripts --workspaces=false && npm ls deepmerge-ts --all && npm audit --audit-level=high --workspaces=false)
+          node scripts/audit-dependencies.mjs
+          (cd backend && npm ci --ignore-scripts --workspaces=false && node ../scripts/audit-dependencies.mjs)
 
       - name: Commit refreshed lockfiles
         if: steps.guard.outputs.skip != 'true'
