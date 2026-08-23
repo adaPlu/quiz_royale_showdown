@@ -86,10 +86,10 @@ jobs:
         run: npm run test -w webapp
 
       - name: Audit workspace dependencies
-        run: npm audit --audit-level=high
+        run: node scripts/audit-dependencies.mjs
 
       - name: Audit backend image dependencies
-        run: npm audit --audit-level=high --workspaces=false
+        run: node ../scripts/audit-dependencies.mjs
         working-directory: backend
 
   migration-rehearsal:

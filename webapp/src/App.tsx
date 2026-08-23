@@ -13,6 +13,7 @@ const HomePage = lazy(() => import('@/pages/HomePage'));
 const ResultsPage = lazy(() => import('@/pages/ResultsPage'));
 const ProfilePage = lazy(() => import('@/pages/ProfilePage'));
 const LeaderboardPage = lazy(() => import('@/pages/LeaderboardPage'));
+const PrivacyPolicyPage = lazy(() => import('@/pages/PrivacyPolicyPage'));
 
 const Spinner = () => (
   <div className="min-h-screen bg-game-bg flex items-center justify-center">
@@ -70,6 +71,7 @@ export const App = () => {
     <ReconnectBanner />
     <Suspense fallback={<Spinner />}>
       <Routes>
+        <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
         <Route path="/login" element={<PublicOnly><LoginPage /></PublicOnly>} />
         <Route path="/register" element={<PublicOnly><RegisterPage /></PublicOnly>} />
 
