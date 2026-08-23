@@ -1,3 +1,4 @@
+# Temporary branch-only workflow. Remove after lockfiles are regenerated.
 name: Refresh audited lockfiles
 
 on:
