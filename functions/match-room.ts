@@ -296,6 +296,7 @@ export class MatchRoom extends DurableObject<Env> {
       await this.flushPendingUsageReports();
     }
     if (state?.phase === "FINISHED") {
+      if (state.pendingReports?.length || state.pendingUsageReports?.length) return;
       if (!(await this.deleteFinishedStateIfSettled())) {
         await this.scheduleFinishedCleanup();
       }
