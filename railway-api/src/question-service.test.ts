@@ -65,6 +65,16 @@ test("generated question storage rejects wrong requested bucket", () => {
   }, "Science", "easy"), null);
 });
 
+test("generated question storage rejects duplicate answer options", () => {
+  assert.equal(normalizeGeneratedQuestionForStorage({
+    category: "Science",
+    difficulty: "easy",
+    text: "Which generated option should be rejected before review?",
+    options: ["Alpha", "Beta", "alpha", "Delta"],
+    correctIndex: 0,
+  }, "Science", "easy"), null);
+});
+
 test("usage reporting updates QuestionBank last-used timestamps without lowercase question tables", async () => {
   const insertedEvents = [1, 0];
   const transactionClient = {

@@ -783,18 +783,25 @@ async function purchaseStoreItem(request: http.IncomingMessage): Promise<ApiResp
   const result = await tx(async (client) => {
     const user = await getUserForUpdate(client, record.user_id);
     if (!user) return { status: 404 as const, body: { error: "not_found" } };
-    const existing = await client.query(
-      "SELECT 1 FROM store_purchases WHERE user_id = $1 AND idempotency_key = $2",
+    const existing = await client.query<{ item_id: string; currency: CurrencyKind; price: number }>(
+      "SELECT item_id, currency, price FROM store_purchases WHERE user_id = $1 AND idempotency_key = $2",
       [user.user_id, idempotencyKey],
     );
+    const item = await getStoreItem(client, itemId);
     if (existing.rowCount) {
+      const purchase = existing.rows[0]!;
+      if (purchase.item_id !== itemId || (item && (purchase.currency !== item.currency || Number(purchase.price) !== Number(item.price)))) {
+        return {
+          status: 409 as const,
+          body: { error: "idempotency_key_conflict", message: "This idempotency key was already used for a different purchase." },
+        };
+      }
       return {
         status: 200 as const,
         body: await storeStatePayload(client, user, { duplicate: true }),
       };
     }
 
-    const item = await getStoreItem(client, itemId);
     if (!item) return { status: 404 as const, body: { error: "not_found", message: "That store item is unavailable." } };
     const entitlements = normalizeEntitlements(user.entitlements);
     if (item.item_type === "COSMETIC") {

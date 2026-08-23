@@ -51,7 +51,7 @@ import { type GameMode } from "./protocol";
 import type { GuestSessionDto, SubjectKind } from "./identity";
 import { callRailwayJson } from "./railway-api";
 import { buildMatchRoomTargetUrl } from "./match-routing";
-import { mintRoomTicket, roomTicketUseKey, verifyRoomTicket } from "./room-ticket";
+import { mintRoomTicket, roomTicketUseKey, verifyRoomTicket, verifyRoomTicketClaims } from "./room-ticket";
 
 type Env = DoEnv;
 
@@ -91,7 +91,7 @@ export default {
           now: Date.now(),
           configuration: {
             railwayApi: Boolean(env.RAILWAY_API_URL?.trim() && env.RAILWAY_INTERNAL_TOKEN?.trim()),
-            matchRoomTickets: Boolean(env.MATCH_ROOM_TICKET_SECRET?.trim() || env.RAILWAY_INTERNAL_TOKEN?.trim()),
+            matchRoomTickets: matchRoomTicketsConfigured(env),
           },
         },
         { headers: CORS },
@@ -148,7 +148,7 @@ async function handleMatchmake(request: Request, env: Env, url: URL): Promise<Re
     });
   }
 
-  const roomTicket = await mintRoomTicket(env, body.roomId, parseMode(body.mode ?? mode), identityTicketKey(identity));
+  const roomTicket = await mintRoomTicket(env, body.roomId, parseMode(body.mode ?? mode), identityTicketKey(identity), identity);
   if (!roomTicket) return Response.json({ error: "match_tickets_unavailable" }, { status: 503, headers: CORS });
 
   return Response.json({ ...body, roomTicket }, { status: response.status, headers: CORS });
@@ -172,8 +172,14 @@ async function handleMatchTicket(request: Request, env: Env, url: URL): Promise<
       headers: CORS,
     });
   }
-
-  const roomTicket = await mintRoomTicket(env, roomId, mode, identityTicketKey(identity));
+  const limited = await checkRoomTicketRefreshLimit(env, roomId, request);
+  if (limited) {
+    return Response.json(
+      { error: "rate_limited", message: "Too many room-ticket refreshes. Try again later." },
+      { status: 429, headers: { ...CORS, ...retryAfterHeader(limited) } },
+    );
+  }
+  const roomTicket = await mintRoomTicket(env, roomId, mode, identityTicketKey(identity), identity);
   if (!roomTicket) return Response.json({ error: "match_tickets_unavailable" }, { status: 503, headers: CORS });
   return Response.json({ roomId, mode, roomTicket }, { headers: CORS });
 }
@@ -195,14 +201,15 @@ async function handleMatchSocket(
 ): Promise<Response> {
   const mode = parseMode(url.searchParams.get("mode"));
   const ticket = url.searchParams.get("roomTicket");
-  const identity = await resolveIdentity(env, request, url);
-  if (!identity) {
+  const ticketClaims = await verifyRoomTicketClaims(env, ticket, roomId, mode);
+  const identity = await resolveIdentity(env, request, url) ?? identityFromTicketClaims(ticketClaims);
+  if (!identity || !ticketClaims) {
     return new Response("unable to establish an identity for this match", {
       status: 401,
       headers: CORS,
     });
   }
-  if (!(await verifyRoomTicket(env, ticket, roomId, mode, identityTicketKey(identity)))) {
+  if (ticketClaims.subjectKey !== identityTicketKey(identity)) {
     return new Response("invalid match room ticket", {
       status: 403,
       headers: CORS,
@@ -215,8 +222,47 @@ async function handleMatchSocket(
   return dispatchToDo(env, "MatchRoom", roomId, new Request(target, request));
 }
 
+function matchRoomTicketsConfigured(env: Env): boolean {
+  if (env.MATCH_ROOM_TICKET_SECRET?.trim()) return true;
+  return !isProduction(env) && Boolean(env.RAILWAY_INTERNAL_TOKEN?.trim());
+}
+
+function isProduction(env: Env): boolean {
+  return [env.ENVIRONMENT, env.NODE_ENV, env.APP_ENV]
+    .some((value) => value?.trim().toLowerCase() === "production");
+}
+
 function identityTicketKey(identity: ResolvedIdentity): string {
   return `${identity.kind}:${identity.subjectId}`;
+}
+
+async function checkRoomTicketRefreshLimit(env: Env, roomId: string, request: Request): Promise<Response | null> {
+  const headers = new Headers();
+  const cfIp = request.headers.get("CF-Connecting-IP");
+  if (cfIp) headers.set("CF-Connecting-IP", cfIp);
+  const response = await dispatchToDo(env, "MatchRoom", roomId, new Request("https://do.internal/internal/ticket-refresh", {
+    method: "POST",
+    headers,
+  }));
+  return response.ok ? null : response;
+}
+
+function retryAfterHeader(response: Response): Record<string, string> {
+  const retryAfter = response.headers.get("Retry-After");
+  return retryAfter ? { "Retry-After": retryAfter } : {};
+}
+
+function identityFromTicketClaims(claims: Awaited<ReturnType<typeof verifyRoomTicketClaims>>): ResolvedIdentity | null {
+  if (!claims) return null;
+  const [kind, ...rest] = claims.subjectKey.split(":");
+  const subjectId = rest.join(":");
+  if ((kind !== "USER" && kind !== "GUEST") || !subjectId) return null;
+  return {
+    kind,
+    subjectId,
+    displayName: claims.displayName,
+    powerUpCharges: claims.powerUpCharges,
+  };
 }
 
 /**
@@ -228,7 +274,7 @@ function identityTicketKey(identity: ResolvedIdentity): string {
  * playing without registering must never fail.
  */
 async function resolveIdentity(env: Env, request: Request, url: URL): Promise<ResolvedIdentity | null> {
-  const token = bearer(request) ?? url.searchParams.get("token")?.trim() ?? "";
+  const token = bearer(request) ?? "";
   if (token) {
     const railway = await callRailwayJson<{ userId: string; username: string; powerUpCharges: number }>(
       env,
@@ -255,8 +301,8 @@ async function resolveIdentity(env: Env, request: Request, url: URL): Promise<Re
     // Token was rejected: fall through to guest so a lapsed session still plays.
   }
 
-  const guestId = request.headers.get("X-Guest-Id")?.trim() || url.searchParams.get("guestId")?.trim() || "";
-  const guestSecret = request.headers.get("X-Guest-Secret")?.trim() || url.searchParams.get("guestSecret")?.trim() || "";
+  const guestId = request.headers.get("X-Guest-Id")?.trim() || "";
+  const guestSecret = request.headers.get("X-Guest-Secret")?.trim() || "";
   if (guestId) {
     const railway = await callRailwayJson<{ guestId: string; displayName: string; powerUpCharges: number }>(
       env,

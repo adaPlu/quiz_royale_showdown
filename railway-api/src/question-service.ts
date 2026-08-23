@@ -219,6 +219,7 @@ export function normalizeGeneratedQuestionForStorage(
   if (correct === undefined || correct < 0 || correct >= options.length) return null;
 
   const hasDuplicateOptions = new Set(options.map((option) => option.toLowerCase())).size !== options.length;
+  if (hasDuplicateOptions) return null;
   const status: QuestionStatus = "pending_review";
   const contentHash = questionContentHash(category, requestedDifficulty, text, options, correct);
   const now = Date.now();
@@ -322,6 +323,7 @@ function rowToQuestionBankQuestion(row: QuestionBankRow): QuestionRecord | null 
   if (!DIFFICULTIES.includes(difficulty as Difficulty)) return null;
   const options = [row.optionA, row.optionB, row.optionC, row.optionD].map(normalizeText);
   if (options.some((option) => option.length === 0)) return null;
+  if (new Set(options.map((option) => option.toLowerCase())).size !== options.length) return null;
   const correct = Number(row.correctIndex);
   if (!Number.isInteger(correct) || correct < 0 || correct >= options.length) return null;
   const text = normalizeText(row.prompt);

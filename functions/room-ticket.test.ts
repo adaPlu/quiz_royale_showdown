@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildMatchRoomTargetUrl } from "./match-routing.ts";
 import { incrementGuestName } from "./guest-names.ts";
-import { mintRoomTicket, roomTicketUseKey, verifyRoomTicket } from "./room-ticket.ts";
+import { mintRoomTicket, roomTicketUseKey, verifyRoomTicket, verifyRoomTicketClaims } from "./room-ticket.ts";
 
 test("room tickets reject missing malformed expired and mismatched credentials", async () => {
   const env = { MATCH_ROOM_TICKET_SECRET: "ticket-secret" };
@@ -22,6 +22,26 @@ test("room tickets accept valid room and mode before expiry", async () => {
   const ticket = await mintRoomTicket(env, "room-a", "QUICK", "GUEST:g1", 1_000);
   assert(ticket);
   assert.equal(await verifyRoomTicket(env, ticket, "room-a", "QUICK", "GUEST:g1", 2_000), true);
+});
+
+test("room tickets carry signed browser-safe identity claims", async () => {
+  const env = { MATCH_ROOM_TICKET_SECRET: "ticket-secret" };
+  const ticket = await mintRoomTicket(
+    env,
+    "room-a",
+    "QUICK",
+    "USER:u1",
+    { displayName: "Ada", powerUpCharges: 3 },
+    1_000,
+  );
+  assert(ticket);
+
+  assert.equal(await verifyRoomTicket(env, ticket, "room-a", "QUICK", "USER:u1", 2_000), true);
+  assert.deepEqual(await verifyRoomTicketClaims(env, ticket, "room-a", "QUICK", 2_000), {
+    subjectKey: "USER:u1",
+    displayName: "Ada",
+    powerUpCharges: 3,
+  });
 });
 
 test("production ticket minting requires explicit match room secret", async () => {

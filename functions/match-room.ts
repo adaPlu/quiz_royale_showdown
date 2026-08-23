@@ -104,6 +104,7 @@ const STATE_KEY = "match-state";
 const MAX_SPECTATOR_SOCKETS = 16;
 const EXTRA_ROOM_SOCKET_BUFFER = 4;
 const MATCH_SOCKET_RATE_LIMIT: RateLimitOptions = { max: 120, windowMs: 60_000 };
+const MATCH_TICKET_REFRESH_RATE_LIMIT: RateLimitOptions = { max: 20, windowMs: 60_000 };
 const FINISHED_ROOM_TTL_MS = 10 * 60 * 1000;
 
 export class MatchRoom extends DurableObject<Env> {
@@ -122,6 +123,10 @@ export class MatchRoom extends DurableObject<Env> {
     const url = new URL(request.url);
     if (request.headers.get("Upgrade") !== "websocket") {
       if (url.pathname === "/internal/status") return this.statusResponse();
+      if (request.method === "POST" && url.pathname === "/internal/ticket-refresh") {
+        return await enforceRateLimit(this.ctx, request, "match-ticket-refresh", MATCH_TICKET_REFRESH_RATE_LIMIT) ??
+          new Response(null, { status: 204 });
+      }
       return new Response("expected websocket", { status: 426 });
     }
 
@@ -141,14 +146,16 @@ export class MatchRoom extends DurableObject<Env> {
 
     const state = await this.ensureState(mode);
     const sockets = this.ctx.getWebSockets();
+    const existing = state.players[playerId];
+    if (existing) this.closeOtherSocketsForPlayer(playerId);
     const maxSockets = MODE_CONFIG[state.mode].maxPlayers + MAX_SPECTATOR_SOCKETS + EXTRA_ROOM_SOCKET_BUFFER;
-    if (sockets.length >= maxSockets) {
+    const effectiveSocketCount = existing ? sockets.filter((socket) => !this.socketBelongsToPlayer(socket, playerId)).length : sockets.length;
+    if (effectiveSocketCount >= maxSockets) {
       return new Response("room socket limit reached", { status: 429 });
     }
 
     // Late joiners become spectators rather than being rejected outright —
     // they still see the match play out and can rematch from the results screen.
-    const existing = state.players[playerId];
     const canJoinLobby = !existing && state.phase === "LOBBY" && humanCount(state) < MODE_CONFIG[state.mode].maxPlayers;
     if (!existing && !canJoinLobby && sockets.filter((socket) => this.isSpectatorSocket(socket, state)).length >= MAX_SPECTATOR_SOCKETS) {
       return new Response("spectator limit reached", { status: 429 });
@@ -278,9 +285,19 @@ export class MatchRoom extends DurableObject<Env> {
   private hasOtherSocketForPlayer(playerId: string, current: WebSocket): boolean {
     return this.ctx.getWebSockets().some((socket) => {
       if (socket === current) return false;
-      const attachment = socket.deserializeAttachment() as { playerId: string } | null;
-      return attachment?.playerId === playerId;
+      return this.socketBelongsToPlayer(socket, playerId);
     });
+  }
+
+  private closeOtherSocketsForPlayer(playerId: string): void {
+    for (const socket of this.ctx.getWebSockets()) {
+      if (this.socketBelongsToPlayer(socket, playerId)) socket.close(1000, "replaced by reconnect");
+    }
+  }
+
+  private socketBelongsToPlayer(socket: WebSocket, playerId: string): boolean {
+    const attachment = socket.deserializeAttachment() as { playerId: string } | null;
+    return attachment?.playerId === playerId;
   }
 
   private isSpectatorSocket(socket: WebSocket, state: MatchState): boolean {
@@ -315,7 +332,7 @@ export class MatchRoom extends DurableObject<Env> {
   }
 
   /** Durable backstop: fires even if the room hibernated with no traffic. */
-  async onAlarm(): Promise<void> {
+  override async alarm(): Promise<void> {
     const state = this.state;
     if (state?.pendingReports?.length) {
       await this.flushPendingReports();

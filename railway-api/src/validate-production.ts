@@ -8,7 +8,7 @@ import {
 import { pool } from "./db.js";
 
 async function main(): Promise<void> {
-  const required = ["DATABASE_URL", "REDIS_URL", "INTERNAL_API_TOKEN", "GOOGLE_PLAY_REVIEW_PASSWORD", "MATCH_ROOM_TICKET_SECRET"];
+  const required = ["DATABASE_URL", "REDIS_URL", "INTERNAL_API_TOKEN", "GOOGLE_PLAY_REVIEW_PASSWORD"];
   const missing = required.filter((key) => !process.env[key]?.trim());
   const [
     migration009,
@@ -25,7 +25,7 @@ async function main(): Promise<void> {
     reviewerStatus(),
     questionBankStatus(),
     healthStatus("RAILWAY_PUBLIC_URL", "/health"),
-    healthStatus("WORKER_PUBLIC_URL", "/health"),
+    workerHealthStatus("WORKER_PUBLIC_URL", "/health"),
   ]);
   const checks = {
     env: { ok: missing.length === 0, missing },
@@ -76,20 +76,22 @@ async function catalogStatus(): Promise<{
 async function reviewerStatus(): Promise<{
   ok: boolean;
   exists: boolean;
+  email: string;
   role: string | null;
   entitlements: Record<string, boolean> | null;
   balancesOk: boolean;
 }> {
+  const reviewerEmail = (process.env.GOOGLE_PLAY_REVIEW_EMAIL ?? GOOGLE_PLAY_REVIEW_EMAIL).trim().toLowerCase();
   const reviewer = await pool.query<{
     role: string;
     entitlements: unknown;
     currency_balances: unknown;
   }>(
     "SELECT role, entitlements, currency_balances FROM users WHERE email = $1",
-    [GOOGLE_PLAY_REVIEW_EMAIL],
+    [reviewerEmail],
   );
   const row = reviewer.rows[0];
-  if (!row) return { ok: false, exists: false, role: null, entitlements: null, balancesOk: false };
+  if (!row) return { ok: false, exists: false, email: reviewerEmail, role: null, entitlements: null, balancesOk: false };
 
   const entitlements = normalizeEntitlements(row.entitlements);
   const balances = normalizeCurrencyBalances(row.currency_balances);
@@ -104,6 +106,7 @@ async function reviewerStatus(): Promise<{
   return {
     ok: row.role === GOOGLE_PLAY_REVIEW_ROLE && entitlementsOk && balancesOk,
     exists: true,
+    email: reviewerEmail,
     role: row.role,
     entitlements,
     balancesOk,
@@ -146,6 +149,34 @@ async function healthStatus(envKey: string, path: string): Promise<{ ok: boolean
     return { ok: response.ok, configured: true, status: response.status };
   } catch {
     return { ok: false, configured: true, status: null };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function workerHealthStatus(envKey: string, path: string): Promise<{
+  ok: boolean;
+  configured: boolean;
+  status: number | null;
+  matchRoomTickets: boolean | null;
+}> {
+  const base = process.env[envKey]?.trim();
+  if (!base) return { ok: false, configured: false, status: null, matchRoomTickets: null };
+  const url = new URL(path, base.endsWith("/") ? base : `${base}/`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5_000);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    const body = await response.json().catch(() => null) as { configuration?: { matchRoomTickets?: unknown } } | null;
+    const matchRoomTickets = body?.configuration?.matchRoomTickets === true;
+    return {
+      ok: response.ok && matchRoomTickets,
+      configured: true,
+      status: response.status,
+      matchRoomTickets,
+    };
+  } catch {
+    return { ok: false, configured: true, status: null, matchRoomTickets: null };
   } finally {
     clearTimeout(timeout);
   }

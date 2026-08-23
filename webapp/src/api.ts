@@ -14,8 +14,8 @@ import type {
 } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "https://railway-api-production-5772.up.railway.app";
-const MATCH_BASE = import.meta.env.VITE_MATCH_BASE ?? API_BASE;
-const WS_BASE = (import.meta.env.VITE_WS_BASE ?? MATCH_BASE).replace(/^http/, "ws");
+const MATCH_BASE = import.meta.env.VITE_MATCH_BASE?.replace(/\/+$/, "");
+const WS_BASE = import.meta.env.VITE_WS_BASE?.replace(/\/+$/, "") ?? MATCH_BASE?.replace(/^http/, "ws");
 
 export type StoredSession = {
   token: string | null;
@@ -35,14 +35,18 @@ export function loadSession(): StoredSession {
   const raw = localStorage.getItem("quiz_royale_session");
   if (!raw) return defaultSession;
   try {
-    return { ...defaultSession, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw) as Partial<StoredSession>;
+    return { ...defaultSession, displayName: parsed.displayName ?? defaultSession.displayName };
   } catch {
     return defaultSession;
   }
 }
 
 export function saveSession(session: StoredSession): void {
-  localStorage.setItem("quiz_royale_session", JSON.stringify(session));
+  localStorage.setItem("quiz_royale_session", JSON.stringify({
+    ...defaultSession,
+    displayName: session.displayName,
+  }));
 }
 
 export function clearSession(): void {
@@ -68,7 +72,7 @@ export async function register(username: string, email: string, password: string
       username,
       email,
       password,
-      transferGuestStats: Boolean(session.guestId && session.guestSecret),
+      transferStats: Boolean(session.guestId && session.guestSecret),
       guestId: session.guestId,
       guestSecret: session.guestSecret,
     },
@@ -76,21 +80,21 @@ export async function register(username: string, email: string, password: string
 }
 
 export async function me(token: string): Promise<{ user: AuthUser }> {
-  return request("/auth/me", { token });
+  const result = await request<{ profile: AuthUser }>("/auth/me", { token });
+  return { user: result.profile };
 }
 
 export async function findMatch(mode: GameMode, session: StoredSession): Promise<MatchmakeResponse> {
+  if (!MATCH_BASE) throw new Error("VITE_MATCH_BASE must point to the Cloudflare Worker match API.");
   return request(`/matchmake?mode=${encodeURIComponent(mode)}`, { base: MATCH_BASE, token: session.token ?? undefined, guest: session });
 }
 
 export function matchSocketUrl(roomId: string, mode: GameMode, roomTicket: string, displayName: string, session: StoredSession): string {
+  if (!WS_BASE) throw new Error("VITE_WS_BASE or VITE_MATCH_BASE must point to the Cloudflare Worker websocket API.");
   const url = new URL(`${WS_BASE}/match/${encodeURIComponent(roomId)}`);
   url.searchParams.set("mode", mode);
   url.searchParams.set("roomTicket", roomTicket);
   url.searchParams.set("name", displayName);
-  if (session.token) url.searchParams.set("token", session.token);
-  if (session.guestId) url.searchParams.set("guestId", session.guestId);
-  if (session.guestSecret) url.searchParams.set("guestSecret", session.guestSecret);
   return url.toString();
 }
 
