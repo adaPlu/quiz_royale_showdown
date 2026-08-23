@@ -71,7 +71,7 @@ class MatchViewModel(app: Application) : AndroidViewModel(app) {
 
             while (isActive && attempt <= MAX_RECONNECT_ATTEMPTS) {
                 try {
-                    if (matchmake == null) matchmake = client.findMatch(mode)
+                    if (matchmake == null) matchmake = client.findMatch(mode, credentials)
                     _uiState.update {
                         it.copy(
                             status = if (attempt == 0) ConnectionStatus.CONNECTING

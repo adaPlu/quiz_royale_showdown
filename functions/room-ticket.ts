@@ -8,13 +8,14 @@ export async function mintRoomTicket(
   env: DoEnv,
   roomId: string,
   mode: GameMode,
+  subjectKey: string,
   now = Date.now(),
 ): Promise<string | null> {
   const secret = ticketSecret(env);
   if (!secret) return null;
 
   const expiresAt = now + ROOM_TICKET_TTL_MS;
-  const payload = `${roomId}.${mode}.${expiresAt}.${crypto.randomUUID()}`;
+  const payload = `${roomId}.${mode}.${encodeSegment(subjectKey)}.${expiresAt}.${crypto.randomUUID()}`;
   const signature = await sign(secret, payload);
   return `${payload}.${signature}`;
 }
@@ -24,22 +25,24 @@ export async function verifyRoomTicket(
   ticket: string | null,
   roomId: string,
   mode: GameMode,
+  subjectKey: string,
   now = Date.now(),
 ): Promise<boolean> {
   const secret = ticketSecret(env);
   if (!secret || !ticket) return false;
 
   const parts = ticket.split(".");
-  if (parts.length !== 5) return false;
-  const [ticketRoomId, ticketMode, rawExpiresAt] = parts;
+  if (parts.length !== 6) return false;
+  const [ticketRoomId, ticketMode, rawSubjectKey, rawExpiresAt] = parts;
   if (ticketRoomId !== roomId || ticketMode !== mode) return false;
+  if (rawSubjectKey !== encodeSegment(subjectKey)) return false;
 
   const expiresAt = Number.parseInt(rawExpiresAt ?? "", 10);
   if (!Number.isFinite(expiresAt) || expiresAt < now) return false;
 
-  const payload = parts.slice(0, 4).join(".");
+  const payload = parts.slice(0, 5).join(".");
   const expected = await sign(secret, payload);
-  return expected === parts[4];
+  return expected === parts[5];
 }
 
 function ticketSecret(env: DoEnv): string | null {
@@ -52,6 +55,12 @@ function ticketSecret(env: DoEnv): string | null {
 function isProduction(env: DoEnv): boolean {
   return [env.ENVIRONMENT, env.NODE_ENV, env.APP_ENV]
     .some((value) => value?.trim().toLowerCase() === "production");
+}
+
+function encodeSegment(value: string): string {
+  let raw = "";
+  for (const byte of encoder.encode(value)) raw += String.fromCharCode(byte);
+  return btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
 async function sign(secret: string, payload: string): Promise<string> {

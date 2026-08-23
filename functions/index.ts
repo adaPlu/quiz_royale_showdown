@@ -47,7 +47,7 @@ import {
   type DoClassName,
   type DoEnv,
 } from "./do-dispatch";
-import { MODE_CONFIG, type GameMode } from "./protocol";
+import { type GameMode } from "./protocol";
 import type { GuestSessionDto, SubjectKind } from "./identity";
 import { callRailwayJson } from "./railway-api";
 import { buildMatchRoomTargetUrl } from "./match-routing";
@@ -125,23 +125,7 @@ export default {
 async function handleMatchmake(request: Request, env: Env, url: URL): Promise<Response> {
   const mode = parseMode(url.searchParams.get("mode"));
 
-  // Practice is solo by definition — no shared lobby, no matchmaker hop.
-  if (mode === "PRACTICE") {
-    const roomId = `practice-${crypto.randomUUID()}-${Date.now().toString(36)}`;
-    const roomTicket = await mintRoomTicket(env, roomId, mode);
-    if (!roomTicket) return Response.json({ error: "match_tickets_unavailable" }, { status: 503, headers: CORS });
-    return Response.json(
-      {
-        roomId,
-        roomTicket,
-        mode,
-        playersWaiting: 1,
-        lobbyEndsAt: Date.now() + MODE_CONFIG.PRACTICE.lobbyMs,
-      },
-      { headers: CORS },
-    );
-  }
-
+  // Matchmaker owns admission throttling for every mode, including practice.
   const response = await dispatchToDo(env, "Matchmaker", mode, request);
   if (!response.ok) {
     return new Response(response.body, {
@@ -153,7 +137,15 @@ async function handleMatchmake(request: Request, env: Env, url: URL): Promise<Re
   const body = (await response.json()) as { roomId?: string; mode?: GameMode; playersWaiting?: number; lobbyEndsAt?: number };
   if (!body.roomId) return Response.json({ error: "matchmake_failed" }, { status: 502, headers: CORS });
 
-  const roomTicket = await mintRoomTicket(env, body.roomId, parseMode(body.mode ?? mode));
+  const identity = await resolveIdentity(env, request, url);
+  if (!identity) {
+    return new Response("unable to establish an identity for this match", {
+      status: 401,
+      headers: CORS,
+    });
+  }
+
+  const roomTicket = await mintRoomTicket(env, body.roomId, parseMode(body.mode ?? mode), identityTicketKey(identity));
   if (!roomTicket) return Response.json({ error: "match_tickets_unavailable" }, { status: 503, headers: CORS });
 
   return Response.json({ ...body, roomTicket }, { status: response.status, headers: CORS });
@@ -176,17 +168,16 @@ async function handleMatchSocket(
 ): Promise<Response> {
   const mode = parseMode(url.searchParams.get("mode"));
   const ticket = url.searchParams.get("roomTicket");
-  if (!(await verifyRoomTicket(env, ticket, roomId, mode))) {
-    return new Response("invalid match room ticket", {
-      status: 403,
-      headers: CORS,
-    });
-  }
-
   const identity = await resolveIdentity(env, request, url);
   if (!identity) {
     return new Response("unable to establish an identity for this match", {
       status: 401,
+      headers: CORS,
+    });
+  }
+  if (!(await verifyRoomTicket(env, ticket, roomId, mode, identityTicketKey(identity)))) {
+    return new Response("invalid match room ticket", {
+      status: 403,
       headers: CORS,
     });
   }
@@ -195,6 +186,10 @@ async function handleMatchSocket(
 
   // 2-arg form: the 1-arg form silently drops the Upgrade header.
   return dispatchToDo(env, "MatchRoom", roomId, new Request(target, request));
+}
+
+function identityTicketKey(identity: ResolvedIdentity): string {
+  return `${identity.kind}:${identity.subjectId}`;
 }
 
 /**

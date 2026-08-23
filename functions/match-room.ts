@@ -29,6 +29,7 @@ import {
   type ServerMessage,
   type YouState,
 } from "./protocol";
+import { enforceRateLimit, type RateLimitOptions } from "./rate-limit";
 
 type Env = DoEnv & {
   RAILWAY_API_URL?: string;
@@ -100,6 +101,10 @@ const BOT_NAMES = [
 ];
 
 const STATE_KEY = "match-state";
+const MAX_SPECTATOR_SOCKETS = 16;
+const EXTRA_ROOM_SOCKET_BUFFER = 4;
+const MATCH_SOCKET_RATE_LIMIT: RateLimitOptions = { max: 120, windowMs: 60_000 };
+const FINISHED_ROOM_TTL_MS = 10 * 60 * 1000;
 
 export class MatchRoom extends DurableObject<Env> {
   private state: MatchState | null = null;
@@ -121,6 +126,8 @@ export class MatchRoom extends DurableObject<Env> {
     const url = new URL(request.url);
     const playerId = url.searchParams.get("playerId");
     if (!playerId) return new Response("missing playerId", { status: 400 });
+    const limited = await enforceRateLimit(this.ctx, request, "match-socket", MATCH_SOCKET_RATE_LIMIT);
+    if (limited) return limited;
 
     const name = sanitizeName(url.searchParams.get("name"));
     const mode = parseMode(url.searchParams.get("mode"));
@@ -130,6 +137,11 @@ export class MatchRoom extends DurableObject<Env> {
     const powerUpCharges = clampInt(Number.parseInt(url.searchParams.get("powerUpCharges") ?? "", 10), 0, 99);
 
     const state = await this.ensureState(mode);
+    const sockets = this.ctx.getWebSockets();
+    const maxSockets = MODE_CONFIG[state.mode].maxPlayers + MAX_SPECTATOR_SOCKETS + EXTRA_ROOM_SOCKET_BUFFER;
+    if (sockets.length >= maxSockets) {
+      return new Response("room socket limit reached", { status: 429 });
+    }
 
     // Late joiners become spectators rather than being rejected outright —
     // they still see the match play out and can rematch from the results screen.
@@ -145,6 +157,8 @@ export class MatchRoom extends DurableObject<Env> {
       player.powerUpCharges = powerUpCharges;
       state.players[playerId] = player;
       state.order.push(playerId);
+    } else if (sockets.filter((socket) => this.isSpectatorSocket(socket, state)).length >= MAX_SPECTATOR_SOCKETS) {
+      return new Response("spectator limit reached", { status: 429 });
     }
 
     // Presence is written here rather than trusted from the client: the room is
@@ -212,6 +226,10 @@ export class MatchRoom extends DurableObject<Env> {
     if (!attachment?.playerId || !state) return;
 
     const player = state.players[attachment.playerId];
+    if (this.hasOtherSocketForPlayer(attachment.playerId, ws)) {
+      this.broadcast();
+      return;
+    }
     if (player) player.connected = false;
 
     // Leaving the socket clears the IN_MATCH claim immediately, so a friend who
@@ -227,6 +245,20 @@ export class MatchRoom extends DurableObject<Env> {
     }
     this.persist();
     this.broadcast();
+  }
+
+  private hasOtherSocketForPlayer(playerId: string, current: WebSocket): boolean {
+    return this.ctx.getWebSockets().some((socket) => {
+      if (socket === current) return false;
+      const attachment = socket.deserializeAttachment() as { playerId: string } | null;
+      return attachment?.playerId === playerId;
+    });
+  }
+
+  private isSpectatorSocket(socket: WebSocket, state: MatchState): boolean {
+    const attachment = socket.deserializeAttachment() as { playerId: string } | null;
+    if (!attachment?.playerId) return true;
+    return !state.players[attachment.playerId];
   }
 
   /** Tells UserDirectory what a registered player is doing. Never throws. */
@@ -262,6 +294,12 @@ export class MatchRoom extends DurableObject<Env> {
     }
     if (state?.pendingUsageReports?.length) {
       await this.flushPendingUsageReports();
+    }
+    if (state?.phase === "FINISHED") {
+      if (!(await this.deleteFinishedStateIfSettled())) {
+        await this.scheduleFinishedCleanup();
+      }
+      return;
     }
     this.tick();
   }
@@ -557,6 +595,7 @@ export class MatchRoom extends DurableObject<Env> {
       }
     }
     this.persist();
+    this.ctx.waitUntil(this.scheduleFinishedCleanup());
   }
 
   /** Converts the final roster into one stat report per human player. */
@@ -619,6 +658,7 @@ export class MatchRoom extends DurableObject<Env> {
       state.pendingReports = [];
       state.reported = true;
       this.persist();
+      if (state.phase === "FINISHED") this.ctx.waitUntil(this.scheduleFinishedCleanup());
     } catch {
       state.reportAttempts = (state.reportAttempts ?? 0) + 1;
       this.persist();
@@ -637,6 +677,7 @@ export class MatchRoom extends DurableObject<Env> {
       if (!response?.ok) throw new Error(`Railway API returned ${response?.status ?? "no response"}`);
       state.pendingUsageReports = [];
       this.persist();
+      if (state.phase === "FINISHED") this.ctx.waitUntil(this.scheduleFinishedCleanup());
     } catch {
       state.usageReportAttempts = (state.usageReportAttempts ?? 0) + 1;
       this.persist();
@@ -652,6 +693,28 @@ export class MatchRoom extends DurableObject<Env> {
     } catch {
       await this.env.DO?.setAlarm?.("MatchRoom", this.ctx.id.name ?? "", scheduledTime).catch(() => undefined);
     }
+  }
+
+  private async scheduleFinishedCleanup(): Promise<void> {
+    const state = this.state;
+    if (!state || state.phase !== "FINISHED") return;
+    await this.setRoomAlarm(state.phaseEndsAt + FINISHED_ROOM_TTL_MS);
+  }
+
+  private async deleteFinishedStateIfSettled(): Promise<boolean> {
+    const state = this.state;
+    if (!state || state.phase !== "FINISHED") return false;
+    if (state.pendingReports?.length || state.pendingUsageReports?.length) return false;
+    if (Date.now() < state.phaseEndsAt + FINISHED_ROOM_TTL_MS) return false;
+
+    this.clearBotTimers();
+    if (this.phaseTimer !== null) {
+      clearTimeout(this.phaseTimer);
+      this.phaseTimer = null;
+    }
+    await this.ctx.storage.delete(STATE_KEY);
+    this.state = null;
+    return true;
   }
 
   /** Base + speed bonus + streak bonus, adjusted by the round's power-ups. */

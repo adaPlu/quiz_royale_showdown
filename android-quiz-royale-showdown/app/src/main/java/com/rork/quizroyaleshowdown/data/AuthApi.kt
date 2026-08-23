@@ -255,7 +255,12 @@ class AuthApi {
             contentType(ContentType.Application.Json)
             setBody(
                 buildJsonObject {
-                    put("status", JsonPrimitive("IDLE"))
+                    if (matchMode.isNullOrBlank()) {
+                        put("status", JsonPrimitive("IDLE"))
+                    } else {
+                        put("status", JsonPrimitive("IN_MATCH"))
+                        put("matchMode", JsonPrimitive(matchMode))
+                    }
                 }
             )
         }

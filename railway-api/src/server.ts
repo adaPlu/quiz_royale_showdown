@@ -590,32 +590,7 @@ async function listFriends(request: http.IncomingMessage): Promise<ApiResponse> 
 }
 
 async function addFriend(request: http.IncomingMessage): Promise<ApiResponse> {
-  const meRow = await authenticate(request);
-  if (!meRow) return [401, { error: "unauthorized" }];
-  const body = await safeJson(request);
-  const username = typeof body.username === "string" ? body.username.trim() : "";
-  if (!username) return [400, { error: "validation_failed", message: "Enter a username." }];
-
-  const profile = await tx(async (client) => {
-    const target = await findUserByIdentifier(client, username);
-    if (!target) return { status: 404 as const, body: { error: "not_found", message: "No player with that username." } };
-    if (target.user_id === meRow.user_id) return { status: 400 as const, body: { error: "invalid", message: "You cannot add yourself." } };
-    const count = await client.query<{ count: string }>("SELECT count(*) FROM friendships WHERE user_id = $1", [meRow.user_id]);
-    if (Number(count.rows[0]?.count ?? 0) >= MAX_FRIENDS) {
-      return { status: 409 as const, body: { error: "limit_reached", message: "Your friends list is full." } };
-    }
-    const existing = await client.query("SELECT 1 FROM friendships WHERE user_id = $1 AND friend_user_id = $2", [meRow.user_id, target.user_id]);
-    if (existing.rowCount) return { status: 409 as const, body: { error: "already_friends", message: `${target.username} is already a friend.` } };
-    const now = Date.now();
-    await client.query(
-      `INSERT INTO friendships(user_id, friend_user_id, added_at)
-       VALUES ($1, $2, $3), ($2, $1, $3)
-       ON CONFLICT (user_id, friend_user_id) DO NOTHING`,
-      [meRow.user_id, target.user_id, now],
-    );
-    return { status: 200 as const, body: { ok: true, profile: await toProfile(client, meRow) } };
-  });
-  return [profile.status, profile.body];
+  return await sendFriendInvite(request);
 }
 
 async function removeFriend(request: http.IncomingMessage): Promise<ApiResponse> {
@@ -1194,6 +1169,28 @@ async function getPendingFriendInvite(db: DbClient, inviteId: string): Promise<F
   return result.rows[0] ?? null;
 }
 
+async function ensureFriendCapacity(
+  client: DbClient,
+  firstUserId: string,
+  secondUserId: string,
+): Promise<{ ok: true } | { ok: false; status: number; body: unknown }> {
+  const counts = await client.query<{ user_id: string; count: string }>(
+    `SELECT user_id, count(*)::text AS count
+     FROM friendships
+     WHERE user_id = ANY($1::text[])
+     GROUP BY user_id`,
+    [[firstUserId, secondUserId]],
+  );
+  const byUser = new Map(counts.rows.map((row) => [row.user_id, Number(row.count)]));
+  if ((byUser.get(firstUserId) ?? 0) >= MAX_FRIENDS) {
+    return { ok: false, status: 409, body: { error: "limit_reached", message: "Your friends list is full." } };
+  }
+  if ((byUser.get(secondUserId) ?? 0) >= MAX_FRIENDS) {
+    return { ok: false, status: 409, body: { error: "limit_reached", message: "That player's friends list is full." } };
+  }
+  return { ok: true };
+}
+
 async function acceptFriendInviteInTx(
   client: DbClient,
   meRow: UserRow,
@@ -1204,10 +1201,8 @@ async function acceptFriendInviteInTx(
   if (invite.to_user_id !== meRow.user_id) {
     return { status: 403, body: { error: "forbidden", message: "Only the invited player can accept this invite." } };
   }
-  const count = await client.query<{ count: string }>("SELECT count(*) FROM friendships WHERE user_id = $1", [meRow.user_id]);
-  if (Number(count.rows[0]?.count ?? 0) >= MAX_FRIENDS) {
-    return { status: 409, body: { error: "limit_reached", message: "Your friends list is full." } };
-  }
+  const capacity = await ensureFriendCapacity(client, invite.to_user_id, invite.from_user_id);
+  if (!capacity.ok) return { status: capacity.status, body: capacity.body };
   const now = Date.now();
   await client.query(
     `INSERT INTO friendships(user_id, friend_user_id, added_at)

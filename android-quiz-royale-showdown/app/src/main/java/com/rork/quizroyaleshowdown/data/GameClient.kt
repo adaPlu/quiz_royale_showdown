@@ -45,9 +45,14 @@ class GameClient {
     private val baseUrl: String get() = Backend.matchHttpBase
 
     /** Asks the matchmaker which room to join for [mode]. */
-    suspend fun findMatch(mode: GameMode): MatchmakeResponse {
+    suspend fun findMatch(mode: GameMode, credentials: MatchCredentials): MatchmakeResponse {
         return http.get("$baseUrl/matchmake") {
             parameter("mode", mode.name)
+            credentials.token?.let { header("Authorization", "Bearer $it") }
+            if (credentials.guestId != null && credentials.guestSecret != null) {
+                header("X-Guest-Id", credentials.guestId)
+                header("X-Guest-Secret", credentials.guestSecret)
+            }
         }.body()
     }
 

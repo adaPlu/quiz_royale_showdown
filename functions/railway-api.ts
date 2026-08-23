@@ -5,7 +5,10 @@ import type { Question } from "./questions";
 export type RailwayEnv = {
   RAILWAY_API_URL?: string;
   RAILWAY_INTERNAL_TOKEN?: string;
+  RAILWAY_REQUEST_TIMEOUT_MS?: string;
 };
+
+const DEFAULT_RAILWAY_REQUEST_TIMEOUT_MS = 5_000;
 
 export async function callRailway(
   env: RailwayEnv,
@@ -21,11 +24,24 @@ export async function callRailway(
   if (init?.token) headers.set("Authorization", `Bearer ${init.token}`);
   if (env.RAILWAY_INTERNAL_TOKEN) headers.set("X-Internal-Token", env.RAILWAY_INTERNAL_TOKEN);
 
-  return fetch(`${base}${path}`, {
-    method: init?.method ?? (init?.body === undefined ? "GET" : "POST"),
-    headers,
-    body: init?.body === undefined ? undefined : JSON.stringify(init.body),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), railwayTimeoutMs(env));
+  try {
+    return await fetch(`${base}${path}`, {
+      method: init?.method ?? (init?.body === undefined ? "GET" : "POST"),
+      headers,
+      body: init?.body === undefined ? undefined : JSON.stringify(init.body),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function railwayTimeoutMs(env: RailwayEnv): number {
+  const parsed = Number.parseInt(env.RAILWAY_REQUEST_TIMEOUT_MS ?? "", 10);
+  if (Number.isFinite(parsed) && parsed >= 250 && parsed <= 30_000) return parsed;
+  return DEFAULT_RAILWAY_REQUEST_TIMEOUT_MS;
 }
 
 export async function callRailwayJson<T>(

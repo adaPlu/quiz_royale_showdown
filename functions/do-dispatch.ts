@@ -29,6 +29,7 @@ export type DoEnv = {
   MATCH_ROOM_TICKET_SECRET?: string;
   RAILWAY_API_URL?: string;
   RAILWAY_INTERNAL_TOKEN?: string;
+  RAILWAY_REQUEST_TIMEOUT_MS?: string;
   ALLOW_STATIC_QUESTIONS_FALLBACK?: string;
 };
 

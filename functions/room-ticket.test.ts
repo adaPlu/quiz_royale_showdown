@@ -6,26 +6,27 @@ import { mintRoomTicket, verifyRoomTicket } from "./room-ticket.ts";
 
 test("room tickets reject missing malformed expired and mismatched credentials", async () => {
   const env = { MATCH_ROOM_TICKET_SECRET: "ticket-secret" };
-  const valid = await mintRoomTicket(env, "room-a", "QUICK", 1_000);
+  const valid = await mintRoomTicket(env, "room-a", "QUICK", "USER:u1", 1_000);
   assert(valid);
 
-  assert.equal(await verifyRoomTicket(env, null, "room-a", "QUICK", 1_001), false);
-  assert.equal(await verifyRoomTicket(env, "not.a.valid.ticket", "room-a", "QUICK", 1_001), false);
-  assert.equal(await verifyRoomTicket(env, valid, "room-b", "QUICK", 1_001), false);
-  assert.equal(await verifyRoomTicket(env, valid, "room-a", "PRACTICE", 1_001), false);
-  assert.equal(await verifyRoomTicket(env, valid, "room-a", "QUICK", 31 * 60 * 1_000), false);
+  assert.equal(await verifyRoomTicket(env, null, "room-a", "QUICK", "USER:u1", 1_001), false);
+  assert.equal(await verifyRoomTicket(env, "not.a.valid.ticket", "room-a", "QUICK", "USER:u1", 1_001), false);
+  assert.equal(await verifyRoomTicket(env, valid, "room-b", "QUICK", "USER:u1", 1_001), false);
+  assert.equal(await verifyRoomTicket(env, valid, "room-a", "PRACTICE", "USER:u1", 1_001), false);
+  assert.equal(await verifyRoomTicket(env, valid, "room-a", "QUICK", "USER:u2", 1_001), false);
+  assert.equal(await verifyRoomTicket(env, valid, "room-a", "QUICK", "USER:u1", 31 * 60 * 1_000), false);
 });
 
 test("room tickets accept valid room and mode before expiry", async () => {
   const env = { MATCH_ROOM_TICKET_SECRET: "ticket-secret" };
-  const ticket = await mintRoomTicket(env, "room-a", "QUICK", 1_000);
+  const ticket = await mintRoomTicket(env, "room-a", "QUICK", "GUEST:g1", 1_000);
   assert(ticket);
-  assert.equal(await verifyRoomTicket(env, ticket, "room-a", "QUICK", 2_000), true);
+  assert.equal(await verifyRoomTicket(env, ticket, "room-a", "QUICK", "GUEST:g1", 2_000), true);
 });
 
 test("production ticket minting requires explicit match room secret", async () => {
-  assert.equal(await mintRoomTicket({ ENVIRONMENT: "production", RAILWAY_INTERNAL_TOKEN: "shared" }, "room-a", "QUICK"), null);
-  assert.notEqual(await mintRoomTicket({ RAILWAY_INTERNAL_TOKEN: "shared" }, "room-a", "QUICK"), null);
+  assert.equal(await mintRoomTicket({ ENVIRONMENT: "production", RAILWAY_INTERNAL_TOKEN: "shared" }, "room-a", "QUICK", "USER:u1"), null);
+  assert.notEqual(await mintRoomTicket({ RAILWAY_INTERNAL_TOKEN: "shared" }, "room-a", "QUICK", "USER:u1"), null);
 });
 
 test("match room target overwrites spoofed client identity query parameters", () => {

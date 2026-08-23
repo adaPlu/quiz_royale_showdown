@@ -84,7 +84,6 @@ type PasswordResetRecord = {
   createdAt: number;
 };
 
-const MAX_FRIENDS = 200;
 const PASSWORD_RESET_TTL_MS = 30 * 60 * 1000;
 const AUTH_RATE_LIMIT: RateLimitOptions = { max: 20, windowMs: 10 * 60 * 1000 };
 const PASSWORD_RESET_RATE_LIMIT: RateLimitOptions = { max: 10, windowMs: 10 * 60 * 1000 };
@@ -420,33 +419,11 @@ export class UserDirectory extends DurableObject<DoEnv> {
     const me = await this.authenticate(request);
     if (!me) return json({ error: "unauthorized" }, 401);
 
-    const body = await safeJson(request);
-    const raw = typeof body.username === "string" ? body.username.trim() : "";
-    if (!raw) return json({ error: "validation_failed", message: "Enter a username." }, 400);
-
-    const targetId = await this.ctx.storage.get<string>(`uname:${raw.toLowerCase()}`);
-    const target = targetId ? await this.ctx.storage.get<UserRecord>(`user:${targetId}`) : null;
-    if (!target) return json({ error: "not_found", message: "No player with that username." }, 404);
-    if (target.userId === me.userId) {
-      return json({ error: "invalid", message: "You cannot add yourself." }, 400);
-    }
-    if (me.friends.some((f) => f.userId === target.userId)) {
-      return json({ error: "already_friends", message: `${target.username} is already a friend.` }, 409);
-    }
-    if (me.friends.length >= MAX_FRIENDS) {
-      return json({ error: "limit_reached", message: "Your friends list is full." }, 409);
-    }
-
-    const now = Date.now();
-    // Friendship is symmetric, so both records gain the edge.
-    me.friends.push({ userId: target.userId, addedAt: now });
-    target.friends.push({ userId: me.userId, addedAt: now });
-    await this.ctx.storage.put({
-      [`user:${me.userId}`]: me,
-      [`user:${target.userId}`]: target,
-    });
-
-    return json({ ok: true, profile: await this.toProfile(me) });
+    await safeJson(request);
+    return json(
+      { error: "gone", message: "Direct friend adds are disabled. Send a friend invite instead." },
+      410,
+    );
   }
 
   private async removeFriend(request: Request): Promise<Response> {
