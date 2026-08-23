@@ -81,18 +81,18 @@ test("OpenAI response text extractor supports SDK and raw REST shapes", () => {
   assert.equal(extractResponseOutputText({ output: [] }), null);
 });
 
-test("generated duplicate-option questions are retained as pending review", () => {
+test("generated questions are retained as pending review", () => {
   const question = normalizeGeneratedQuestionForStorage({
     category: "Science",
     difficulty: "easy",
-    text: "Which generated option is duplicated here?",
-    options: ["Same", "Same", "Different", "Another"],
+    text: "Which generated option should be reviewed first?",
+    options: ["Alpha", "Beta", "Gamma", "Delta"],
     correctIndex: 0,
   }, "Science", "easy");
 
   assert.ok(question);
   assert.equal(question.status, "pending_review");
-  assert.equal(question.source, "openai");
+  assert.equal(question.source, "generated");
 });
 
 test("advisory lock parts are deterministic signed integers", () => {

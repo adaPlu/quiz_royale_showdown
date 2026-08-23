@@ -1,0 +1,135 @@
+:root {
+  color: #eff7ff;
+  background: #101418;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: #101418; }
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+
+.app {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(38, 208, 206, 0.18), transparent 32rem),
+    radial-gradient(circle at 85% 12%, rgba(255, 194, 89, 0.16), transparent 28rem),
+    linear-gradient(160deg, #101418 0%, #151b22 48%, #1c1623 100%);
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem clamp(1rem, 4vw, 3rem);
+  background: rgba(16, 20, 24, 0.82);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.brand, nav button, .primary, .inline button, .powerups button {
+  border: 1px solid rgba(255,255,255,0.15);
+  color: #eff7ff;
+  background: rgba(255,255,255,0.08);
+  border-radius: 8px;
+  padding: 0.7rem 0.9rem;
+}
+
+.brand { font-weight: 900; color: #26d0ce; }
+nav { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: flex-end; }
+nav button:hover, .mode:hover, .shopCard:hover { border-color: #26d0ce; }
+
+.hero, .panelPage, .formPage {
+  width: min(1120px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: clamp(2rem, 5vw, 5rem) 0;
+}
+
+.hero h1, .panelPage h1, .formPage h1 {
+  font-size: clamp(2.3rem, 8vw, 5.6rem);
+  line-height: 0.95;
+  margin: 0 0 1rem;
+}
+
+.panelPage h1, .formPage h1 { font-size: clamp(2rem, 5vw, 3.5rem); }
+.eyebrow { color: #ffc259; text-transform: uppercase; font-weight: 900; letter-spacing: 0; }
+.lede { color: #b9c6d2; max-width: 44rem; font-size: 1.2rem; }
+
+.modeGrid, .cardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.mode, .question, .player, .stat, form, .shopCard, .matchHeader {
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.07);
+  border-radius: 8px;
+}
+
+.mode, .shopCard {
+  min-height: 9rem;
+  color: #eff7ff;
+  text-align: left;
+  display: grid;
+  gap: 0.6rem;
+  padding: 1rem;
+}
+
+.mode strong, .shopCard strong { font-size: 1.3rem; }
+.mode span, .shopCard span, .muted { color: #b9c6d2; }
+
+.notice, .error {
+  width: min(1120px, calc(100% - 2rem));
+  margin: 1rem auto 0;
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+}
+.notice { background: rgba(38, 208, 206, 0.16); border: 1px solid rgba(38, 208, 206, 0.4); }
+.error { background: rgba(255, 97, 97, 0.14); border: 1px solid rgba(255, 97, 97, 0.45); color: #ffd6d6; }
+
+.matchHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+.timer { color: #ffc259; font-weight: 900; }
+.question { padding: 1rem; margin-bottom: 1rem; }
+.question h2 { font-size: clamp(1.5rem, 4vw, 2.4rem); }
+.answers { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem; }
+.answers button, .inline input, form input, select {
+  min-height: 3rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.13);
+  background: rgba(0,0,0,0.25);
+  color: #eff7ff;
+  padding: 0.8rem;
+}
+.answers button.selected { border-color: #ffc259; background: rgba(255, 194, 89, 0.17); }
+.powerups { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
+.roster { display: grid; gap: 0.75rem; }
+.player { display: flex; justify-content: space-between; gap: 1rem; padding: 0.85rem; align-items: center; }
+.player span { color: #b9c6d2; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.75rem; margin: 1rem 0; }
+.stat { padding: 1rem; }
+.stat span { color: #b9c6d2; display: block; }
+.stat strong { font-size: 1.8rem; }
+
+.formPage form { max-width: 32rem; margin: 0 auto; display: grid; gap: 0.75rem; padding: 1rem; }
+.primary { background: #26d0ce; color: #071011; font-weight: 900; }
+.inline { display: flex; gap: 0.5rem; margin: 1rem 0; }
+.inline input { flex: 1; }
+.shopCard:disabled { opacity: 0.62; cursor: default; }
+
+@media (max-width: 720px) {
+  .topbar { align-items: flex-start; flex-direction: column; }
+  nav { justify-content: flex-start; }
+  .matchHeader, .player, .inline { flex-direction: column; align-items: stretch; }
+}

@@ -72,6 +72,8 @@ type QuestionBankRow = {
   lastUsedAt: string | Date | null;
   isActive: boolean;
   createdAt: string | Date | null;
+  review_status?: string | null;
+  source?: string | null;
 };
 
 export async function selectQuestionSet(db: DbClient, count: number): Promise<QuestionForMatch[]> {
@@ -112,8 +114,10 @@ export async function upsertQuestions(db: DbClient, records: QuestionRecord[]): 
   for (const question of records) {
     const result = await db.query(
       `INSERT INTO "QuestionBank"(id, prompt, "optionA", "optionB", "optionC", "optionD", "correctIndex",
-                                  category, difficulty, "lastUsedAt", "isActive", "createdAt")
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, upper($9)::"Difficulty", NULL, $10, to_timestamp($11 / 1000.0))
+                                  category, difficulty, "lastUsedAt", "isActive", "createdAt",
+                                  review_status, source, generated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, upper($9)::"Difficulty", NULL, $10, to_timestamp($11 / 1000.0),
+               $12, $13, $14)
        ON CONFLICT (id) DO NOTHING
        RETURNING id`,
       [
@@ -128,6 +132,9 @@ export async function upsertQuestions(db: DbClient, records: QuestionRecord[]): 
         question.difficulty,
         question.status === "active",
         question.createdAt,
+        question.status === "active" ? "approved" : question.status === "rejected" ? "rejected" : "pending",
+        question.source === "static" ? "manual" : question.source,
+        question.source === "generated" ? new Date(question.createdAt) : null,
       ],
     );
     if (result.rowCount) inserted += 1;
@@ -209,10 +216,7 @@ export function normalizeGeneratedQuestionForStorage(
   if (correct === undefined || correct < 0 || correct >= options.length) return null;
 
   const hasDuplicateOptions = new Set(options.map((option) => option.toLowerCase())).size !== options.length;
-  const status: QuestionStatus =
-    category === requestedCategory && input.difficulty === requestedDifficulty && !hasDuplicateOptions
-      ? "active"
-      : "pending_review";
+  const status: QuestionStatus = "pending_review";
   const contentHash = questionContentHash(category, input.difficulty, text, options, correct);
   const now = Date.now();
   return {
@@ -223,7 +227,7 @@ export function normalizeGeneratedQuestionForStorage(
     options,
     correct,
     contentHash,
-    source: "openai",
+    source: "generated",
     status,
     createdAt: now,
     updatedAt: now,
@@ -296,9 +300,10 @@ async function activeQuestionBankQuestions(db: DbClient, difficulty: Difficulty)
   try {
     const rows = await db.query<QuestionBankRow>(
       `SELECT id, prompt, "optionA", "optionB", "optionC", "optionD", "correctIndex",
-              category, difficulty::text AS difficulty, "lastUsedAt", "isActive", "createdAt"
+              category, difficulty::text AS difficulty, "lastUsedAt", "isActive", "createdAt",
+              review_status, source
        FROM "QuestionBank"
-       WHERE "isActive" = true AND lower(difficulty::text) = $1
+       WHERE "isActive" = true AND review_status = 'approved' AND lower(difficulty::text) = $1
        ORDER BY "lastUsedAt" ASC NULLS FIRST, "createdAt" ASC`,
       [difficulty],
     );
@@ -329,7 +334,7 @@ function rowToQuestionBankQuestion(row: QuestionBankRow): QuestionRecord | null 
     options,
     correct,
     contentHash: `questionbank:${questionId}`,
-    source: "import",
+    source: row.source === "generated" || row.source === "manual" ? row.source : "import",
     status: "active",
     createdAt,
     updatedAt,

@@ -8,6 +8,15 @@
     "start": "node dist/server.js",
     "migrate": "node dist/migrate.js",
     "import:questions": "node dist/import-questions.js",
+    "seed:catalog": "node dist/seed-catalog.js",
+    "seed:season": "node dist/seed-season.js",
+    "season:rollover": "node dist/season-rollover.js",
+    "validate:commerce": "node dist/validate-commerce.js",
+    "validate:production": "node dist/validate-production.js",
+    "questions:pending": "node dist/questions-pending.js",
+    "questions:approve": "node dist/questions-approve.js",
+    "questions:reject": "node dist/questions-reject.js",
+    "questions:dedupe": "node dist/questions-dedupe.js",
     "test": "node --test dist/**/*.test.js"
   },
   "dependencies": {

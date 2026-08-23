@@ -26,7 +26,7 @@ test("question normalization rejects duplicate answer options", () => {
     text: "Which option is duplicated?",
     options: ["Same", "Same", "Different", "Another"],
     correctIndex: 0,
-  }, "openai", "active");
+  }, "generated", "active");
 
   assert.equal(question, null);
 });

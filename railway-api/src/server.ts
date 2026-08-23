@@ -78,6 +78,13 @@ const GUEST_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const GUEST_RATE_LIMIT_MAX = Number.parseInt(process.env.GUEST_RATE_LIMIT_MAX ?? "240", 10);
 const MAX_PENDING_INVITES = 50;
 const SEASON_XP_PER_LEVEL = 1_000;
+const DAILY_LOGIN_COINS = 100;
+const MATCH_COMPLETION_COINS = 25;
+const PRACTICE_COMPLETION_COINS = 10;
+const MATCH_WIN_COINS = 75;
+const PERFECT_MATCH_COINS = 25;
+const DAILY_REWARDED_MATCH_CAP = 20;
+const DAILY_REWARDED_PRACTICE_CAP = 10;
 
 const CORS: Record<string, string> = {
   "Access-Control-Allow-Origin": process.env.CORS_ORIGIN ?? "*",
@@ -360,6 +367,8 @@ async function login(request: http.IncomingMessage): Promise<ApiResponse> {
       "UPDATE users SET password_hash = $2, last_login_at = $3 WHERE user_id = $1",
       [record.user_id, record.password_hash, now],
     );
+    const daily = await awardDailyLogin(client, record, now);
+    if (daily.ok) record.currency_balances = daily.balances;
     const session = await createSession(client, record.user_id);
     const profile = await toProfile(client, record);
     return { session, profile };
@@ -1352,14 +1361,18 @@ async function awardSeasonProgressForMatch(client: DbClient, user: UserRow, outc
 
 async function awardCurrencyForMatch(client: DbClient, user: UserRow, outcome: MatchOutcome): Promise<void> {
   if (normalizeEntitlements(user.entitlements).unlimitedCurrency) return;
-  const coins = Math.max(10, Math.floor(outcome.score / 20) + outcome.correctAnswers * 5 + (outcome.won ? 75 : 0));
-  const gems = outcome.won ? 1 : 0;
-  const coinCredit = await adjustCurrency(client, user, "coins", coins, "match_reward", outcome.matchId);
+  const practice = !outcome.recordWinLoss;
+  const rewardReason = practice ? "match_reward_practice" : "match_reward";
+  const cap = practice ? DAILY_REWARDED_PRACTICE_CAP : DAILY_REWARDED_MATCH_CAP;
+  if (await rewardCountForDay(client, user.user_id, rewardReason, Date.now()) >= cap) return;
+
+  const perfect = outcome.correctAnswers > 0 && outcome.placement === 1 && outcome.won;
+  const coins =
+    (practice ? PRACTICE_COMPLETION_COINS : MATCH_COMPLETION_COINS) +
+    (!practice && outcome.won ? MATCH_WIN_COINS : 0) +
+    (perfect ? PERFECT_MATCH_COINS : 0);
+  const coinCredit = await adjustCurrency(client, user, "coins", coins, rewardReason, outcome.matchId);
   if (coinCredit.ok) user.currency_balances = coinCredit.balances;
-  if (gems > 0) {
-    const gemCredit = await adjustCurrency(client, user, "gems", gems, "match_win", outcome.matchId);
-    if (gemCredit.ok) user.currency_balances = gemCredit.balances;
-  }
 }
 
 async function hydrateStoreItems(db: DbClient, record: UserRow): Promise<StoreItemDto[]> {
@@ -1521,6 +1534,56 @@ async function adjustCurrency(
     [`cl-${crypto.randomUUID()}`, user.user_id, currency, delta, next[currency], reason, referenceId, Date.now()],
   );
   return { ok: true, balances: next };
+}
+
+async function awardDailyLogin(
+  client: DbClient,
+  user: UserRow,
+  now: number,
+): Promise<{ ok: true; balances: VirtualCurrencyBalances } | { ok: false; balances: VirtualCurrencyBalances }> {
+  if (normalizeEntitlements(user.entitlements).unlimitedCurrency) {
+    return { ok: false, balances: currencyBalancesFor(user) };
+  }
+  const referenceId = utcDayKey(now);
+  if (await hasCurrencyLedger(client, user.user_id, "coins", "daily_login", referenceId)) {
+    return { ok: false, balances: currencyBalancesFor(user) };
+  }
+  return await adjustCurrency(client, user, "coins", DAILY_LOGIN_COINS, "daily_login", referenceId);
+}
+
+async function hasCurrencyLedger(
+  db: DbClient,
+  userId: string,
+  currency: CurrencyKind,
+  reason: string,
+  referenceId: string,
+): Promise<boolean> {
+  const result = await db.query(
+    `SELECT 1 FROM currency_ledger
+     WHERE user_id = $1 AND currency = $2 AND reason = $3 AND reference_id = $4
+     LIMIT 1`,
+    [userId, currency, reason, referenceId],
+  );
+  return Boolean(result.rowCount);
+}
+
+async function rewardCountForDay(db: DbClient, userId: string, reason: string, now: number): Promise<number> {
+  const result = await db.query<{ count: string }>(
+    `SELECT count(*)::text AS count
+     FROM currency_ledger
+     WHERE user_id = $1 AND currency = 'coins' AND reason = $2 AND created_at >= $3 AND created_at < $4`,
+    [userId, reason, utcDayStart(now), utcDayStart(now) + 24 * 60 * 60 * 1000],
+  );
+  return Number(result.rows[0]?.count ?? 0);
+}
+
+function utcDayKey(now: number): string {
+  return new Date(utcDayStart(now)).toISOString().slice(0, 10);
+}
+
+function utcDayStart(now: number): number {
+  const date = new Date(now);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
 }
 
 function storePayloadString(payload: Record<string, unknown> | null, key: string): string | null {

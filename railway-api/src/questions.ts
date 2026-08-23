@@ -5,7 +5,7 @@ import { sha256Hex } from "./auth-core.js";
 export const DIFFICULTIES = ["easy", "medium", "hard"] as const;
 export type Difficulty = typeof DIFFICULTIES[number];
 export type QuestionStatus = "active" | "pending_review" | "rejected";
-export type QuestionSource = "import" | "openai" | "static";
+export type QuestionSource = "import" | "generated" | "manual" | "static";
 
 export type QuestionRecord = {
   questionId: string;

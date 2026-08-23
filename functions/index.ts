@@ -201,7 +201,7 @@ function identityTicketKey(identity: ResolvedIdentity): string {
  * playing without registering must never fail.
  */
 async function resolveIdentity(env: Env, request: Request, url: URL): Promise<ResolvedIdentity | null> {
-  const token = bearer(request);
+  const token = bearer(request) ?? url.searchParams.get("token")?.trim() ?? "";
   if (token) {
     const railway = await callRailwayJson<{ userId: string; username: string; powerUpCharges: number }>(
       env,
@@ -228,8 +228,8 @@ async function resolveIdentity(env: Env, request: Request, url: URL): Promise<Re
     // Token was rejected: fall through to guest so a lapsed session still plays.
   }
 
-  const guestId = request.headers.get("X-Guest-Id")?.trim() ?? "";
-  const guestSecret = request.headers.get("X-Guest-Secret")?.trim() ?? "";
+  const guestId = request.headers.get("X-Guest-Id")?.trim() || url.searchParams.get("guestId")?.trim() || "";
+  const guestSecret = request.headers.get("X-Guest-Secret")?.trim() || url.searchParams.get("guestSecret")?.trim() || "";
   if (guestId) {
     const railway = await callRailwayJson<{ guestId: string; displayName: string; powerUpCharges: number }>(
       env,
