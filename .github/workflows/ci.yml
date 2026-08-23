@@ -230,12 +230,12 @@ jobs:
 
       - name: Regenerate workspace lockfile
         if: steps.guard.outputs.skip != 'true'
-        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+        run: npm install --package-lock-only --force --ignore-scripts --no-audit --no-fund
 
       - name: Regenerate standalone backend lockfile
         if: steps.guard.outputs.skip != 'true'
         working-directory: backend
-        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund --workspaces=false
+        run: npm install --package-lock-only --force --ignore-scripts --no-audit --no-fund --workspaces=false
 
       - name: Verify clean installs and audits
         if: steps.guard.outputs.skip != 'true'
@@ -243,8 +243,9 @@ jobs:
         run: |
           set -euo pipefail
           npm ci --ignore-scripts
+          npm ls deepmerge-ts --all || true
           npm audit --audit-level=high
-          (cd backend && npm ci --ignore-scripts --workspaces=false && npm audit --audit-level=high --workspaces=false)
+          (cd backend && npm ci --ignore-scripts --workspaces=false && npm ls deepmerge-ts --all || true && npm audit --audit-level=high --workspaces=false)
 
       - name: Commit refreshed lockfiles
         if: steps.guard.outputs.skip != 'true'
