@@ -1,0 +1,20 @@
+{
+  "$schema": "https://rork.com/schema/rork.json",
+  "apps": [
+    {
+      "name": "Quiz Royale Showdown",
+      "path": "android-quiz-royale-showdown",
+      "framework": "kotlin"
+    },
+    {
+      "name": "Functions",
+      "path": "functions",
+      "framework": "cloudflare"
+    },
+    {
+      "name": "Railway API",
+      "path": "railway-api",
+      "framework": "node"
+    }
+  ]
+}
